@@ -1,11 +1,12 @@
+from flask import Flask
+from threading import Thread
+import os
 import requests
 import re
 import time
 import random
 import threading
 import uuid
-import os
-import sys
 import shutil
 from pathlib import Path
 from colorama import Fore, Style, init
@@ -13,6 +14,23 @@ from queue import Queue
 import fake_useragent
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+# ==================== تهيئة Flask ====================
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "✅ البوت شغال الحمدلله!"
+
+def run_flask():
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+    print("🌐 Flask server started")
 
 # ==================== تهيئة الألوان ====================
 init(autoreset=True)
@@ -430,6 +448,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """تشغيل البوت"""
+    # تشغيل Flask server
+    keep_alive()
+    
     # إنشاء مجلد temp_files إذا لم يكن موجوداً
     os.makedirs(TEMP_DIR, exist_ok=True)
     
