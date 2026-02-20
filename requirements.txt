@@ -1,0 +1,8 @@
+python-telegram-bot
+requests
+colorama
+fake-useragent
+urllib3
+certifi
+charset-normalizer
+idna
