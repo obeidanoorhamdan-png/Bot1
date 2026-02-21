@@ -14,6 +14,7 @@ from queue import Queue
 import fake_useragent
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+import asyncio
 
 # ==================== تهيئة Flask ====================
 app = Flask('')
@@ -46,6 +47,7 @@ current_bot = None
 stop_checking = False
 checking_active = False
 checking_thread = None
+auto_update_task = None
 
 # متغيرات الإحصائيات
 stats = {
@@ -54,7 +56,13 @@ stats = {
     'approved': 0,
     'declined': 0,
     'errors': 0,
-    'start_time': 0
+    'start_time': 0,
+    'current_account': 0,
+    'total_accounts': 0,
+    'current_account_cards': 0,
+    'total_account_cards': 0,
+    'current_email': '',
+    'current_password': ''
 }
 
 # ==================== الكود الأصلي للأداة ====================
@@ -163,25 +171,46 @@ class AuthorizeNetChecker:
         except Exception as e:
             return "ERROR", str(e)
 
-# دالة لإرسال البطاقة الصالحة فوراً
-async def send_approved_instant(cc_line, msg, email, chat_id, bot):
-    try:
-        # تصميم رسالة جميلة للبطاقة الصالحة
-        cc_parts = cc_line.split('|')
-        card_number = cc_parts[0][:4] + ' ' + cc_parts[0][4:8] + ' ' + cc_parts[0][8:12] + ' ' + cc_parts[0][12:16]
-        
-        message = f"""╔══════════════════════════╗
-║     ✅ *بطاقة صالحة*     ║
-╠══════════════════════════╣
-║ 💳 *الرقم:* `{card_number}`
-║ 📅 *التاريخ:* {cc_parts[1]}/{cc_parts[2]}
-║ 🔐 *الرمز:* {cc_parts[3]}
-╠══════════════════════════╣
-║ 📧 *الحساب:* `{email}`
-║ 💬 *الحالة:* {msg}
-╚══════════════════════════╝
+# دالة إنشاء شريط التقدم
+def create_progress_bar(percentage, width=20):
+    filled = int(width * percentage / 100)
+    bar = '▓' * filled + '░' * (width - filled)
+    return f"`[{bar}]` {percentage:.1f}%"
 
-✨ تم العثور على بطاقة صالحة!"""
+# دالة حساب الوقت المنقضي
+def format_time(seconds):
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = int(seconds % 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+# دالة إرسال البطاقة الصالحة فوراً
+async def send_approved_instant(cc_line, msg, email, password, chat_id, bot):
+    try:
+        # تنسيق رقم البطاقة
+        cc_parts = cc_line.split('|')
+        card_number = cc_parts[0]
+        formatted_card = ' '.join([card_number[i:i+4] for i in range(0, len(card_number), 4)])
+        
+        message = f"""
+╔══════════════════════════════════╗
+║     🎉 *بطاقة صالحة!* 🎉        ║
+╠══════════════════════════════════╣
+║ 💳 *بيانات البطاقة:*             ║
+║ ┌────────────────────────────┐   ║
+║ │ {formatted_card}           ║
+║ │ {cc_parts[1]}/{cc_parts[2][-2:]}                  ║
+║ │ CVV: {cc_parts[3]}                 ║
+║ └────────────────────────────┘   ║
+╠══════════════════════════════════╣
+║ 📧 *الحساب المستخدم:*            ║
+║ ┌────────────────────────────┐   ║
+║ │ 📧 {email[:20]}...    ║
+║ │ 🔑 {password[:15]}...       ║
+║ └────────────────────────────┘   ║
+╠══════════════════════════════════╣
+║ 💬 *الحالة:* {msg}                ║
+╚══════════════════════════════════╝"""
 
         await bot.send_message(
             chat_id=chat_id,
@@ -191,6 +220,80 @@ async def send_approved_instant(cc_line, msg, email, chat_id, bot):
         print(f"{Fore.GREEN}[✓] تم إرسال البطاقة الصالحة فوراً: {cc_line}")
     except Exception as e:
         print(f"{Fore.RED}[✗] فشل إرسال البطاقة: {str(e)}")
+
+# دالة إرسال تحديث الحالة
+async def send_status_update(chat_id, bot):
+    global stats
+    
+    if stats['total'] == 0:
+        return
+    
+    checked = stats['checked']
+    total = stats['total']
+    percentage = (checked / total * 100) if total > 0 else 0
+    progress_bar = create_progress_bar(percentage)
+    
+    # حساب الوقت
+    elapsed = time.time() - stats['start_time'] if stats['start_time'] > 0 else 0
+    elapsed_str = format_time(elapsed)
+    
+    if checked > 0 and elapsed > 0:
+        speed = checked / (elapsed / 60)  # بطاقات في الدقيقة
+        remaining_cards = total - checked
+        eta = (remaining_cards / speed * 60) if speed > 0 else 0
+        eta_str = format_time(eta)
+    else:
+        speed = 0
+        eta_str = "00:00:00"
+    
+    status_text = "🟢 **نشط**" if checking_active else "🔴 **متوقف**"
+    
+    # تحديد معلومات الحساب الحالي
+    current_account_info = ""
+    if stats['current_account'] > 0 and stats['current_email']:
+        current_account_info = f"""
+║ 👤 *الحساب الحالي:*              ║
+║ ┌────────────────────────────┐   ║
+║ │ 📍 الحساب: {stats['current_account']}/{stats['total_accounts']}      ║
+║ │ 📧 {stats['current_email'][:20]}...    ║
+║ │ 📊 البطاقات: {stats['current_account_cards']}/{stats['total_account_cards']} ║
+║ └────────────────────────────┘   ║"""
+    
+    message = f"""
+╔══════════════════════════════════╗
+║     📊 *الإحصائيات المباشرة*     ║
+╠══════════════════════════════════╣
+║ {status_text}                     ║
+╠══════════════════════════════════╣
+║ 📈 *التقدم العام:*                ║
+║ {progress_bar}                    ║
+║ 📁 تم فحص: `{checked}/{total}`    ║
+╠══════════════════════════════════╣
+║ ✅ *الناجحة:* `{stats['approved']}`     ║
+║ ❌ *المرفوضة:* `{stats['declined']}`    ║
+║ ⚠️ *الأخطاء:* `{stats['errors']}`      ║
+╠══════════════════════════════════╣
+║ ⏱️ *الوقت:*                       ║
+║ ┌────────────────────────────┐   ║
+║ │ المنقضي: {elapsed_str}        ║
+║ │ المتبقي: {eta_str}            ║
+║ │ السرعة: {speed:.1f} بط/دقيقة  ║
+║ └────────────────────────────┘   ║{current_account_info}
+╚══════════════════════════════════╝"""
+
+    await bot.send_message(
+        chat_id=chat_id,
+        text=message,
+        parse_mode='Markdown'
+    )
+
+# دالة إرسال تحديث كل دقيقة
+async def auto_status_updater(chat_id, bot):
+    global checking_active, stop_checking
+    while checking_active and not stop_checking:
+        await asyncio.sleep(60)  # انتظار دقيقة
+        if checking_active and not stop_checking:
+            await send_status_update(chat_id, bot)
 
 # دالة إنشاء أزرار التحكم
 def get_control_keyboard():
@@ -210,69 +313,9 @@ def get_control_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# دالة إنشاء شريط التقدم
-def create_progress_bar(percentage, width=15):
-    filled = int(width * percentage / 100)
-    bar = '▓' * filled + '░' * (width - filled)
-    return f"`[{bar}]` {percentage:.1f}%"
-
-# دالة عرض الإحصائيات
-async def show_statistics(chat_id, bot):
-    global stats
-    
-    if stats['total'] == 0:
-        await bot.send_message(
-            chat_id=chat_id,
-            text="📊 لا توجد إحصائيات حالياً",
-            reply_markup=get_control_keyboard()
-        )
-        return
-    
-    checked = stats['checked']
-    total = stats['total']
-    percentage = (checked / total * 100) if total > 0 else 0
-    progress_bar = create_progress_bar(percentage)
-    
-    # حساب الوقت المنقضي والمتبقي
-    elapsed = time.time() - stats['start_time'] if stats['start_time'] > 0 else 0
-    elapsed_str = time.strftime("%H:%M:%S", time.gmtime(elapsed))
-    
-    if checked > 0 and elapsed > 0:
-        speed = checked / elapsed
-        remaining_cards = total - checked
-        eta = remaining_cards / speed if speed > 0 else 0
-        eta_str = time.strftime("%H:%M:%S", time.gmtime(eta))
-    else:
-        eta_str = "--:--:--"
-    
-    status_text = "🟢 **نشط**" if checking_active else "🔴 **متوقف**"
-    
-    message = f"""╔══════════════════════════╗
-║     📊 *الإحصائيات*      ║
-╠══════════════════════════╣
-║ {status_text}
-╠══════════════════════════╣
-║ 📈 *التقدم:* {progress_bar}
-║ 📁 تم فحص: `{checked}/{total}`
-╠══════════════════════════╣
-║ ✅ الناجحة: `{stats['approved']}`
-║ ❌ المرفوضة: `{stats['declined']}`
-║ ⚠️ الأخطاء: `{stats['errors']}`
-╠══════════════════════════╣
-║ ⏱️ الوقت: `{elapsed_str}`
-║ ⏳ المتبقي: `{eta_str}`
-╚══════════════════════════╝"""
-
-    await bot.send_message(
-        chat_id=chat_id,
-        text=message,
-        parse_mode='Markdown',
-        reply_markup=get_control_keyboard()
-    )
-
 def worker_single_file(chat_id, bot):
     """وظيفة المعالجة من ملف abood.txt"""
-    global current_chat_id, current_bot, stop_checking, checking_active, stats
+    global current_chat_id, current_bot, stop_checking, checking_active, stats, auto_update_task
     
     current_chat_id = chat_id
     current_bot = bot
@@ -286,7 +329,13 @@ def worker_single_file(chat_id, bot):
         'approved': 0,
         'declined': 0,
         'errors': 0,
-        'start_time': time.time()
+        'start_time': time.time(),
+        'current_account': 0,
+        'total_accounts': 0,
+        'current_account_cards': 0,
+        'total_account_cards': 0,
+        'current_email': '',
+        'current_password': ''
     }
     
     try:
@@ -303,33 +352,73 @@ def worker_single_file(chat_id, bot):
             return False
         
         stats['total'] = len(lines)
-        print(f"{Fore.CYAN}تم العثور على {len(lines)} بطاقة في ملف abood.txt")
         
-        # إرسال رسالة بدء الفحص
+        # تحديد عدد البطاقات لكل حساب (5 بطاقات)
+        cards_per_account = 5
+        stats['total_accounts'] = (len(lines) + cards_per_account - 1) // cards_per_account
+        
+        # حساب الوقت المتوقع
+        estimated_time = stats['total_accounts'] * 150  # كل حساب حوالي 150 ثانية
+        estimated_time_str = format_time(estimated_time)
+        
+        # إرسال رسالة بدء الفحص مع ملخص كامل
+        start_message = f"""
+╔══════════════════════════════════╗
+║        🔍 *بدء الفحص*            ║
+╠══════════════════════════════════╣
+║ 📊 *ملخص البطاقات:*               ║
+║ ┌────────────────────────────┐   ║
+║ │ 📁 الإجمالي:      {stats['total']} بطاقة  ║
+║ │ 👤 الحسابات:      {stats['total_accounts']} حساب   ║
+║ │ 📊 لكل حساب:      {cards_per_account} بطاقات ║
+║ │ ⏱️ الوقت المتوقع: {estimated_time_str} ║
+║ └────────────────────────────┘   ║
+╚══════════════════════════════════╝"""
+
         asyncio.run_coroutine_threadsafe(
             bot.send_message(
                 chat_id=chat_id,
-                text=f"🔍 *بدأ الفحص...*\nعدد البطاقات: {len(lines)}\n✅ سيتم إرسال البطاقات الصالحة فور ظهورها",
+                text=start_message,
                 parse_mode='Markdown',
                 reply_markup=get_control_keyboard()
             ),
             asyncio.get_event_loop()
         )
         
-        # تحديد عدد البطاقات لكل حساب (5 بطاقات)
-        cards_per_account = 5
-        num_accounts = (len(lines) + cards_per_account - 1) // cards_per_account
+        # بدء التحديث التلقائي
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        auto_update_task = loop.create_task(auto_status_updater(chat_id, bot))
         
-        print(f"{Fore.YELLOW}سيتم استخدام {num_accounts} حساب (كل حساب {cards_per_account} بطاقات)")
+        print(f"{Fore.CYAN}تم العثور على {len(lines)} بطاقة في ملف abood.txt")
+        print(f"{Fore.YELLOW}سيتم استخدام {stats['total_accounts']} حساب (كل حساب {cards_per_account} بطاقات)")
         
-        for account_num in range(num_accounts):
+        for account_num in range(stats['total_accounts']):
             # التحقق من طلب الإيقاف
             if stop_checking:
                 print(f"{Fore.YELLOW}⏹️ تم إيقاف الفحص بناءً على طلب المستخدم")
+                
+                stop_message = f"""
+╔══════════════════════════════════╗
+║     ⏹️ *تم إيقاف الفحص*         ║
+╠══════════════════════════════════╣
+║ 📊 *نتائج حتى الإيقاف:*          ║
+╠══════════════════════════════════╣
+║ 📁 تم فحص:          {stats['checked']}/{stats['total']} بطاقة ║
+║ ✅ الناجحة:         {stats['approved']}          ║
+║ ❌ المرفوضة:        {stats['declined']}          ║
+║ ⚠️ الأخطاء:         {stats['errors']}           ║
+╠══════════════════════════════════╣
+║ 💾 *تم حفظ:*                     ║
+║ • ✅ APPROVED.txt ({stats['approved']} بطاقة)   ║
+║ • ❌ declined.txt ({stats['declined']} بطاقة)  ║
+║ • ⚠️ error.txt ({stats['errors']} بطاقات)     ║
+╚══════════════════════════════════╝"""
+                
                 asyncio.run_coroutine_threadsafe(
                     bot.send_message(
                         chat_id=chat_id,
-                        text="⏹️ *تم إيقاف الفحص*\n📁 تم حفظ النتائج حتى الآن",
+                        text=stop_message,
                         parse_mode='Markdown',
                         reply_markup=get_control_keyboard()
                     ),
@@ -341,8 +430,29 @@ def worker_single_file(chat_id, bot):
             end_idx = min(start_idx + cards_per_account, len(lines))
             account_cards = lines[start_idx:end_idx]
             
+            stats['current_account'] = account_num + 1
+            stats['total_account_cards'] = len(account_cards)
+            stats['current_account_cards'] = 0
+            
             print(f"\n{Fore.MAGENTA}{'='*60}")
-            print(f"{Fore.YELLOW}🔄 إنشاء حساب رقم {account_num + 1}/{num_accounts}")
+            print(f"{Fore.YELLOW}🔄 إنشاء حساب رقم {account_num + 1}/{stats['total_accounts']}")
+            
+            # إرسال رسالة بدء الحساب الجديد
+            account_start_message = f"""
+╔══════════════════════════════════╗
+║     📌 *الحساب {account_num + 1}/{stats['total_accounts']}*     ║
+╠══════════════════════════════════╣
+║ ⏳ جاري إنشاء حساب جديد...       ║
+╚══════════════════════════════════╝"""
+            
+            asyncio.run_coroutine_threadsafe(
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=account_start_message,
+                    parse_mode='Markdown'
+                ),
+                asyncio.get_event_loop()
+            )
             
             # إنشاء حساب جديد
             checker = AuthorizeNetChecker()
@@ -350,6 +460,24 @@ def worker_single_file(chat_id, bot):
             
             if not success:
                 print(f"{Fore.RED}❌ فشل تسجيل الحساب {account_num + 1}: {err}")
+                
+                fail_message = f"""
+╔══════════════════════════════════╗
+║     ❌ *فشل إنشاء الحساب*       ║
+║        {account_num + 1}/{stats['total_accounts']}          ║
+╠══════════════════════════════════╣
+║ ⚠️ {err[:50]}...                  ║
+╚══════════════════════════════════╝"""
+                
+                asyncio.run_coroutine_threadsafe(
+                    bot.send_message(
+                        chat_id=chat_id,
+                        text=fail_message,
+                        parse_mode='Markdown'
+                    ),
+                    asyncio.get_event_loop()
+                )
+                
                 # حفظ البطاقات في error
                 for cc_line in account_cards:
                     stats['errors'] += 1
@@ -359,18 +487,72 @@ def worker_single_file(chat_id, bot):
                             f.write(f"{cc_line} - فشل إنشاء الحساب\n")
                 continue
             
+            # تحديث معلومات الحساب الحالي
+            stats['current_email'] = checker.current_email
+            stats['current_password'] = checker.current_password
+            
             print(f"{Fore.CYAN}📌 الحساب {checker.current_email} يفحص {len(account_cards)} بطاقات")
+            
+            # إرسال رسالة نجاح إنشاء الحساب
+            account_success_message = f"""
+╔══════════════════════════════════╗
+║     ✅ *تم إنشاء الحساب*        ║
+║        {account_num + 1}/{stats['total_accounts']}          ║
+╠══════════════════════════════════╣
+║ 👤 *بيانات الحساب:*               ║
+║ ┌────────────────────────────┐   ║
+║ │ 📧 {checker.current_email[:30]}  ║
+║ │ 🔑 {checker.current_password[:20]}   ║
+║ └────────────────────────────┘   ║
+║ 📊 بطاقات هذا الحساب: {len(account_cards)}   ║
+╚══════════════════════════════════╝"""
+            
+            asyncio.run_coroutine_threadsafe(
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=account_success_message,
+                    parse_mode='Markdown'
+                ),
+                asyncio.get_event_loop()
+            )
             
             for i, cc_line in enumerate(account_cards, 1):
                 # التحقق من طلب الإيقاف
                 if stop_checking:
                     break
                 
-                start_time = time.time()
+                stats['current_account_cards'] = i
+                start_time_card = time.time()
+                
+                # تنسيق رقم البطاقة للعرض
+                cc_parts_display = cc_line.split('|')
+                card_num_display = cc_parts_display[0]
+                formatted_card_display = ' '.join([card_num_display[j:j+4] for j in range(0, len(card_num_display), 4)])
+                
                 print(f"\n{Fore.WHITE}[الحساب {account_num + 1} - بطاقة {i}/{len(account_cards)}] جاري فحص: {cc_line}")
                 
+                # إرسال رسالة بدء فحص البطاقة
+                card_start_message = f"""
+╔══════════════════════════════════╗
+║     💳 *البطاقة {i}/{len(account_cards)}*         ║
+║     في الحساب {account_num + 1}/{stats['total_accounts']}           ║
+╠══════════════════════════════════╣
+║ الرقم: `{formatted_card_display}`    ║
+║ التاريخ: {cc_parts_display[1]}|{cc_parts_display[2][-2:]}              ║
+║ الرمز: {cc_parts_display[3]}                        ║
+╚══════════════════════════════════╝"""
+                
+                asyncio.run_coroutine_threadsafe(
+                    bot.send_message(
+                        chat_id=chat_id,
+                        text=card_start_message,
+                        parse_mode='Markdown'
+                    ),
+                    asyncio.get_event_loop()
+                )
+                
                 status, msg = checker.check_card(cc_line)
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.time() - start_time_card
                 
                 # تحديث الإحصائيات
                 stats['checked'] += 1
@@ -384,7 +566,7 @@ def worker_single_file(chat_id, bot):
                         
                         # إرسال البطاقة الصالحة فوراً
                         asyncio.run_coroutine_threadsafe(
-                            send_approved_instant(cc_line, msg, checker.current_email, chat_id, bot),
+                            send_approved_instant(cc_line, msg, checker.current_email, checker.current_password, chat_id, bot),
                             asyncio.get_event_loop()
                         )
                         
@@ -393,16 +575,53 @@ def worker_single_file(chat_id, bot):
                         with open("declined.txt", "a", encoding="utf-8") as f: 
                             f.write(f"{cc_line} - {msg} - الحساب: {checker.current_email}\n")
                         stats['declined'] += 1
+                        
+                        # إرسال رسالة الرفض
+                        declined_message = f"""
+╔══════════════════════════════════╗
+║     ❌ *بطاقة مرفوضة*           ║
+╠══════════════════════════════════╣
+║ الرقم: `{formatted_card_display}`    ║
+║ السبب: {msg[:50]}...              ║
+╚══════════════════════════════════╝"""
+                        
+                        asyncio.run_coroutine_threadsafe(
+                            bot.send_message(
+                                chat_id=chat_id,
+                                text=declined_message,
+                                parse_mode='Markdown'
+                            ),
+                            asyncio.get_event_loop()
+                        )
+                        
                     else:
                         print(f"{Fore.WHITE}[⚠️ ERROR] {cc_line} - {msg}")
                         with open("error.txt", "a", encoding="utf-8") as f: 
                             f.write(f"{cc_line} - {msg} - الحساب: {checker.current_email}\n")
                         stats['errors'] += 1
+                        
+                        # إرسال رسالة الخطأ
+                        error_message = f"""
+╔══════════════════════════════════╗
+║     ⚠️ *خطأ في الفحص*           ║
+╠══════════════════════════════════╣
+║ الرقم: `{formatted_card_display}`    ║
+║ الخطأ: {msg[:50]}...              ║
+╚══════════════════════════════════╝"""
+                        
+                        asyncio.run_coroutine_threadsafe(
+                            bot.send_message(
+                                chat_id=chat_id,
+                                text=error_message,
+                                parse_mode='Markdown'
+                            ),
+                            asyncio.get_event_loop()
+                        )
                 
-                # إرسال تحديث الإحصائيات كل 5 بطاقات
+                # إرسال تحديث كل 5 بطاقات
                 if stats['checked'] % 5 == 0:
                     asyncio.run_coroutine_threadsafe(
-                        show_statistics(chat_id, bot),
+                        send_status_update(chat_id, bot),
                         asyncio.get_event_loop()
                     )
                 
@@ -413,6 +632,20 @@ def worker_single_file(chat_id, bot):
                     
                     if remaining_wait > 0:
                         print(f"{Fore.BLUE}⏳ انتظار {remaining_wait:.1f} ثانية...")
+                        
+                        # إرسال رسالة الانتظار
+                        wait_message = f"""
+⏳ *انتظار {int(remaining_wait)} ثانية قبل البطاقة التالية...*"""
+                        
+                        asyncio.run_coroutine_threadsafe(
+                            bot.send_message(
+                                chat_id=chat_id,
+                                text=wait_message,
+                                parse_mode='Markdown'
+                            ),
+                            asyncio.get_event_loop()
+                        )
+                        
                         # انتظار مع التحقق من الإيقاف
                         for _ in range(int(remaining_wait)):
                             if stop_checking:
@@ -423,13 +656,66 @@ def worker_single_file(chat_id, bot):
             with file_lock:
                 with open("accounts_summary.txt", "a", encoding="utf-8") as f:
                     f.write(f"\n=== الحساب {account_num + 1}: {checker.current_email} | الباسورد: {checker.current_password} | تم فحص {len(account_cards)} بطاقات ===\n")
+                    
+                    # حساب نتائج هذا الحساب
+                    account_approved = sum(1 for line in open("APPROVED.txt", "r", encoding='utf-8') if checker.current_email in line) if os.path.exists("APPROVED.txt") else 0
+                    account_declined = sum(1 for line in open("declined.txt", "r", encoding='utf-8') if checker.current_email in line) if os.path.exists("declined.txt") else 0
+                    account_errors = sum(1 for line in open("error.txt", "r", encoding='utf-8') if checker.current_email in line) if os.path.exists("error.txt") else 0
+                    
+                    f.write(f"نتائج الحساب: ✅ {account_approved} | ❌ {account_declined} | ⚠️ {account_errors}\n")
                     f.write("="*50 + "\n")
+            
+            # إرسال ملخص الحساب
+            account_summary = f"""
+╔══════════════════════════════════╗
+║   ✅ *اكتمال الحساب {account_num + 1}/{stats['total_accounts']}*    ║
+╠══════════════════════════════════╣
+║ 📧 *بيانات الحساب:*              ║
+║ ┌────────────────────────────┐   ║
+║ │ 📧 {checker.current_email[:30]}  ║
+║ │ 🔑 {checker.current_password[:20]}   ║
+║ └────────────────────────────┘   ║
+╠══════════════════════════════════╣
+║ 📊 *نتائج هذا الحساب:*           ║
+║ ┌────────────────────────────┐   ║
+║ │ ✅ الناجحة:    {account_approved}           ║
+║ │ ❌ المرفوضة:   {account_declined}           ║
+║ │ ⚠️ الأخطاء:    {account_errors}           ║
+║ │ 📈 نسبة نجاح:  {(account_approved/len(account_cards)*100):.1f}%     ║
+║ └────────────────────────────┘   ║
+╠══════════════════════════════════╣
+║ 📈 *الإحصائيات الكلية الجديدة:*  ║
+║ ✅ الناجحة: {stats['approved'] - account_approved} ← {stats['approved']} ║
+║ ❌ المرفوضة: {stats['declined'] - account_declined} ← {stats['declined']} ║
+╚══════════════════════════════════╝"""
+            
+            asyncio.run_coroutine_threadsafe(
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=account_summary,
+                    parse_mode='Markdown'
+                ),
+                asyncio.get_event_loop()
+            )
             
             print(f"{Fore.GREEN}✅ الحساب {account_num + 1} اكتمل.")
             
             # انتظار 10 ثواني قبل الحساب الجديد
-            if account_num < num_accounts - 1 and not stop_checking:
+            if account_num < stats['total_accounts'] - 1 and not stop_checking:
                 print(f"{Fore.YELLOW}⏱️ انتظار 10 ثواني قبل الحساب التالي...")
+                
+                wait_message = f"""
+⏳ *انتظار 10 ثواني قبل إنشاء الحساب التالي...*"""
+                
+                asyncio.run_coroutine_threadsafe(
+                    bot.send_message(
+                        chat_id=chat_id,
+                        text=wait_message,
+                        parse_mode='Markdown'
+                    ),
+                    asyncio.get_event_loop()
+                )
+                
                 for _ in range(10):
                     if stop_checking:
                         break
@@ -437,8 +723,41 @@ def worker_single_file(chat_id, bot):
         
         # إرسال النتائج النهائية
         if not stop_checking:
+            # حساب السرعة المتوسطة
+            elapsed_total = time.time() - stats['start_time']
+            avg_speed = stats['total'] / (elapsed_total / 60) if elapsed_total > 0 else 0
+            
+            final_message = f"""
+╔══════════════════════════════════╗
+║     🎉 *اكتمل الفحص!* 🎉        ║
+╠══════════════════════════════════╣
+║ 📊 *النتائج النهائية:*           ║
+╠══════════════════════════════════╣
+║ 📁 إجمالي البطاقات:   {stats['total']}       ║
+║ 👤 إجمالي الحسابات:   {stats['total_accounts']}       ║
+╠══════════════════════════════════╣
+║ ✅ *الناجحة:*    {stats['approved']}             ║
+║ ❌ *المرفوضة:*   {stats['declined']}             ║
+║ ⚠️ *الأخطاء:*    {stats['errors']}              ║
+╠══════════════════════════════════╣
+║ ⏱️ *الوقت:*                      ║
+║ • المنقضي: {format_time(elapsed_total)}            ║
+║ • السرعة: {avg_speed:.1f} بط/دقيقة    ║
+╠══════════════════════════════════╣
+║ 📁 *الملفات المتاحة:*           ║
+║ • ✅ APPROVED.txt              ║
+║ • ❌ declined.txt              ║
+║ • ⚠️ error.txt                 ║
+║ • 📋 accounts_summary.txt      ║
+╚══════════════════════════════════╝"""
+            
             asyncio.run_coroutine_threadsafe(
-                show_statistics(chat_id, bot),
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=final_message,
+                    parse_mode='Markdown',
+                    reply_markup=get_control_keyboard()
+                ),
                 asyncio.get_event_loop()
             )
             
@@ -460,6 +779,8 @@ def worker_single_file(chat_id, bot):
             print(f"{Fore.GREEN}🎉 تم الانتهاء من فحص جميع البطاقات!")
         
         checking_active = False
+        if auto_update_task:
+            auto_update_task.cancel()
         return True
         
     except FileNotFoundError:
@@ -483,19 +804,22 @@ def worker_single_file(chat_id, bot):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """رسالة الترحيب مع أزرار"""
-    welcome_msg = """╔══════════════════════════╗
-║     🤖 *مرحباً بك في*    ║
-║    *بوت فحص البطاقات*    ║
-╠══════════════════════════╣
-║ 📁 أرسل لي ملف `abood.txt` ║
-║    لبدء الفحص            ║
-╠══════════════════════════╣
-║ ✨ *مميزات البوت:*       ║
-║ • إرسال فوري للصالحة     ║
-║ • إحصائيات مباشرة        ║
-║ • أزرار تحكم كاملة       ║
-║ • إيقاف الفحص بأمان      ║
-╚══════════════════════════╝
+    welcome_msg = """
+╔══════════════════════════════════╗
+║     🤖 *مرحباً بك في*            ║
+║    *بوت فحص البطاقات*            ║
+╠══════════════════════════════════╣
+║ 📁 أرسل لي ملف `abood.txt`        ║
+║    لبدء الفحص                    ║
+╠══════════════════════════════════╣
+║ ✨ *مميزات البوت:*                ║
+║ • إرسال فوري للبطاقات الصالحة    ║
+║ • إحصائيات مباشرة مع شريط تقدم   ║
+║ • عرض تفصيلي لكل حساب وبطاقة     ║
+║ • تحديث تلقائي كل دقيقة          ║
+║ • أزرار تحكم كاملة               ║
+║ • إيقاف الفحص بأمان              ║
+╚══════════════════════════════════╝
 
 📝 *صيغة الملف المطلوبة:*
 `4111111111111111|12|2025|123`"""
@@ -511,7 +835,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    global checking_active, stop_checking, checking_thread, stats
+    global checking_active, stop_checking, checking_thread, stats, auto_update_task
     
     if query.data == "start_scan":
         if checking_active:
@@ -529,7 +853,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             else:
                 await query.edit_message_text(
-                    text="🔄 *جاري بدء الفحص...*",
+                    text="🔄 *جاري بدء الفحص...*\nسيتم عرض التفاصيل قريباً",
                     parse_mode='Markdown'
                 )
                 # بدء الفحص في ثريد منفصل
@@ -563,6 +887,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "confirm_stop":
         global stop_checking
         stop_checking = True
+        if auto_update_task:
+            auto_update_task.cancel()
         await query.edit_message_text(
             text="⏹️ *جاري إيقاف الفحص...*\nالرجاء الانتظار قليلاً",
             parse_mode='Markdown'
@@ -576,7 +902,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif query.data == "show_status":
-        await show_statistics(query.message.chat_id, context.bot)
+        await send_status_update(query.message.chat_id, context.bot)
         await query.delete()
     
     elif query.data == "show_results":
@@ -673,6 +999,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.remove(file)
                 deleted.append(file)
         
+        # تنظيف الملفات المؤقتة
+        for temp_file in Path(TEMP_DIR).glob("*.txt"):
+            temp_file.unlink()
+            deleted.append(str(temp_file))
+        
         # إعادة تعيين الإحصائيات
         stats = {
             'total': 0,
@@ -680,7 +1011,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'approved': 0,
             'declined': 0,
             'errors': 0,
-            'start_time': 0
+            'start_time': 0,
+            'current_account': 0,
+            'total_accounts': 0,
+            'current_account_cards': 0,
+            'total_account_cards': 0,
+            'current_email': '',
+            'current_password': ''
         }
         
         await query.edit_message_text(
@@ -690,21 +1027,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif query.data == "help":
-        help_text = """╔══════════════════════════╗
-║     📚 *المساعدة*       ║
-╠══════════════════════════╣
-║ *الأزرار المتاحة:*      ║
-║ ▶️ بدء الفحص - ابدأ الفحص║
-║ ⏹️ إيقاف - أوقف الفحص    ║
-║ 📊 الحالة - عرض الإحصائيات║
-║ 📁 النتائج - تحميل الملفات║
-║ 🧹 تنظيف - حذف الملفات   ║
-╠══════════════════════════╣
-║ *كيفية الاستخدام:*      ║
-║ 1️⃣ أرسل ملف abood.txt   ║
-║ 2️⃣ اضغط بدء الفحص       ║
-║ 3️⃣ انتظر النتائج        ║
-╚══════════════════════════╝"""
+        help_text = """
+╔══════════════════════════════════╗
+║     📚 *المساعدة*                ║
+╠══════════════════════════════════╣
+║ *الأزرار المتاحة:*               ║
+║ ▶️ بدء الفحص - ابدأ الفحص        ║
+║ ⏹️ إيقاف - أوقف الفحص مع تأكيد   ║
+║ 📊 الحالة - عرض الإحصائيات       ║
+║ 📁 النتائج - تحميل الملفات       ║
+║ 🧹 تنظيف - حذف الملفات           ║
+╠══════════════════════════════════╣
+║ *مميزات العرض:*                  ║
+║ • عرض تفصيلي لكل حساب            ║
+║ • إحصائيات كل بطاقة              ║
+║ • شريط تقدم بصري                 ║
+║ • تحديث تلقائي كل دقيقة          ║
+║ • إرسال فوري للبطاقات الصالحة    ║
+╠══════════════════════════════════╣
+║ *كيفية الاستخدام:*               ║
+║ 1️⃣ أرسل ملف abood.txt           ║
+║ 2️⃣ اضغط بدء الفحص                ║
+║ 3️⃣ تابع التحديثات المباشرة      ║
+║ 4️⃣ استلم النتائج فور ظهورها     ║
+╚══════════════════════════════════╝"""
         
         await query.edit_message_text(
             text=help_text,
@@ -772,7 +1118,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض الحالة"""
-    await show_statistics(update.effective_chat.id, context.bot)
+    await send_status_update(update.effective_chat.id, context.bot)
 
 async def cleanup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر التنظيف"""
@@ -797,7 +1143,13 @@ async def cleanup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'approved': 0,
         'declined': 0,
         'errors': 0,
-        'start_time': 0
+        'start_time': 0,
+        'current_account': 0,
+        'total_accounts': 0,
+        'current_account_cards': 0,
+        'total_account_cards': 0,
+        'current_email': '',
+        'current_password': ''
     }
     
     await update.message.reply_text(
@@ -808,22 +1160,23 @@ async def cleanup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر المساعدة"""
-    help_text = """╔══════════════════════════╗
-║     📚 *المساعدة*       ║
-╠══════════════════════════╣
-║ *الأزرار المتاحة:*      ║
-║ ▶️ بدء الفحص - ابدأ الفحص║
-║ ⏹️ إيقاف - أوقف الفحص    ║
-║ 📊 الحالة - عرض الإحصائيات║
-║ 📁 النتائج - تحميل الملفات║
-║ 🧹 تنظيف - حذف الملفات   ║
-╠══════════════════════════╣
-║ *الأوامر النصية:*       ║
-║ /start - القائمة الرئيسية║
-║ /status - عرض الحالة    ║
-║ /cleanup - تنظيف الملفات║
-║ /help - عرض المساعدة    ║
-╚══════════════════════════╝"""
+    help_text = """
+╔══════════════════════════════════╗
+║     📚 *المساعدة*                ║
+╠══════════════════════════════════╣
+║ *الأزرار المتاحة:*               ║
+║ ▶️ بدء الفحص - ابدأ الفحص        ║
+║ ⏹️ إيقاف - أوقف الفحص مع تأكيد   ║
+║ 📊 الحالة - عرض الإحصائيات       ║
+║ 📁 النتائج - تحميل الملفات       ║
+║ 🧹 تنظيف - حذف الملفات           ║
+╠══════════════════════════════════╣
+║ *الأوامر النصية:*                ║
+║ /start - القائمة الرئيسية        ║
+║ /status - عرض الحالة             ║
+║ /cleanup - تنظيف الملفات         ║
+║ /help - عرض المساعدة             ║
+╚══════════════════════════════════╝"""
     
     await update.message.reply_text(
         help_text,
@@ -854,8 +1207,9 @@ def main():
     print("🤖 البوت يعمل...")
     print("✨ ميزة الإرسال الفوري مفعلة")
     print("🎯 واجهة الأزرار جاهزة")
+    print("📊 عرض الإحصائيات المتقدم مفعل")
+    print("⏱️ التحديث التلقائي كل دقيقة مفعل")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
-    import asyncio
     main()
