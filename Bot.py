@@ -49,10 +49,8 @@ BOT_TOKEN = "8375573526:AAFVj27YqwLI_na3YksvMcApJOopObTaIII"
 TEMP_DIR = "temp_files"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# ==================== كلمة المرور ====================
-BOT_PASSWORD = "2027"
-authorized_users = {}  # {user_id: expiry_time}
-authorized_chats = {}  # {chat_id: expiry_time}
+# ==================== تم إزالة نظام كلمة المرور ====================
+# البوت متاح لجميع المستخدمين بدون قيود
 
 # ==================== متغيرات عامة ====================
 checking_active = False
@@ -83,8 +81,8 @@ file_lock = threading.Lock()
 TOOLS = {
     'tool1': {
         'name': '🛡️ Original',
-        'type': 'بوابة دفع ',
-        'desc': 'فحص البطاقات عبر بوابة الأصلية',
+        'type': 'بوابة دفع أصلية',
+        'desc': 'فحص البطاقات عبر بوابة الدفع الأصلية',
         'success_rate': '85%',
         'speed': 'سريع ⚡',
         'requirements': 'حسابات وهمية',
@@ -114,7 +112,7 @@ TOOLS = {
         }
     },
     'tool3': {
-        'name': '💳 Stripe ',
+        'name': '💳 Stripe Forechrist',
         'type': 'بوابة Stripe',
         'desc': 'فحص مباشر مع Stripe عبر API مع تحليل الأخطاء',
         'success_rate': '88%',
@@ -130,7 +128,7 @@ TOOLS = {
         }
     },
     'tool4': {
-        'name': '🔷 Stripe (Melhair)',
+        'name': '🔷 Stripe Melhair',
         'type': 'بوابة Stripe متكاملة',
         'desc': 'فحص مع إنشاء حسابات واستخدام Setup Intents',
         'success_rate': '86%',
@@ -163,39 +161,7 @@ TOOLS = {
     }
 }
 
-# ==================== دوال التحقق من الصلاحية ====================
-
-def check_authorization(update: Update) -> bool:
-    """التحقق من أن المستخدم أو المجموعة مخول"""
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    
-    # التحقق من المستخدم
-    if user_id in authorized_users:
-        if authorized_users[user_id] > time.time():
-            return True
-    
-    # التحقق من المجموعة (إذا كان المستخدم أدمن)
-    if update.effective_chat.type in ['group', 'supergroup']:
-        if chat_id in authorized_chats:
-            if authorized_chats[chat_id] > time.time():
-                # التحقق من أن المستخدم أدمن في المجموعة
-                try:
-                    chat_member = update.effective_chat.get_member(user_id)
-                    if chat_member.status in ['administrator', 'creator']:
-                        return True
-                except:
-                    pass
-    
-    return False
-
-def authorize_user(user_id: int, duration: int = 86400):  # 24 ساعة افتراضياً
-    """تفويض مستخدم"""
-    authorized_users[user_id] = time.time() + duration
-
-def authorize_chat(chat_id: int, duration: int = 86400):
-    """تفويض مجموعة"""
-    authorized_chats[chat_id] = time.time() + duration
+# ==================== تم إزالة دوال التحقق من الصلاحية ====================
 
 # ==================== دوال مساعدة ====================
 
@@ -203,10 +169,10 @@ def print_banner():
     print(Fore.RED + Style.BRIGHT + """
   ╔══════════════════════════════════════════════════════════════╗
   ║                                                              ║
-  ║           🔥 OBEIDA MULTI-TOOL CARD CHECKER  🔥         ║
+  ║           🔥 OBEIDA MULTI-TOOL CARD CHECKER 🔥              ║
   ║                                                              ║
   ║       5 أدوات فحص احترافية | تشغيل متزامن | تقارير مباشرة   ║
-  ║              نظام كلمة المرور | دعم المجموعات               ║
+  ║              متاح لجميع المستخدمين | دعم المجموعات          ║
   ╚══════════════════════════════════════════════════════════════╝
 """ + Style.RESET_ALL)
 
@@ -278,9 +244,6 @@ def get_tool_keyboard(tool_id):
 
 def get_all_tools_keyboard():
     """قائمة التحكم بجميع الأدوات"""
-    all_active = all(tool['active'] for tool in TOOLS.values())
-    any_active = any(tool['active'] for tool in TOOLS.values())
-    
     keyboard = [
         [
             InlineKeyboardButton("▶️ تشغيل الكل", callback_data="start_all"),
@@ -532,7 +495,6 @@ def check_single_card(tool_id, cc_line):
     status, msg = check_card_with_tool(tool_id, cc_line)
     
     # حفظ النتيجة
-    card_preview = cc_line[:20] + "..."
     result_line = f"{cc_line} | {status} | {msg}\n"
     
     with file_lock:
@@ -604,7 +566,6 @@ def run_tool(tool_id, chat_id, bot, cards):
             tool['stats']['errors'] += 1
         
         # حفظ النتيجة
-        card_preview = cc_line[:20] + "..."
         result_line = f"{cc_line} | {status} | {msg}\n"
         
         with file_lock:
@@ -662,47 +623,25 @@ def run_tool(tool_id, chat_id, bot, cards):
 # ==================== دوال البوت ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """رسالة البدء مع طلب كلمة المرور"""
+    """رسالة البدء - متاحة للجميع بدون كلمة مرور"""
     
-    # التحقق من وجود كلمة مرور في الرسالة
-    if context.args and len(context.args) > 0:
-        password = context.args[0]
-        if password == BOT_PASSWORD:
-            # تفويض المستخدم
-            user_id = update.effective_user.id
-            chat_id = update.effective_chat.id
-            authorize_user(user_id)
-            
-            if update.effective_chat.type in ['group', 'supergroup']:
-                # التحقق من أن المستخدم أدمن في المجموعة
-                try:
-                    chat_member = await update.effective_chat.get_member(user_id)
-                    if chat_member.status in ['administrator', 'creator']:
-                        authorize_chat(chat_id)
-                        await update.message.reply_text(
-                            "✅ *تم تفويض المجموعة بنجاح!*\nالآن يمكن للأدمن فقط استخدام البوت في هذه المجموعة.",
-                            parse_mode='Markdown'
-                        )
-                except:
-                    pass
-            
-            welcome_msg = f"""
+    welcome_msg = f"""
 ╔══════════════════════════════════════════════════════════════╗
 ║                    🔥 *مرحباً بك في* 🔥                      ║
 ║              *نظام فحص البطاقات المتعدد v4.0*                ║
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
-║  ✅ *تم التحقق من كلمة المرور بنجاح!*                        ║
+║  ✅ *البوت متاح لجميع المستخدمين بدون كلمة مرور!*            ║
 ║                                                              ║
-║  📁 *أرسل ملف abood.txt* لبدء الفحم                          ║
+║  📁 *أرسل ملف abood.txt* لبدء الفحص                          ║
 ║                                                              ║
 ║  🛡️ *الأدوات المتاحة:*                                       ║
 ║  ┌────────────────────────────────────────────────────┐    ║
-║  │ 1. 🛡️ Original - بوابة دفع (الأمر: /auth)          ║
-║  │ 2. 💰 Donation - بوابة تبرعات (الأمر: /donate)     ║
-║  │ 3. 💳 Stripe (Forechrist) - (الأمر: /stripe)       ║
-║  │ 4. 🔷 Stripe (Melhair) - (الأمر: /melhair)         ║
-║  │ 5. ☁️ Checker - بوابة سحابية (الأمر: /vast)        ║
+║  │ 1. 🛡️ Original - بوابة دفع أصلية                    ║
+║  │ 2. 💰 Donation - بوابة تبرعات                       ║
+║  │ 3. 💳 Stripe (Forechrist) - بوابة Stripe            ║
+║  │ 4. 🔷 Stripe (Melhair) - بوابة Stripe متكاملة       ║
+║  │ 5. ☁️ Checker - بوابة سحابية                   ║
 ║  └────────────────────────────────────────────────────┘    ║
 ║                                                              ║
 ║  ✨ *أوامر الفحص السريع:*                                   ║
@@ -710,44 +649,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ║  • `/donate 4111111111111111|12|2025|123`                  ║
 ║  • `/stripe 4111111111111111|12|2025|123`                  ║
 ║  • `/melhair 4111111111111111|12|2025|123`                 ║
-║  • `/vast 4111111111111111|12|2025|123`                    ║
-║                                                              ║
-║  ⚠️ *ملاحظة:* في المجموعات، فقط الأدمن يمكنهم استخدام البوت  ║
+║  • `/Checker 4111111111111111|12|2025|123`                    ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 
 📝 *صيغة الملف المطلوبة:* `4111111111111111|12|2025|123`"""
-            
-            await update.message.reply_text(
-                welcome_msg,
-                parse_mode='Markdown',
-                reply_markup=get_main_keyboard()
-            )
-            return
-        else:
-            await update.message.reply_text(
-                "❌ *كلمة المرور خاطئة!*\nالرجاء إدخال كلمة المرور الصحيحة.\nمثال: /start 2027",
-                parse_mode='Markdown'
-            )
-            return
     
-    # إذا لم يتم إدخال كلمة مرور
     await update.message.reply_text(
-        "🔑 *الرجاء إدخال كلمة المرور*\nمثال: `/start 4 ارقام`",
-        parse_mode='Markdown'
+        welcome_msg,
+        parse_mode='Markdown',
+        reply_markup=get_main_keyboard()
     )
 
 async def check_single_card_command(update: Update, context: ContextTypes.DEFAULT_TYPE, tool_id: str):
     """فحص بطاقة واحدة عن طريق الأمر"""
-    
-    # التحقق من الصلاحية
-    if not check_authorization(update):
-        await update.message.reply_text(
-            "🔑 *غير مخول!*\nالرجاء إدخال كلمة المرور أولاً باستخدام /start  4 ارقام\n\n"
-            "في المجموعات، فقط الأدمن يمكنهم استخدام البوت.",
-            parse_mode='Markdown'
-        )
-        return
     
     # التحقق من وجود البطاقة في الأمر
     if not context.args or len(context.args) == 0:
@@ -826,14 +741,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     global stop_checking, active_tools, tool_threads
-    
-    # التحقق من الصلاحية للأزرار
-    if not check_authorization(update):
-        await query.edit_message_text(
-            text="🔑 *غير مخول!*\nالرجاء إدخال كلمة المرور أولاً باستخدام /start 2027",
-            parse_mode='Markdown'
-        )
-        return
     
     # ========== القوائم الرئيسية ==========
     if query.data == "back_to_main":
@@ -1151,7 +1058,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
 ║  *📌 كيفية الاستخدام:*                                       ║
-║  1️⃣ استخدم `/start 4 ارقام` لتفعيل البوت                       ║
+║  1️⃣ استخدم `/start` لبدء البوت                               ║
 ║  2️⃣ أرسل ملف `abood.txt` بالصيغة المطلوبة                   ║
 ║  3️⃣ اختر الأداة من القائمة أو استخدم الأوامر السريعة        ║
 ║                                                              ║
@@ -1160,19 +1067,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ║  • `/donate CC|MM|YYYY|CVV` - فحص باستخدام Donation         ║
 ║  • `/stripe CC|MM|YYYY|CVV` - فحص باستخدام Stripe           ║
 ║  • `/melhair CC|MM|YYYY|CVV` - فحص باستخدام Melhair         ║
-║  • `/Checker CC|MM|YYYY|CVV` - فحص باستخدام Checker               ║
+║  • `/Checker CC|MM|YYYY|CVV` - فحص باستخدام Checker        ║
 ║                                                              ║
 ║  *🎯 مميزات النظام:*                                         ║
 ║  • 5 أدوات فحص مختلفة                                      ║
 ║  • تشغيل منفصل أو متزامن                                    ║
 ║  • إحصائيات مباشرة لكل أداة                                 ║
 ║  • ملفات نتائج منفصلة                                       ║
-║  • دعم المجموعات (للمشرفين فقط)                             ║
+║  • متاح لجميع المستخدمين بدون كلمة مرور                     ║
 ║                                                              ║
 ║  *⚠️ ملاحظات مهمة:*                                          ║
 ║  • صيغة الملف: CC|MM|YYYY|CVV                               ║
 ║  • انتظر بين البطاقات (5-10 ثواني)                          ║
-║  • في المجموعات، فقط المشرفين يمكنهم استخدام البوت          ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝"""
         
@@ -1201,15 +1107,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """استقبال الملفات"""
-    
-    # التحقق من الصلاحية
-    if not check_authorization(update):
-        await update.message.reply_text(
-            "🔑 *غير مخول!*\nالرجاء إدخال كلمة المرور أولاً باستخدام /start 4 ارقام\n\n"
-            "في المجموعات، فقط الأدمن يمكنهم استخدام البوت.",
-            parse_mode='Markdown'
-        )
-        return
     
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
@@ -1272,27 +1169,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض الحالة"""
-    
-    # التحقق من الصلاحية
-    if not check_authorization(update):
-        await update.message.reply_text(
-            "🔑 *غير مخول!*\nالرجاء إدخال كلمة المرور أولاً باستخدام /start 4 ارقام",
-            parse_mode='Markdown'
-        )
-        return
-    
     await button_handler(update, context)
 
 async def cleanup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تنظيف الملفات"""
-    
-    # التحقق من الصلاحية
-    if not check_authorization(update):
-        await update.message.reply_text(
-            "🔑 *غير مخول!*\nالرجاء إدخال كلمة المرور أولاً باستخدام /start 4 ارقام",
-            parse_mode='Markdown'
-        )
-        return
     
     files_deleted = 0
     for tool_id in TOOLS.keys():
@@ -1365,7 +1245,7 @@ def main():
     application.add_handler(CallbackQueryHandler(button_handler))
     
     # تشغيل البوت
-    print(f"{Fore.GREEN}✅ البوت جاهز للعمل!{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}✅ البوت جاهز للعمل! متاح لجميع المستخدمين{Style.RESET_ALL}")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
