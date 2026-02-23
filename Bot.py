@@ -56,6 +56,7 @@ active_tools = {}  # لتتبع الأدوات النشطة
 tool_threads = {}  # لتتبع ثريدات كل أداة
 auto_update_tasks = {}  # لتتبع مهام التحديث
 stats_per_tool = {}  # إحصائيات منفصلة لكل أداة
+current_file_in_use = None  # اسم الملف الحالي المستخدم للفحص
 
 # ==================== إعدادات APIs للأدوات ====================
 AUTHORIZE_CLIENT_KEY = "88uBHDjfPcY77s4jP6JC5cNjDH94th85m2sZsq83gh4pjBVWTYmc4WUdCW7EbY6F"
@@ -167,7 +168,7 @@ def print_banner():
   ║           🔥 OBEIDA MULTI-TOOL CARD CHECKER 🔥              ║
   ║                                                              ║
   ║       5 أدوات فحص احترافية | تشغيل متزامن | تقارير مباشرة   ║
-  ║              متاح لجميع المستخدمين | دعم المجموعات          ║
+  ║         يدعم جميع ملفات .txt | فحص ملفات متعددة             ║
   ╚══════════════════════════════════════════════════════════════╝
 """ + Style.RESET_ALL)
 
@@ -212,6 +213,17 @@ def generate_cards(bin_prefix, count):
         cards.append(generate_card(bin_prefix))
     return cards
 
+def get_txt_files():
+    """الحصول على قائمة بجميع ملفات txt في المجلد الحالي"""
+    txt_files = []
+    for file in Path(".").glob("*.txt"):
+        if file.name not in [f"approved_{tool}.txt" for tool in TOOLS.keys()] + \
+                           [f"declined_{tool}.txt" for tool in TOOLS.keys()] + \
+                           [f"errors_{tool}.txt" for tool in TOOLS.keys()] + \
+                           ["all_results.txt"]:
+            txt_files.append(file.name)
+    return txt_files
+
 # ==================== القوائم الرئيسية ====================
 
 def get_main_keyboard():
@@ -235,10 +247,10 @@ def get_main_keyboard():
         ],
         [
             InlineKeyboardButton("🎲 توليد بطاقات", callback_data="generate_menu"),
-            InlineKeyboardButton("🧹 تنظيف", callback_data="cleanup_menu")
+            InlineKeyboardButton("📂 اختيار ملف", callback_data="select_file_menu")
         ],
         [
-            InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings"),
+            InlineKeyboardButton("🧹 تنظيف", callback_data="cleanup_menu"),
             InlineKeyboardButton("❓ مساعدة", callback_data="help")
         ]
     ]
@@ -277,10 +289,26 @@ def get_all_tools_keyboard():
             InlineKeyboardButton("📁 نتائج الكل", callback_data="results_all")
         ],
         [
-            InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main"),
-            InlineKeyboardButton("⚡ حالة متقدمة", callback_data="advanced_stats")
+            InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
         ]
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_file_selection_keyboard():
+    """قائمة اختيار ملفات txt"""
+    txt_files = get_txt_files()
+    keyboard = []
+    
+    if not txt_files:
+        keyboard.append([InlineKeyboardButton("📭 لا توجد ملفات", callback_data="no_files")])
+    else:
+        for file in txt_files[:10]:  # عرض أول 10 ملفات فقط
+            display_name = file[:20] + "..." if len(file) > 20 else file
+            keyboard.append([InlineKeyboardButton(f"📄 {display_name}", callback_data=f"select_file_{file}")])
+    
+    keyboard.append([InlineKeyboardButton("🔄 تحديث القائمة", callback_data="refresh_files")])
+    keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")])
+    
     return InlineKeyboardMarkup(keyboard)
 
 def get_results_keyboard():
@@ -327,7 +355,7 @@ def get_cleanup_keyboard():
     keyboard = [
         [
             InlineKeyboardButton("🧹 ملفات النتائج", callback_data="cleanup_results"),
-            InlineKeyboardButton("🧹 ملف abood.txt", callback_data="cleanup_abood")
+            InlineKeyboardButton("🧹 جميع txt", callback_data="cleanup_all_txt")
         ],
         [
             InlineKeyboardButton("🧹 الملفات المؤقتة", callback_data="cleanup_temp"),
@@ -549,12 +577,13 @@ def check_card_with_tool(tool_id, cc_line):
 
 # ==================== دالة فحص بطاقة واحدة ====================
 
-def check_single_card(tool_id, cc_line):
+def check_single_card(tool_id, cc_line, source_file=None):
     """فحص بطاقة واحدة وإرجاع النتيجة"""
     status, msg = check_card_with_tool(tool_id, cc_line)
     
-    # حفظ النتيجة
-    result_line = f"{cc_line} | {status} | {msg}\n"
+    # حفظ النتيجة مع اسم الملف المصدر
+    source_info = f" [from: {source_file}]" if source_file else ""
+    result_line = f"{cc_line} | {status} | {msg}{source_info}\n"
     
     with file_lock:
         if status == "APPROVED":
@@ -571,9 +600,9 @@ def check_single_card(tool_id, cc_line):
 
 # ==================== دالة تشغيل أداة محددة ====================
 
-def run_tool(tool_id, chat_id, bot, cards):
+def run_tool(tool_id, chat_id, bot, cards, source_file):
     """تشغيل أداة محددة في ثريد منفصل"""
-    global active_tools, stop_checking, TOOLS
+    global active_tools, stop_checking, TOOLS, current_file_in_use
     
     tool = TOOLS[tool_id]
     tool['active'] = True
@@ -583,6 +612,8 @@ def run_tool(tool_id, chat_id, bot, cards):
     tool['stats']['approved'] = 0
     tool['stats']['declined'] = 0
     tool['stats']['errors'] = 0
+    
+    current_file_in_use = source_file
     
     try:
         loop = asyncio.new_event_loop()
@@ -597,6 +628,7 @@ def run_tool(tool_id, chat_id, bot, cards):
 ╠══════════════════════════════════╣
 ║ 📊 نوع البوابة: {tool['type']}    ║
 ║ 📁 عدد البطاقات: {len(cards)}     ║
+║ 📂 الملف المصدر: {source_file}    ║
 ║ ⚡ السرعة: {tool['speed']}         ║
 ║ ✅ نسبة النجاح: {tool['success_rate']}   ║
 ╚══════════════════════════════════╝"""
@@ -624,8 +656,9 @@ def run_tool(tool_id, chat_id, bot, cards):
         else:
             tool['stats']['errors'] += 1
         
-        # حفظ النتيجة
-        result_line = f"{cc_line} | {status} | {msg}\n"
+        # حفظ النتيجة مع اسم الملف المصدر
+        source_info = f" [from: {source_file}]"
+        result_line = f"{cc_line} | {status} | {msg}{source_info}\n"
         
         with file_lock:
             if status == "APPROVED":
@@ -645,7 +678,8 @@ def run_tool(tool_id, chat_id, bot, cards):
 📊 تم فحص: {i}/{len(cards)}
 ✅ نجاح: {tool['stats']['approved']}
 ❌ فشل: {tool['stats']['declined']}
-⚠️ أخطاء: {tool['stats']['errors']}"""
+⚠️ أخطاء: {tool['stats']['errors']}
+📂 الملف: {source_file}"""
             
             asyncio.run_coroutine_threadsafe(
                 bot.send_message(chat_id=chat_id, text=progress_msg, parse_mode='Markdown'),
@@ -668,6 +702,7 @@ def run_tool(tool_id, chat_id, bot, cards):
 ║ ✅ الناجحة: {tool['stats']['approved']}              ║
 ║ ❌ المرفوضة: {tool['stats']['declined']}              ║
 ║ ⚠️ الأخطاء: {tool['stats']['errors']}              ║
+║ 📂 الملف: {source_file}           ║
 ╠══════════════════════════════════╣
 ║ ⏱️ الوقت: {format_time(elapsed)}              ║
 ╚══════════════════════════════════╝"""
@@ -678,6 +713,7 @@ def run_tool(tool_id, chat_id, bot, cards):
     )
     
     tool['active'] = False
+    current_file_in_use = None
 
 # ==================== دوال البوت ====================
 
@@ -687,12 +723,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_msg = f"""
 ╔══════════════════════════════════════════════════════════════╗
 ║                    🔥 *مرحباً بك في* 🔥                      ║
-║              *نظام فحص البطاقات المتعدد v4.0*                ║
+║              *نظام فحص البطاقات المتعدد v5.0*                ║
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
 ║  ✅ *البوت متاح لجميع المستخدمين بدون كلمة مرور!*            ║
 ║                                                              ║
-║  📁 *أرسل ملف abood.txt* لبدء الفحص                          ║
+║  📁 *أرسل أي ملف .txt* لبدء الفحص                           ║
+║  📂 *يدعم جميع أسماء الملفات*                               ║
 ║                                                              ║
 ║  🛡️ *الأدوات المتاحة:*                                       ║
 ║  ┌────────────────────────────────────────────────────┐    ║
@@ -708,12 +745,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ║  • `/donate 4111111111111111|12|2025|123`                  ║
 ║  • `/stripe 4111111111111111|12|2025|123`                  ║
 ║  • `/melhair 4111111111111111|12|2025|123`                 ║
-║  • `/Checker 4111111111111111|12|2025|123`                    ║
+║  • `/Checker 4111111111111111|12|2025|123`                 ║
 ║                                                              ║
 ║  🎲 *توليد بطاقات:*                                         ║
 ║  • `/gen 411111 10` - توليد 10 بطاقات من BIN 411111        ║
 ║  • `/gen 411111` - توليد 5 بطاقات (افتراضي)                ║
 ║  • ثم اختر من قائمة التوليد للأرقام الجاهزة                 ║
+║                                                              ║
+║  📂 *اختيار ملف:*                                           ║
+║  • استخدم زر "📂 اختيار ملف" لاختيار ملف txt للفحص         ║
+║  • أو أرسل أي ملف txt مباشرة                                ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 
@@ -758,7 +799,7 @@ async def check_single_card_command(update: Update, context: ContextTypes.DEFAUL
     )
     
     # فحص البطاقة
-    status, msg = check_single_card(tool_id, cc_line)
+    status, msg = check_single_card(tool_id, cc_line, "manual_command")
     
     # إرسال النتيجة
     result_emoji = "✅" if status == "APPROVED" else "❌" if status == "DECLINED" else "⚠️"
@@ -818,10 +859,6 @@ async def generate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open(filename, "w", encoding="utf-8") as f:
         f.write("\n".join(cards))
     
-    # حفظ كـ abood.txt للفحص
-    with open("abood.txt", "w", encoding="utf-8") as f:
-        f.write("\n".join(cards))
-    
     # إرسال النتيجة
     preview = "\n".join(cards[:5])
     if len(cards) > 5:
@@ -835,9 +872,9 @@ async def generate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📝 *نموذج البطاقات:*
 `{preview}`
 
-✅ *تم حفظ البطاقات في ملف abood.txt للفحص*
-
-⚡ يمكنك الآن تشغيل أي أداة من القائمة لفحصها!
+⚡ يمكنك الآن:
+• اختيار هذا الملف من قائمة "📂 اختيار ملف"
+• أو استخدام أمر /auth لفحص بطاقة واحدة
 """
     
     await update.message.reply_text(
@@ -880,14 +917,16 @@ async def cleanup_user_files(update: Update, context: ContextTypes.DEFAULT_TYPE,
             files_deleted += 1
             deleted_files_list.append("all_results.txt")
     
-    if cleanup_type == "abood" or cleanup_type == "all":
-        # ملف abood.txt
-        if os.path.exists("abood.txt"):
-            size = os.path.getsize("abood.txt")
-            space_freed += size
-            os.remove("abood.txt")
-            files_deleted += 1
-            deleted_files_list.append("abood.txt")
+    if cleanup_type == "all_txt" or cleanup_type == "all":
+        # حذف جميع ملفات txt التي تم رفعها (عدا ملفات النتائج)
+        txt_files = get_txt_files()
+        for filename in txt_files:
+            if os.path.exists(filename):
+                size = os.path.getsize(filename)
+                space_freed += size
+                os.remove(filename)
+                files_deleted += 1
+                deleted_files_list.append(filename)
     
     if cleanup_type == "temp" or cleanup_type == "all":
         # الملفات المؤقتة
@@ -918,9 +957,12 @@ async def cleanup_user_files(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     total_size += os.path.getsize(filename)
                     file_count += 1
         
-        if os.path.exists("abood.txt"):
-            total_size += os.path.getsize("abood.txt")
-            file_count += 1
+        # ملفات txt الأخرى
+        txt_files = get_txt_files()
+        for filename in txt_files:
+            if os.path.exists(filename):
+                total_size += os.path.getsize(filename)
+                file_count += 1
         
         if os.path.exists("all_results.txt"):
             total_size += os.path.getsize("all_results.txt")
@@ -1011,12 +1053,55 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    global stop_checking, active_tools, tool_threads
+    global stop_checking, active_tools, tool_threads, current_file_in_use
     
     # ========== القوائم الرئيسية ==========
     if query.data == "back_to_main":
         await query.edit_message_text(
             text="🔍 *القائمة الرئيسية*\nاختر الأداة التي تريد تشغيلها:",
+            parse_mode='Markdown',
+            reply_markup=get_main_keyboard()
+        )
+    
+    # ========== قائمة اختيار الملفات ==========
+    elif query.data == "select_file_menu":
+        txt_files = get_txt_files()
+        if txt_files:
+            file_list = "\n".join([f"• `{f}`" for f in txt_files[:10]])
+            if len(txt_files) > 10:
+                file_list += f"\n• ... و {len(txt_files)-10} ملفات أخرى"
+            
+            await query.edit_message_text(
+                text=f"📂 *اختر ملف للفحص*\n\n"
+                     f"الملفات المتوفرة:\n{file_list}\n\n"
+                     f"اختر ملف من القائمة أدناه:",
+                parse_mode='Markdown',
+                reply_markup=get_file_selection_keyboard()
+            )
+        else:
+            await query.edit_message_text(
+                text="📭 *لا توجد ملفات txt للفحص*\n\n"
+                     "يمكنك:\n"
+                     "• إرسال ملف txt مباشرة\n"
+                     "• استخدام /gen لتوليد بطاقات جديدة",
+                parse_mode='Markdown',
+                reply_markup=get_main_keyboard()
+            )
+    
+    elif query.data == "refresh_files":
+        txt_files = get_txt_files()
+        await query.edit_message_text(
+            text=f"📂 *تم تحديث القائمة*\nعدد الملفات: {len(txt_files)}",
+            parse_mode='Markdown',
+            reply_markup=get_file_selection_keyboard()
+        )
+    
+    elif query.data.startswith("select_file_"):
+        filename = query.data.replace("select_file_", "")
+        context.user_data['selected_file'] = filename
+        await query.edit_message_text(
+            text=f"✅ *تم اختيار الملف:* `{filename}`\n\n"
+                 f"الآن يمكنك تشغيل أي أداة لفحص هذا الملف",
             parse_mode='Markdown',
             reply_markup=get_main_keyboard()
         )
@@ -1027,6 +1112,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tool = TOOLS[tool_id]
         status = "🟢 نشط" if tool['active'] else "🔴 متوقف"
         
+        selected_file = context.user_data.get('selected_file', 'لم يتم اختيار ملف')
+        
         info_msg = f"""
 {tool['icon']} *{tool['name']}* {tool['icon']}
 ═══════════════════════════════
@@ -1036,6 +1123,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✅ *نسبة النجاح:* {tool['success_rate']}
 🔧 *المتطلبات:* {tool['requirements']}
 📊 *الحالة:* {status}
+📂 *الملف المختار:* `{selected_file}`
 🔑 *الأمر:* /{tool['cmd']}
 
 📁 *الإحصائيات الحالية:*
@@ -1051,8 +1139,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif query.data == "menu_all_tools":
+        selected_file = context.user_data.get('selected_file', 'لم يتم اختيار ملف')
         await query.edit_message_text(
-            text="⚡ *التحكم بجميع الأدوات*\nيمكنك تشغيل أو إيقاف جميع الأدوات دفعة واحدة:",
+            text=f"⚡ *التحكم بجميع الأدوات*\n"
+                 f"📂 الملف المختار: `{selected_file}`\n\n"
+                 f"يمكنك تشغيل أو إيقاف جميع الأدوات دفعة واحدة:",
             parse_mode='Markdown',
             reply_markup=get_all_tools_keyboard()
         )
@@ -1061,11 +1152,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data.startswith("start_tool"):
         tool_id = query.data.replace("start_", "")
         
-        if not os.path.exists("abood.txt"):
+        # التحقق من وجود ملف مختار
+        selected_file = context.user_data.get('selected_file')
+        if not selected_file or not os.path.exists(selected_file):
             await query.edit_message_text(
-                text="❌ *ملف abood.txt غير موجود*\nالرجاء إرسال الملف أولاً أو استخدام /gen لتوليد بطاقات",
+                text="❌ *لم يتم اختيار ملف للفحص*\n"
+                     "الرجاء اختيار ملف أولاً من قائمة '📂 اختيار ملف'",
                 parse_mode='Markdown',
-                reply_markup=get_main_keyboard()
+                reply_markup=get_file_selection_keyboard()
             )
             return
         
@@ -1077,9 +1171,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # قراءة البطاقات
-        with open("abood.txt", "r", encoding='utf-8', errors='ignore') as f:
-            cards = [l.strip() for l in f.readlines() if l.strip()]
+        # قراءة البطاقات من الملف المختار
+        try:
+            with open(selected_file, "r", encoding='utf-8', errors='ignore') as f:
+                cards = [l.strip() for l in f.readlines() if l.strip()]
+        except Exception as e:
+            await query.edit_message_text(
+                text=f"❌ خطأ في قراءة الملف: {str(e)[:100]}",
+                parse_mode='Markdown',
+                reply_markup=get_main_keyboard()
+            )
+            return
         
         if not cards:
             await query.edit_message_text(
@@ -1090,14 +1192,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         await query.edit_message_text(
-            text=f"🔄 *جاري تشغيل {TOOLS[tool_id]['name']}...*\nسيتم فحص {len(cards)} بطاقة",
+            text=f"🔄 *جاري تشغيل {TOOLS[tool_id]['name']}...*\n"
+                 f"📂 الملف: {selected_file}\n"
+                 f"📁 عدد البطاقات: {len(cards)}",
             parse_mode='Markdown'
         )
         
         # تشغيل الأداة في ثريد منفصل
         thread = threading.Thread(
             target=run_tool,
-            args=(tool_id, query.message.chat_id, context.bot, cards)
+            args=(tool_id, query.message.chat_id, context.bot, cards, selected_file)
         )
         thread.daemon = True
         thread.start()
@@ -1115,19 +1219,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # ========== تشغيل جميع الأدوات ==========
     elif query.data == "start_all":
-        if not os.path.exists("abood.txt"):
+        # التحقق من وجود ملف مختار
+        selected_file = context.user_data.get('selected_file')
+        if not selected_file or not os.path.exists(selected_file):
             await query.edit_message_text(
-                text="❌ *ملف abood.txt غير موجود*\nالرجاء إرسال الملف أولاً أو استخدام /gen لتوليد بطاقات",
+                text="❌ *لم يتم اختيار ملف للفحص*\n"
+                     "الرجاء اختيار ملف أولاً من قائمة '📂 اختيار ملف'",
+                parse_mode='Markdown',
+                reply_markup=get_file_selection_keyboard()
+            )
+            return
+        
+        try:
+            with open(selected_file, "r", encoding='utf-8', errors='ignore') as f:
+                cards = [l.strip() for l in f.readlines() if l.strip()]
+        except Exception as e:
+            await query.edit_message_text(
+                text=f"❌ خطأ في قراءة الملف: {str(e)[:100]}",
                 parse_mode='Markdown',
                 reply_markup=get_main_keyboard()
             )
             return
         
-        with open("abood.txt", "r", encoding='utf-8', errors='ignore') as f:
-            cards = [l.strip() for l in f.readlines() if l.strip()]
-        
         await query.edit_message_text(
-            text=f"🔄 *جاري تشغيل جميع الأدوات ({len(TOOLS)} أدوات)*\nسيتم فحص {len(cards)} بطاقة بكل أداة",
+            text=f"🔄 *جاري تشغيل جميع الأدوات ({len(TOOLS)} أدوات)*\n"
+                 f"📂 الملف: {selected_file}\n"
+                 f"📁 عدد البطاقات: {len(cards)}",
             parse_mode='Markdown'
         )
         
@@ -1136,7 +1253,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not TOOLS[tool_id]['active']:
                 thread = threading.Thread(
                     target=run_tool,
-                    args=(tool_id, query.message.chat_id, context.bot, cards)
+                    args=(tool_id, query.message.chat_id, context.bot, cards, selected_file)
                 )
                 thread.daemon = True
                 thread.start()
@@ -1184,6 +1301,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats_msg += f"║ ✅ الناجحة: {total_approved}              ║\n"
         stats_msg += f"║ ❌ المرفوضة: {total_declined}              ║\n"
         stats_msg += f"║ ⚠️ الأخطاء: {total_errors}               ║\n"
+        stats_msg += f"║ 📂 الملف الحالي: {current_file_in_use or 'لا يوجد'} ║\n"
         stats_msg += "╚══════════════════════════════════╝"
         
         await query.edit_message_text(
@@ -1366,10 +1484,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(filename, "w", encoding="utf-8") as f:
             f.write("\n".join(cards))
         
-        # حفظ كـ abood.txt للفحص
-        with open("abood.txt", "w", encoding="utf-8") as f:
-            f.write("\n".join(cards))
-        
         preview = "\n".join(cards[:5])
         if len(cards) > 5:
             preview += f"\n... و {len(cards)-5} بطاقات أخرى"
@@ -1382,9 +1496,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📝 *نموذج البطاقات:*
 `{preview}`
 
-✅ *تم حفظ البطاقات في ملف abood.txt للفحص*
+✅ *تم حفظ البطاقات في ملف منفصل*
 
-⚡ يمكنك الآن تشغيل أي أداة من القائمة لفحصها!
+⚡ يمكنك الآن اختيار هذا الملف من قائمة "📂 اختيار ملف"
 """
         
         await query.edit_message_text(
@@ -1434,20 +1548,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ║                                                              ║
 ║  *📌 كيفية الاستخدام:*                                       ║
 ║  1️⃣ استخدم `/start` لبدء البوت                               ║
-║  2️⃣ أرسل ملف `abood.txt` بالصيغة المطلوبة أو استخدم `/gen`   ║
-║  3️⃣ اختر الأداة من القائمة أو استخدم الأوامر السريعة        ║
+║  2️⃣ أرسل أي ملف `.txt` أو استخدم `/gen` لتوليد بطاقات        ║
+║  3️⃣ اختر الملف من قائمة "📂 اختيار ملف"                      ║
+║  4️⃣ اختر الأداة من القائمة أو استخدم الأوامر السريعة        ║
 ║                                                              ║
 ║  *🔑 الأوامر السريعة:*                                       ║
 ║  • `/auth CC|MM|YYYY|CVV` - فحص باستخدام Original           ║
 ║  • `/donate CC|MM|YYYY|CVV` - فحص باستخدام Donation         ║
 ║  • `/stripe CC|MM|YYYY|CVV` - فحص باستخدام Stripe           ║
 ║  • `/melhair CC|MM|YYYY|CVV` - فحص باستخدام Melhair         ║
-║  • `/Checker CC|MM|YYYY|CVV` - فحص باستخدام Checker               ║
+║  • `/Checker CC|MM|YYYY|CVV` - فحص باستخدام Checker         ║
 ║                                                              ║
 ║  *🎲 توليد بطاقات:*                                          ║
 ║  • `/gen` - فتح قائمة التوليد                                ║
 ║  • `/gen 411111` - توليد 5 بطاقات من BIN 411111            ║
 ║  • `/gen 411111 20` - توليد 20 بطاقة من BIN 411111         ║
+║                                                              ║
+║  *📂 إدارة الملفات:*                                         ║
+║  • البوت يقبل أي ملف txt مهما كان اسمه                      ║
+║  • استخدم "📂 اختيار ملف" لاختيار ملف للفحص                  ║
+║  • الملفات تبقى محفوظة حتى تقوم بتنظيفها                    ║
 ║                                                              ║
 ║  *🧹 التنظيف:*                                               ║
 ║  • استخدم زر "🧹 تنظيف" من القائمة                          ║
@@ -1455,11 +1575,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ║                                                              ║
 ║  *🎯 مميزات النظام:*                                         ║
 ║  • 5 أدوات فحص مختلفة                                      ║
+║  • يدعم جميع ملفات .txt                                     ║
 ║  • تشغيل منفصل أو متزامن                                    ║
 ║  • إحصائيات مباشرة لكل أداة                                 ║
 ║  • ملفات نتائج منفصلة                                       ║
-║  • توليد بطاقات عشوائية                                     ║
-║  • تنظيف الملفات بسهولة                                     ║
+║  • تتبع الملف المستخدم حالياً                               ║
 ║                                                              ║
 ║  *⚠️ ملاحظات مهمة:*                                          ║
 ║  • صيغة الملف: CC|MM|YYYY|CVV                               ║
@@ -1473,27 +1593,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown',
             reply_markup=get_main_keyboard()
         )
-    
-    # ========== الإعدادات ==========
-    elif query.data == "settings":
-        settings_msg = f"""
-⚙️ *الإعدادات*
-═══════════════════
-🔧 قريباً... سيتم إضافة:
-• ضبط سرعة الفحص
-• اختيار الأدوات الافتراضية
-• تنسيق النتائج
-• إشعارات متقدمة
-• حفظ تفضيلات المستخدم"""
-        
-        await query.edit_message_text(
-            text=settings_msg,
-            parse_mode='Markdown',
-            reply_markup=get_main_keyboard()
-        )
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """استقبال الملفات"""
+    """استقبال الملفات - يدعم جميع أسماء ملفات txt"""
     
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
@@ -1510,38 +1612,49 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        if update.message.document.file_name.lower() != "abood.txt":
-            await update.message.reply_text(
-                "❌ اسم الملف يجب أن يكون `abood.txt` بالضبط",
-                parse_mode='Markdown',
-                reply_markup=get_main_keyboard()
-            )
-            return
+        # حفظ الملف باسمه الأصلي
+        original_filename = update.message.document.file_name
+        file_path = original_filename
         
-        temp_file_path = os.path.join(TEMP_DIR, f"abood_{user_id}_{int(time.time())}.txt")
-        await file.download_to_drive(temp_file_path)
-        shutil.copy2(temp_file_path, "abood.txt")
+        # إذا كان الملف موجوداً بالفعل، أضف رقم للملف
+        if os.path.exists(file_path):
+            base, ext = os.path.splitext(original_filename)
+            counter = 1
+            while os.path.exists(f"{base}_{counter}{ext}"):
+                counter += 1
+            file_path = f"{base}_{counter}{ext}"
         
-        with open("abood.txt", "r", encoding='utf-8', errors='ignore') as f:
+        await file.download_to_drive(file_path)
+        
+        # حفظ نسخة في المجلد المؤقت
+        temp_file_path = os.path.join(TEMP_DIR, f"{user_id}_{int(time.time())}_{original_filename}")
+        shutil.copy2(file_path, temp_file_path)
+        
+        # قراءة الملف لعرض ملخص
+        with open(file_path, "r", encoding='utf-8', errors='ignore') as f:
             lines = [l.strip() for l in f.readlines() if l.strip()]
         
         preview = "\n".join(lines[:5])
         if len(lines) > 5:
             preview += f"\n... و {len(lines)-5} بطاقات أخرى"
         
+        # تعيين هذا الملف كملف مختار تلقائياً
+        context.user_data['selected_file'] = file_path
+        
         success_msg = f"""
 ✅ *تم استلام الملف بنجاح!*
 ═══════════════════════
-📁 عدد البطاقات: {len(lines)}
+📁 اسم الملف: `{file_path}`
+📊 عدد البطاقات: {len(lines)}
 📝 نموذج من البطاقات:
 `{preview}`
+
+✅ *تم تعيين هذا الملف للفحص تلقائياً*
 
 ⚡ يمكنك الآن:
 • تشغيل أداة محددة من القائمة
 • تشغيل جميع الأدوات دفعة واحدة
-• متابعة الإحصائيات المباشرة
-• استخدام الأوامر السريعة: /auth, /donate, /stripe, /melhair, /Checker
-• توليد بطاقات إضافية باستخدام /gen
+• استخدام الأوامر السريعة
 """
         
         await update.message.reply_text(
@@ -1581,6 +1694,7 @@ def main():
     # طباعة البانر
     print_banner()
     print(f"{Fore.GREEN}🤖 جاري تشغيل البوت...{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}📂 يدعم جميع ملفات .txt للفحص{Style.RESET_ALL}")
     
     # إنشاء التطبيق
     application = Application.builder().token(BOT_TOKEN).build()
@@ -1606,8 +1720,7 @@ def main():
     
     # تشغيل البوت
     print(f"{Fore.GREEN}✅ البوت جاهز للعمل! متاح لجميع المستخدمين{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}🎲 ميزة توليد البطاقات مفعلة - استخدم /gen{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}🧹 ميزة التنظيف مفعلة - استخدم /cleanup أو زر التنظيف{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}📁 يمكنك إرسال أي ملف .txt للفحص{Style.RESET_ALL}")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
