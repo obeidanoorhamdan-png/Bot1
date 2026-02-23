@@ -49,9 +49,6 @@ BOT_TOKEN = "8375573526:AAFVj27YqwLI_na3YksvMcApJOopObTaIII"
 TEMP_DIR = "temp_files"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# ==================== تم إزالة نظام كلمة المرور ====================
-# البوت متاح لجميع المستخدمين بدون قيود
-
 # ==================== متغيرات عامة ====================
 checking_active = False
 stop_checking = False
@@ -152,7 +149,7 @@ TOOLS = {
         'requirements': 'حسابات سحابية',
         'color': Fore.YELLOW,
         'icon': '☁️',
-        'cmd': 'vast',
+        'cmd': 'Checker',
         'active': False,
         'stats': {
             'total': 0, 'checked': 0, 'approved': 0, 'declined': 0, 'errors': 0,
@@ -160,8 +157,6 @@ TOOLS = {
         }
     }
 }
-
-# ==================== تم إزالة دوال التحقق من الصلاحية ====================
 
 # ==================== دوال مساعدة ====================
 
@@ -193,6 +188,30 @@ def create_progress_bar(percentage, width=15):
     bar = '▓' * filled + '░' * (width - filled)
     return f"{bar} {percentage:.1f}%"
 
+def generate_card(bin_prefix):
+    """توليد بطاقة واحدة بناءً على BIN"""
+    # توليد رقم البطاقة (16 رقم)
+    cc = bin_prefix
+    while len(cc) < 16:
+        cc += str(random.randint(0, 9))
+    
+    # توليد شهر وسنة صالحة
+    month = str(random.randint(1, 12)).zfill(2)
+    current_year = datetime.now().year
+    year = str(random.randint(current_year + 1, current_year + 5))
+    
+    # توليد CVV
+    cvv = str(random.randint(100, 999))
+    
+    return f"{cc}|{month}|{year}|{cvv}"
+
+def generate_cards(bin_prefix, count):
+    """توليد عدد محدد من البطاقات"""
+    cards = []
+    for _ in range(count):
+        cards.append(generate_card(bin_prefix))
+    return cards
+
 # ==================== القوائم الرئيسية ====================
 
 def get_main_keyboard():
@@ -213,6 +232,10 @@ def get_main_keyboard():
         [
             InlineKeyboardButton("📊 الإحصائيات", callback_data="show_global_stats"),
             InlineKeyboardButton("📁 النتائج", callback_data="show_all_results")
+        ],
+        [
+            InlineKeyboardButton("🎲 توليد بطاقات", callback_data="generate_menu"),
+            InlineKeyboardButton("🧹 تنظيف", callback_data="cleanup_menu")
         ],
         [
             InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings"),
@@ -276,6 +299,42 @@ def get_results_keyboard():
             InlineKeyboardButton("📊 شامل", callback_data="get_combined_results")
         ],
         [
+            InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_generate_keyboard():
+    """قائمة توليد البطاقات"""
+    keyboard = [
+        [
+            InlineKeyboardButton("💳 فيزا", callback_data="gen_visa"),
+            InlineKeyboardButton("💳 ماستركارد", callback_data="gen_master")
+        ],
+        [
+            InlineKeyboardButton("💳 أمريكان إكسبريس", callback_data="gen_amex"),
+            InlineKeyboardButton("💳 ديسكفر", callback_data="gen_discover")
+        ],
+        [
+            InlineKeyboardButton("🔢 إدخال BIN يدوي", callback_data="gen_custom"),
+            InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_cleanup_keyboard():
+    """قائمة تنظيف الملفات"""
+    keyboard = [
+        [
+            InlineKeyboardButton("🧹 ملفات النتائج", callback_data="cleanup_results"),
+            InlineKeyboardButton("🧹 ملف abood.txt", callback_data="cleanup_abood")
+        ],
+        [
+            InlineKeyboardButton("🧹 الملفات المؤقتة", callback_data="cleanup_temp"),
+            InlineKeyboardButton("🧹 الكل", callback_data="cleanup_all")
+        ],
+        [
+            InlineKeyboardButton("📊 عرض الحجم", callback_data="cleanup_size"),
             InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
         ]
     ]
@@ -641,7 +700,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ║  │ 2. 💰 Donation - بوابة تبرعات                       ║
 ║  │ 3. 💳 Stripe (Forechrist) - بوابة Stripe            ║
 ║  │ 4. 🔷 Stripe (Melhair) - بوابة Stripe متكاملة       ║
-║  │ 5. ☁️ Checker - بوابة سحابية                   ║
+║  │ 5. ☁️ Checker - بوابة سحابية                        ║
 ║  └────────────────────────────────────────────────────┘    ║
 ║                                                              ║
 ║  ✨ *أوامر الفحص السريع:*                                   ║
@@ -650,6 +709,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ║  • `/stripe 4111111111111111|12|2025|123`                  ║
 ║  • `/melhair 4111111111111111|12|2025|123`                 ║
 ║  • `/Checker 4111111111111111|12|2025|123`                    ║
+║                                                              ║
+║  🎲 *توليد بطاقات:*                                         ║
+║  • `/gen 411111 10` - توليد 10 بطاقات من BIN 411111        ║
+║  • `/gen 411111` - توليد 5 بطاقات (افتراضي)                ║
+║  • ثم اختر من قائمة التوليد للأرقام الجاهزة                 ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 
@@ -711,6 +775,213 @@ async def check_single_card_command(update: Update, context: ContextTypes.DEFAUL
     await waiting_msg.edit_text(
         result_msg,
         parse_mode='Markdown'
+    )
+
+async def generate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر توليد البطاقات"""
+    args = context.args
+    
+    # إذا كان المستخدم أرسل الأمر بدون معاملات
+    if not args:
+        await update.message.reply_text(
+            "🎲 *قائمة توليد البطاقات*\n"
+            "اختر نوع البطاقة التي تريد توليدها:",
+            parse_mode='Markdown',
+            reply_markup=get_generate_keyboard()
+        )
+        return
+    
+    # إذا أرسل الأمر مع معاملات: /gen BIN [count]
+    bin_prefix = args[0]
+    
+    # التحقق من صحة BIN
+    if not bin_prefix.isdigit() or len(bin_prefix) < 6:
+        await update.message.reply_text(
+            "❌ *BIN غير صحيح!*\n"
+            "الرجاء إدخال BIN صحيح مكون من 6 أرقام على الأقل\n"
+            "مثال: `/gen 411111 10`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # تحديد عدد البطاقات
+    if len(args) >= 2 and args[1].isdigit():
+        count = min(int(args[1]), 100)  # حد أقصى 100 بطاقة
+    else:
+        count = 5  # العدد الافتراضي
+    
+    # توليد البطاقات
+    cards = generate_cards(bin_prefix, count)
+    
+    # حفظ في ملف
+    filename = f"generated_{bin_prefix}_{int(time.time())}.txt"
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write("\n".join(cards))
+    
+    # حفظ كـ abood.txt للفحص
+    with open("abood.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(cards))
+    
+    # إرسال النتيجة
+    preview = "\n".join(cards[:5])
+    if len(cards) > 5:
+        preview += f"\n... و {len(cards)-5} بطاقات أخرى"
+    
+    result_msg = f"""
+✅ *تم توليد {count} بطاقة بنجاح!*
+═══════════════════════
+🔢 *BIN:* `{bin_prefix}`
+📁 *الملف:* `{filename}`
+📝 *نموذج البطاقات:*
+`{preview}`
+
+✅ *تم حفظ البطاقات في ملف abood.txt للفحص*
+
+⚡ يمكنك الآن تشغيل أي أداة من القائمة لفحصها!
+"""
+    
+    await update.message.reply_text(
+        result_msg,
+        parse_mode='Markdown',
+        reply_markup=get_main_keyboard()
+    )
+    
+    # إرسال الملف للمستخدم
+    with open(filename, "rb") as f:
+        await update.message.reply_document(
+            document=f,
+            filename=filename,
+            caption=f"🎲 {count} بطاقة مولدة من BIN {bin_prefix}"
+        )
+
+async def cleanup_user_files(update: Update, context: ContextTypes.DEFAULT_TYPE, cleanup_type="all"):
+    """تنظيف ملفات المستخدم"""
+    user_id = update.effective_user.id
+    files_deleted = 0
+    space_freed = 0
+    deleted_files_list = []
+    
+    if cleanup_type == "results" or cleanup_type == "all":
+        # ملفات النتائج
+        for tool_id in TOOLS.keys():
+            for file_type in ['approved', 'declined', 'errors']:
+                filename = f"{file_type}_{tool_id}.txt"
+                if os.path.exists(filename):
+                    size = os.path.getsize(filename)
+                    space_freed += size
+                    os.remove(filename)
+                    files_deleted += 1
+                    deleted_files_list.append(filename)
+        
+        if os.path.exists("all_results.txt"):
+            size = os.path.getsize("all_results.txt")
+            space_freed += size
+            os.remove("all_results.txt")
+            files_deleted += 1
+            deleted_files_list.append("all_results.txt")
+    
+    if cleanup_type == "abood" or cleanup_type == "all":
+        # ملف abood.txt
+        if os.path.exists("abood.txt"):
+            size = os.path.getsize("abood.txt")
+            space_freed += size
+            os.remove("abood.txt")
+            files_deleted += 1
+            deleted_files_list.append("abood.txt")
+    
+    if cleanup_type == "temp" or cleanup_type == "all":
+        # الملفات المؤقتة
+        for temp_file in Path(TEMP_DIR).glob("*.txt"):
+            size = temp_file.stat().st_size
+            space_freed += size
+            temp_file.unlink()
+            files_deleted += 1
+            deleted_files_list.append(str(temp_file))
+        
+        # ملفات generated
+        for gen_file in Path(".").glob("generated_*.txt"):
+            size = gen_file.stat().st_size
+            space_freed += size
+            gen_file.unlink()
+            files_deleted += 1
+            deleted_files_list.append(str(gen_file))
+    
+    if cleanup_type == "size":
+        # حساب حجم الملفات فقط بدون حذف
+        total_size = 0
+        file_count = 0
+        
+        for tool_id in TOOLS.keys():
+            for file_type in ['approved', 'declined', 'errors']:
+                filename = f"{file_type}_{tool_id}.txt"
+                if os.path.exists(filename):
+                    total_size += os.path.getsize(filename)
+                    file_count += 1
+        
+        if os.path.exists("abood.txt"):
+            total_size += os.path.getsize("abood.txt")
+            file_count += 1
+        
+        if os.path.exists("all_results.txt"):
+            total_size += os.path.getsize("all_results.txt")
+            file_count += 1
+        
+        for temp_file in Path(TEMP_DIR).glob("*.txt"):
+            total_size += temp_file.stat().st_size
+            file_count += 1
+        
+        for gen_file in Path(".").glob("generated_*.txt"):
+            total_size += gen_file.stat().st_size
+            file_count += 1
+        
+        size_kb = total_size / 1024
+        size_mb = size_kb / 1024
+        
+        if size_mb >= 1:
+            size_str = f"{size_mb:.2f} MB"
+        else:
+            size_str = f"{size_kb:.2f} KB"
+        
+        await update.message.reply_text(
+            f"📊 *حجم الملفات الحالي*\n"
+            f"═══════════════════\n"
+            f"📁 عدد الملفات: {file_count}\n"
+            f"💾 الحجم الإجمالي: {size_str}",
+            parse_mode='Markdown',
+            reply_markup=get_cleanup_keyboard()
+        )
+        return
+    
+    # إعادة تعيين الإحصائيات إذا تم حذف كل شيء
+    if cleanup_type == "all":
+        for tool_id in TOOLS.keys():
+            TOOLS[tool_id]['stats'] = {
+                'total': 0, 'checked': 0, 'approved': 0, 'declined': 0, 'errors': 0,
+                'start_time': 0, 'current_card': 0, 'total_cards': 0
+            }
+    
+    # تحويل المساحة المحررة إلى KB/MB
+    space_kb = space_freed / 1024
+    space_mb = space_kb / 1024
+    
+    if space_mb >= 1:
+        space_str = f"{space_mb:.2f} MB"
+    else:
+        space_str = f"{space_kb:.2f} KB"
+    
+    # قائمة الملفات المحذوفة (مختصرة)
+    files_list = "\n".join([f"• {f}" for f in deleted_files_list[:10]])
+    if len(deleted_files_list) > 10:
+        files_list += f"\n• ... و {len(deleted_files_list)-10} ملفات أخرى"
+    
+    await update.message.reply_text(
+        f"🧹 *تم التنظيف بنجاح!*\n"
+        f"═══════════════════\n"
+        f"📁 عدد الملفات المحذوفة: {files_deleted}\n"
+        f"💾 المساحة المحررة: {space_str}\n\n"
+        f"📋 الملفات المحذوفة:\n{files_list}",
+        parse_mode='Markdown',
+        reply_markup=get_main_keyboard()
     )
 
 # ==================== معالجات الأوامر ====================
@@ -792,7 +1063,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not os.path.exists("abood.txt"):
             await query.edit_message_text(
-                text="❌ *ملف abood.txt غير موجود*\nالرجاء إرسال الملف أولاً",
+                text="❌ *ملف abood.txt غير موجود*\nالرجاء إرسال الملف أولاً أو استخدام /gen لتوليد بطاقات",
                 parse_mode='Markdown',
                 reply_markup=get_main_keyboard()
             )
@@ -846,7 +1117,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "start_all":
         if not os.path.exists("abood.txt"):
             await query.edit_message_text(
-                text="❌ *ملف abood.txt غير موجود*",
+                text="❌ *ملف abood.txt غير موجود*\nالرجاء إرسال الملف أولاً أو استخدام /gen لتوليد بطاقات",
                 parse_mode='Markdown',
                 reply_markup=get_main_keyboard()
             )
@@ -1050,6 +1321,110 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=get_results_keyboard()
             )
     
+    # ========== قائمة توليد البطاقات ==========
+    elif query.data == "generate_menu":
+        await query.edit_message_text(
+            text="🎲 *توليد بطاقات*\nاختر نوع البطاقة أو أدخل BIN يدوي:",
+            parse_mode='Markdown',
+            reply_markup=get_generate_keyboard()
+        )
+    
+    # ========== توليد بطاقات من BINs معروفة ==========
+    elif query.data.startswith("gen_"):
+        if query.data == "gen_visa":
+            bin_prefix = "411111"
+            bin_name = "فيزا"
+        elif query.data == "gen_master":
+            bin_prefix = "555555"
+            bin_name = "ماستركارد"
+        elif query.data == "gen_amex":
+            bin_prefix = "340000"
+            bin_name = "أمريكان إكسبريس"
+        elif query.data == "gen_discover":
+            bin_prefix = "601100"
+            bin_name = "ديسكفر"
+        elif query.data == "gen_custom":
+            await query.edit_message_text(
+                text="🔢 *إدخال BIN يدوي*\n"
+                     "الرجاء إرسال BIN الذي تريد استخدامه:\n"
+                     "مثال: `411111`\n\n"
+                     "يمكنك أيضاً إرسال الأمر:\n"
+                     "`/gen 411111 20` لتوليد 20 بطاقة",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 رجوع", callback_data="generate_menu")
+                ]])
+            )
+            return
+        
+        # توليد 10 بطاقات افتراضياً
+        count = 10
+        cards = generate_cards(bin_prefix, count)
+        
+        # حفظ في ملف
+        filename = f"generated_{bin_prefix}_{int(time.time())}.txt"
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write("\n".join(cards))
+        
+        # حفظ كـ abood.txt للفحص
+        with open("abood.txt", "w", encoding="utf-8") as f:
+            f.write("\n".join(cards))
+        
+        preview = "\n".join(cards[:5])
+        if len(cards) > 5:
+            preview += f"\n... و {len(cards)-5} بطاقات أخرى"
+        
+        result_msg = f"""
+✅ *تم توليد {count} بطاقة {bin_name} بنجاح!*
+═══════════════════════
+🔢 *BIN:* `{bin_prefix}`
+📁 *الملف:* `{filename}`
+📝 *نموذج البطاقات:*
+`{preview}`
+
+✅ *تم حفظ البطاقات في ملف abood.txt للفحص*
+
+⚡ يمكنك الآن تشغيل أي أداة من القائمة لفحصها!
+"""
+        
+        await query.edit_message_text(
+            text=result_msg,
+            parse_mode='Markdown',
+            reply_markup=get_main_keyboard()
+        )
+        
+        # إرسال الملف للمستخدم
+        with open(filename, "rb") as f:
+            await context.bot.send_document(
+                chat_id=query.message.chat_id,
+                document=f,
+                filename=filename,
+                caption=f"🎲 {count} بطاقة {bin_name} مولدة من BIN {bin_prefix}"
+            )
+    
+    # ========== قائمة التنظيف ==========
+    elif query.data == "cleanup_menu":
+        await query.edit_message_text(
+            text="🧹 *تنظيف الملفات*\nاختر نوع الملفات التي تريد تنظيفها:",
+            parse_mode='Markdown',
+            reply_markup=get_cleanup_keyboard()
+        )
+    
+    # ========== تنظيف الملفات ==========
+    elif query.data.startswith("cleanup_"):
+        cleanup_type = query.data.replace("cleanup_", "")
+        
+        if cleanup_type == "menu":
+            return
+        
+        await query.edit_message_text(
+            text=f"🧹 *جاري تنظيف الملفات...*",
+            parse_mode='Markdown'
+        )
+        
+        # تنفيذ التنظيف
+        await cleanup_user_files(update, context, cleanup_type)
+    
     # ========== المساعدة ==========
     elif query.data == "help":
         help_msg = f"""
@@ -1059,7 +1434,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ║                                                              ║
 ║  *📌 كيفية الاستخدام:*                                       ║
 ║  1️⃣ استخدم `/start` لبدء البوت                               ║
-║  2️⃣ أرسل ملف `abood.txt` بالصيغة المطلوبة                   ║
+║  2️⃣ أرسل ملف `abood.txt` بالصيغة المطلوبة أو استخدم `/gen`   ║
 ║  3️⃣ اختر الأداة من القائمة أو استخدم الأوامر السريعة        ║
 ║                                                              ║
 ║  *🔑 الأوامر السريعة:*                                       ║
@@ -1067,18 +1442,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ║  • `/donate CC|MM|YYYY|CVV` - فحص باستخدام Donation         ║
 ║  • `/stripe CC|MM|YYYY|CVV` - فحص باستخدام Stripe           ║
 ║  • `/melhair CC|MM|YYYY|CVV` - فحص باستخدام Melhair         ║
-║  • `/Checker CC|MM|YYYY|CVV` - فحص باستخدام Checker        ║
+║  • `/Checker CC|MM|YYYY|CVV` - فحص باستخدام Checker               ║
+║                                                              ║
+║  *🎲 توليد بطاقات:*                                          ║
+║  • `/gen` - فتح قائمة التوليد                                ║
+║  • `/gen 411111` - توليد 5 بطاقات من BIN 411111            ║
+║  • `/gen 411111 20` - توليد 20 بطاقة من BIN 411111         ║
+║                                                              ║
+║  *🧹 التنظيف:*                                               ║
+║  • استخدم زر "🧹 تنظيف" من القائمة                          ║
+║  • أو استخدم `/cleanup` لتنظيف كل الملفات                   ║
 ║                                                              ║
 ║  *🎯 مميزات النظام:*                                         ║
 ║  • 5 أدوات فحص مختلفة                                      ║
 ║  • تشغيل منفصل أو متزامن                                    ║
 ║  • إحصائيات مباشرة لكل أداة                                 ║
 ║  • ملفات نتائج منفصلة                                       ║
-║  • متاح لجميع المستخدمين بدون كلمة مرور                     ║
+║  • توليد بطاقات عشوائية                                     ║
+║  • تنظيف الملفات بسهولة                                     ║
 ║                                                              ║
 ║  *⚠️ ملاحظات مهمة:*                                          ║
 ║  • صيغة الملف: CC|MM|YYYY|CVV                               ║
 ║  • انتظر بين البطاقات (5-10 ثواني)                          ║
+║  • استخدم `/cleanup` لتنظيف الملفات بانتظام                 ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝"""
         
@@ -1097,7 +1483,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • ضبط سرعة الفحص
 • اختيار الأدوات الافتراضية
 • تنسيق النتائج
-• إشعارات متقدمة"""
+• إشعارات متقدمة
+• حفظ تفضيلات المستخدم"""
         
         await query.edit_message_text(
             text=settings_msg,
@@ -1153,7 +1540,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • تشغيل أداة محددة من القائمة
 • تشغيل جميع الأدوات دفعة واحدة
 • متابعة الإحصائيات المباشرة
-• استخدام الأوامر السريعة: /auth, /donate, /stripe, /melhair, /Checker"""
+• استخدام الأوامر السريعة: /auth, /donate, /stripe, /melhair, /Checker
+• توليد بطاقات إضافية باستخدام /gen
+"""
         
         await update.message.reply_text(
             success_msg,
@@ -1172,40 +1561,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await button_handler(update, context)
 
 async def cleanup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تنظيف الملفات"""
-    
-    files_deleted = 0
-    for tool_id in TOOLS.keys():
-        for file_type in ['approved', 'declined', 'errors']:
-            filename = f"{file_type}_{tool_id}.txt"
-            if os.path.exists(filename):
-                os.remove(filename)
-                files_deleted += 1
-    
-    if os.path.exists("abood.txt"):
-        os.remove("abood.txt")
-        files_deleted += 1
-    
-    if os.path.exists("all_results.txt"):
-        os.remove("all_results.txt")
-        files_deleted += 1
-    
-    for temp_file in Path(TEMP_DIR).glob("*.txt"):
-        temp_file.unlink()
-        files_deleted += 1
-    
-    # إعادة تعيين الإحصائيات
-    for tool_id in TOOLS.keys():
-        TOOLS[tool_id]['stats'] = {
-            'total': 0, 'checked': 0, 'approved': 0, 'declined': 0, 'errors': 0,
-            'start_time': 0, 'current_card': 0, 'total_cards': 0
-        }
-    
-    await update.message.reply_text(
-        f"🧹 *تم تنظيف {files_deleted} ملف/ملفات*",
-        parse_mode='Markdown',
-        reply_markup=get_main_keyboard()
-    )
+    """أمر تنظيف الملفات"""
+    await cleanup_user_files(update, context, "all")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر المساعدة"""
@@ -1234,6 +1591,9 @@ def main():
     application.add_handler(CommandHandler("cleanup", cleanup_command))
     application.add_handler(CommandHandler("help", help_command))
     
+    # أوامر توليد البطاقات
+    application.add_handler(CommandHandler("gen", generate_command))
+    
     # أوامر الفحص السريع
     application.add_handler(CommandHandler("auth", auth_command))
     application.add_handler(CommandHandler("donate", donate_command))
@@ -1246,6 +1606,8 @@ def main():
     
     # تشغيل البوت
     print(f"{Fore.GREEN}✅ البوت جاهز للعمل! متاح لجميع المستخدمين{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}🎲 ميزة توليد البطاقات مفعلة - استخدم /gen{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}🧹 ميزة التنظيف مفعلة - استخدم /cleanup أو زر التنظيف{Style.RESET_ALL}")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
