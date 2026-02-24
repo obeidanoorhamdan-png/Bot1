@@ -163,13 +163,11 @@ TOOLS = {
 
 def print_banner():
     print(Fore.RED + Style.BRIGHT + """
-  ╔══════════════════════════════════════════════════════════════╗
-  ║                                                              ║
-  ║           🔥 OBEIDA MULTI-TOOL CARD CHECKER 🔥              ║
-  ║                                                              ║
-  ║       5 أدوات فحص احترافية | تشغيل متزامن | تقارير مباشرة   ║
-  ║         يدعم جميع ملفات .txt | فحص ملفات متعددة             ║
-  ╚══════════════════════════════════════════════════════════════╝
+                                                              
+            🔥 OBEIDA MULTI-TOOL CARD CHECKER 🔥              
+                                                                
+         5 أدوات فحص احترافية | تشغيل متزامن | تقارير مباشرة   
+          يدعم جميع ملفات .txt | فحص ملفات متعددة            
 """ + Style.RESET_ALL)
 
 def generate_random_data():
@@ -623,15 +621,14 @@ def run_tool(tool_id, chat_id, bot, cards, source_file):
     
     # إرسال رسالة بدء التشغيل
     start_msg = f"""
-╔══════════════════════════════════╗
-║   {tool['icon']} *{tool['name']}* {tool['icon']}   ║
-╠══════════════════════════════════╣
-║ 📊 نوع البوابة: {tool['type']}    ║
-║ 📁 عدد البطاقات: {len(cards)}     ║
-║ 📂 الملف المصدر: {source_file}    ║
-║ ⚡ السرعة: {tool['speed']}         ║
-║ ✅ نسبة النجاح: {tool['success_rate']}   ║
-╚══════════════════════════════════╝"""
+   {tool['icon']} *{tool['name']}* {tool['icon']}   
+
+ 📊 نوع البوابة: {tool['type']}    
+ 📁 عدد البطاقات: {len(cards)}     
+ 📂 الملف المصدر: {source_file}    
+ ⚡ السرعة: {tool['speed']}         
+ ✅ نسبة النجاح: {tool['success_rate']}  
+"""
     
     asyncio.run_coroutine_threadsafe(
         bot.send_message(chat_id=chat_id, text=start_msg, parse_mode='Markdown'),
@@ -693,19 +690,18 @@ def run_tool(tool_id, chat_id, bot, cards, source_file):
     # إرسال النتيجة النهائية
     elapsed = time.time() - tool['stats']['start_time']
     final_msg = f"""
-╔══════════════════════════════════╗
-║   {tool['icon']} *اكتمل فحص {tool['name']}* {tool['icon']}   ║
-╠══════════════════════════════════╣
-║ 📊 *النتائج النهائية:*            ║
-╠══════════════════════════════════╣
-║ 📁 الإجمالي: {tool['stats']['total']}              ║
-║ ✅ الناجحة: {tool['stats']['approved']}              ║
-║ ❌ المرفوضة: {tool['stats']['declined']}              ║
-║ ⚠️ الأخطاء: {tool['stats']['errors']}              ║
-║ 📂 الملف: {source_file}           ║
-╠══════════════════════════════════╣
-║ ⏱️ الوقت: {format_time(elapsed)}              ║
-╚══════════════════════════════════╝"""
+   {tool['icon']} *اكتمل فحص {tool['name']}* {tool['icon']}  
+
+ 📊 *النتائج النهائية:*       
+
+ 📁 الإجمالي: {tool['stats']['total']}    
+ ✅ الناجحة: {tool['stats']['approved']}      
+ ❌ المرفوضة: {tool['stats']['declined']}    
+ ⚠️ الأخطاء: {tool['stats']['errors']}      
+ 📂 الملف: {source_file}    
+
+ ⏱️ الوقت: {format_time(elapsed)}        
+"""
     
     asyncio.run_coroutine_threadsafe(
         bot.send_message(chat_id=chat_id, text=final_msg, parse_mode='Markdown'),
@@ -721,42 +717,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """رسالة البدء - متاحة للجميع بدون كلمة مرور"""
     
     welcome_msg = f"""
-╔══════════════════════════════════════════════════════════════╗
-║                    🔥 *مرحباً بك في* 🔥                      ║
-║              *نظام فحص البطاقات المتعدد v5.0*                ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  ✅ *البوت متاح لجميع المستخدمين بدون كلمة مرور!*            ║
-║                                                              ║
-║  📁 *أرسل أي ملف .txt* لبدء الفحص                           ║
-║  📂 *يدعم جميع أسماء الملفات*                               ║
-║                                                              ║
-║  🛡️ *الأدوات المتاحة:*                                       ║
-║  ┌────────────────────────────────────────────────────┐    ║
-║  │ 1. 🛡️ Original - بوابة دفع أصلية                    ║
-║  │ 2. 💰 Donation - بوابة تبرعات                       ║
-║  │ 3. 💳 Stripe (Forechrist) - بوابة Stripe            ║
-║  │ 4. 🔷 Stripe (Melhair) - بوابة Stripe متكاملة       ║
-║  │ 5. ☁️ Checker - بوابة سحابية                        ║
-║  └────────────────────────────────────────────────────┘    ║
-║                                                              ║
-║  ✨ *أوامر الفحص السريع:*                                   ║
-║  • `/auth 4111111111111111|12|2025|123`                    ║
-║  • `/donate 4111111111111111|12|2025|123`                  ║
-║  • `/stripe 4111111111111111|12|2025|123`                  ║
-║  • `/melhair 4111111111111111|12|2025|123`                 ║
-║  • `/Checker 4111111111111111|12|2025|123`                 ║
-║                                                              ║
-║  🎲 *توليد بطاقات:*                                         ║
-║  • `/gen 411111 10` - توليد 10 بطاقات من BIN 411111        ║
-║  • `/gen 411111` - توليد 5 بطاقات (افتراضي)                ║
-║  • ثم اختر من قائمة التوليد للأرقام الجاهزة                 ║
-║                                                              ║
-║  📂 *اختيار ملف:*                                           ║
-║  • استخدم زر "📂 اختيار ملف" لاختيار ملف txt للفحص         ║
-║  • أو أرسل أي ملف txt مباشرة                                ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝
+    
+                    🔥 *مرحباً بك في* 🔥                      
+              *نظام فحص البطاقات المتعدد v5.0*                
+                                                              
+  ✅ *البوت متاح لجميع المستخدمين بدون كلمة مرور!*            
+                                                              
+  📁 *أرسل أي ملف .txt* لبدء الفحص                           
+  📂 *يدعم جميع أسماء الملفات*                               
+                                                              
+  🛡️ *الأدوات المتاحة:*                                       
+  
+  │ 1. 🛡️ Original - بوابة دفع أصلية                    
+  │ 2. 💰 Donation - بوابة تبرعات                       
+  │ 3. 💳 Stripe (Forechrist) - بوابة Stripe            
+  │ 4. 🔷 Stripe (Melhair) - بوابة Stripe متكاملة       
+  │ 5. ☁️ Checker - بوابة سحابية                        
+
+                                                              
+  ✨ *أوامر الفحص السريع:*                                   
+  • `/auth 4111111111111111|12|2025|123`                    
+  • `/donate 4111111111111111|12|2025|123`                  
+  • `/stripe 4111111111111111|12|2025|123`                  
+  • `/melhair 4111111111111111|12|2025|123`                 
+  • `/Checker 4111111111111111|12|2025|123`                 
+                                                              
+  🎲 *توليد بطاقات:*                                         
+  • `/gen 411111 10` - توليد 10 بطاقات من BIN 411111        
+  • `/gen 411111` - توليد 5 بطاقات (افتراضي)                
+  • ثم اختر من قائمة التوليد للأرقام الجاهزة                 
+                                                              
+  📂 *اختيار ملف:*                                           
+  • استخدم زر "📂 اختيار ملف" لاختيار ملف txt للفحص         
+  • أو أرسل أي ملف txt مباشرة                                
+                                                              
 
 📝 *صيغة الملف المطلوبة:* `4111111111111111|12|2025|123`"""
     
@@ -805,7 +799,7 @@ async def check_single_card_command(update: Update, context: ContextTypes.DEFAUL
     result_emoji = "✅" if status == "APPROVED" else "❌" if status == "DECLINED" else "⚠️"
     result_msg = f"""
 {result_emoji} *نتيجة الفحص - {tool['name']}*
-═══════════════════════
+══════════════
 📌 *البطاقة:* `{cc_line[:20]}...`
 📊 *الحالة:* {status}
 💬 *الرسالة:* {msg}
@@ -866,7 +860,7 @@ async def generate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     result_msg = f"""
 ✅ *تم توليد {count} بطاقة بنجاح!*
-═══════════════════════
+══════════════
 🔢 *BIN:* `{bin_prefix}`
 📁 *الملف:* `{filename}`
 📝 *نموذج البطاقات:*
@@ -986,7 +980,7 @@ async def cleanup_user_files(update: Update, context: ContextTypes.DEFAULT_TYPE,
         
         await update.message.reply_text(
             f"📊 *حجم الملفات الحالي*\n"
-            f"═══════════════════\n"
+            f"═════════════\n"
             f"📁 عدد الملفات: {file_count}\n"
             f"💾 الحجم الإجمالي: {size_str}",
             parse_mode='Markdown',
@@ -1018,7 +1012,7 @@ async def cleanup_user_files(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     await update.message.reply_text(
         f"🧹 *تم التنظيف بنجاح!*\n"
-        f"═══════════════════\n"
+        f"════════════\n"
         f"📁 عدد الملفات المحذوفة: {files_deleted}\n"
         f"💾 المساحة المحررة: {space_str}\n\n"
         f"📋 الملفات المحذوفة:\n{files_list}",
@@ -1116,7 +1110,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         info_msg = f"""
 {tool['icon']} *{tool['name']}* {tool['icon']}
-═══════════════════════════════
+════════════════
 📌 *نوع البوابة:* {tool['type']}
 📝 *الوصف:* {tool['desc']}
 ⚡ *السرعة:* {tool['speed']}
@@ -1280,9 +1274,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_errors = 0
         active_count = 0
         
-        stats_msg = "╔══════════════════════════════════╗\n"
-        stats_msg += "║     📊 *الإحصائيات الشاملة*     ║\n"
-        stats_msg += "╠══════════════════════════════════╣\n"
+        stats_msg = " \n"
+        stats_msg += "     📊 *الإحصائيات الشاملة*     \n"
+        stats_msg += " \n"
         
         for tool_id, tool in TOOLS.items():
             total_cards += tool['stats']['total']
@@ -1292,17 +1286,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total_errors += tool['stats']['errors']
             if tool['active']:
                 active_count += 1
-            stats_msg += f"║ {tool['icon']} {tool['name'][:15]}...\n"
+            stats_msg += f" {tool['icon']} {tool['name'][:15]}...\n"
         
-        stats_msg += "╠══════════════════════════════════╣\n"
-        stats_msg += f"║ 🟢 الأدوات النشطة: {active_count}/5        ║\n"
-        stats_msg += f"║ 📁 إجمالي البطاقات: {total_cards}        ║\n"
-        stats_msg += f"║ ✅ تم الفحص: {total_checked}/{total_cards}        ║\n"
-        stats_msg += f"║ ✅ الناجحة: {total_approved}              ║\n"
-        stats_msg += f"║ ❌ المرفوضة: {total_declined}              ║\n"
-        stats_msg += f"║ ⚠️ الأخطاء: {total_errors}               ║\n"
-        stats_msg += f"║ 📂 الملف الحالي: {current_file_in_use or 'لا يوجد'} ║\n"
-        stats_msg += "╚══════════════════════════════════╝"
+        stats_msg += " \n"
+        stats_msg += f" 🟢 الأدوات النشطة: {active_count}/5        \n"
+        stats_msg += f" 📁 إجمالي البطاقات: {total_cards}        \n"
+        stats_msg += f" ✅ تم الفحص: {total_checked}/{total_cards}        \n"
+        stats_msg += f" ✅ الناجحة: {total_approved}              \n"
+        stats_msg += f" ❌ المرفوضة: {total_declined}              \n"
+        stats_msg += f" ⚠️ الأخطاء: {total_errors}               \n"
+        stats_msg += f" 📂 الملف الحالي: {current_file_in_use or 'لا يوجد'} \n"
+        stats_msg += " "
         
         await query.edit_message_text(
             text=stats_msg,
@@ -1318,7 +1312,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         stats_msg = f"""
 {tool['icon']} *إحصائيات {tool['name']}* {tool['icon']}
-═══════════════════════════════
+══════════════════
 📊 *الحالة:* {'🟢 نشط' if tool['active'] else '🔴 متوقف'}
 📁 *الإجمالي:* {tool['stats']['total']} بطاقة
 ✅ *تم الفحص:* {tool['stats']['checked']}
@@ -1346,7 +1340,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         info_msg = f"""
 {tool['icon']} *{tool['name']}* {tool['icon']}
-═══════════════════════════════
+═════════════════
 📌 *نوع البوابة:* {tool['type']}
 📝 *الوصف:* {tool['desc']}
 ⚙️ *طريقة العمل:* 
@@ -1450,10 +1444,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ========== توليد بطاقات من BINs معروفة ==========
     elif query.data.startswith("gen_"):
         if query.data == "gen_visa":
-            bin_prefix = "411111"
+            bin_prefix = "42588146"
             bin_name = "فيزا"
         elif query.data == "gen_master":
-            bin_prefix = "555555"
+            bin_prefix = "51546200"
             bin_name = "ماستركارد"
         elif query.data == "gen_amex":
             bin_prefix = "340000"
@@ -1490,7 +1484,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         result_msg = f"""
 ✅ *تم توليد {count} بطاقة {bin_name} بنجاح!*
-═══════════════════════
+══════════════
 🔢 *BIN:* `{bin_prefix}`
 📁 *الملف:* `{filename}`
 📝 *نموذج البطاقات:*
@@ -1542,51 +1536,48 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ========== المساعدة ==========
     elif query.data == "help":
         help_msg = f"""
-╔══════════════════════════════════════════════════════════════╗
-║                       ❓ *المساعدة* ❓                        ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  *📌 كيفية الاستخدام:*                                       ║
-║  1️⃣ استخدم `/start` لبدء البوت                               ║
-║  2️⃣ أرسل أي ملف `.txt` أو استخدم `/gen` لتوليد بطاقات        ║
-║  3️⃣ اختر الملف من قائمة "📂 اختيار ملف"                      ║
-║  4️⃣ اختر الأداة من القائمة أو استخدم الأوامر السريعة        ║
-║                                                              ║
-║  *🔑 الأوامر السريعة:*                                       ║
-║  • `/auth CC|MM|YYYY|CVV` - فحص باستخدام Original           ║
-║  • `/donate CC|MM|YYYY|CVV` - فحص باستخدام Donation         ║
-║  • `/stripe CC|MM|YYYY|CVV` - فحص باستخدام Stripe           ║
-║  • `/melhair CC|MM|YYYY|CVV` - فحص باستخدام Melhair         ║
-║  • `/Checker CC|MM|YYYY|CVV` - فحص باستخدام Checker         ║
-║                                                              ║
-║  *🎲 توليد بطاقات:*                                          ║
-║  • `/gen` - فتح قائمة التوليد                                ║
-║  • `/gen 411111` - توليد 5 بطاقات من BIN 411111            ║
-║  • `/gen 411111 20` - توليد 20 بطاقة من BIN 411111         ║
-║                                                              ║
-║  *📂 إدارة الملفات:*                                         ║
-║  • البوت يقبل أي ملف txt مهما كان اسمه                      ║
-║  • استخدم "📂 اختيار ملف" لاختيار ملف للفحص                  ║
-║  • الملفات تبقى محفوظة حتى تقوم بتنظيفها                    ║
-║                                                              ║
-║  *🧹 التنظيف:*                                               ║
-║  • استخدم زر "🧹 تنظيف" من القائمة                          ║
-║  • أو استخدم `/cleanup` لتنظيف كل الملفات                   ║
-║                                                              ║
-║  *🎯 مميزات النظام:*                                         ║
-║  • 5 أدوات فحص مختلفة                                      ║
-║  • يدعم جميع ملفات .txt                                     ║
-║  • تشغيل منفصل أو متزامن                                    ║
-║  • إحصائيات مباشرة لكل أداة                                 ║
-║  • ملفات نتائج منفصلة                                       ║
-║  • تتبع الملف المستخدم حالياً                               ║
-║                                                              ║
-║  *⚠️ ملاحظات مهمة:*                                          ║
-║  • صيغة الملف: CC|MM|YYYY|CVV                               ║
-║  • انتظر بين البطاقات (5-10 ثواني)                          ║
-║  • استخدم `/cleanup` لتنظيف الملفات بانتظام                 ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝"""
+                       ❓ *المساعدة* ❓                        
+                                                              
+  *📌 كيفية الاستخدام:*                   
+  1️⃣ استخدم `/start` لبدء البوت                
+  2️⃣ أرسل أي ملف `.txt` أو استخدم `/gen` لتوليد بطاقات        
+  3️⃣ اختر الملف من قائمة "📂 اختيار ملف"             
+  4️⃣ اختر الأداة من القائمة أو استخدم الأوامر السريعة        
+                                                              
+  *🔑 الأوامر السريعة:*                                       
+  • `/auth CC|MM|YYYY|CVV` - فحص باستخدام Original           
+  • `/donate CC|MM|YYYY|CVV` - فحص باستخدام Donation         
+  • `/stripe CC|MM|YYYY|CVV` - فحص باستخدام Stripe           
+  • `/melhair CC|MM|YYYY|CVV` - فحص باستخدام Melhair         
+  • `/Checker CC|MM|YYYY|CVV` - فحص باستخدام Checker         
+                                                              
+  *🎲 توليد بطاقات:*                                          
+  • `/gen` - فتح قائمة التوليد          
+  • `/gen 411111` - توليد 5 بطاقات من BIN 411111            
+  • `/gen 411111 20` - توليد 20 بطاقة من BIN 411111         
+                                     
+  *📂 إدارة الملفات:*             
+  • البوت يقبل أي ملف txt مهما كان اسمه      
+  • استخدم "📂 اختيار ملف" لاختيار ملف للفحص    
+  • الملفات تبقى محفوظة حتى تقوم بتنظيفها      
+                                                              
+  *🧹 التنظيف:*                
+  • استخدم زر "🧹 تنظيف" من القائمة            
+  • أو استخدم `/cleanup` لتنظيف كل الملفات      
+                                           
+  *🎯 مميزات النظام:*                
+  • 5 أدوات فحص مختلفة                   
+  • يدعم جميع ملفات .txt                  
+  • تشغيل منفصل أو متزامن              
+  • إحصائيات مباشرة لكل أداة              
+  • ملفات نتائج منفصلة                    
+  • تتبع الملف المستخدم حالياً               
+                                      
+  *⚠️ ملاحظات مهمة:*                                
+  • صيغة الملف: CC|MM|YYYY|CVV                               
+  • انتظر بين البطاقات (5-10 ثواني)                          
+  • استخدم `/cleanup` لتنظيف الملفات بانتظام                 
+                                        """
         
         await query.edit_message_text(
             text=help_msg,
@@ -1643,7 +1634,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         success_msg = f"""
 ✅ *تم استلام الملف بنجاح!*
-═══════════════════════
+═════════════
 📁 اسم الملف: `{file_path}`
 📊 عدد البطاقات: {len(lines)}
 📝 نموذج من البطاقات:
@@ -1720,7 +1711,7 @@ def main():
     
     # تشغيل البوت
     print(f"{Fore.GREEN}✅ البوت جاهز للعمل! متاح لجميع المستخدمين{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}📁 يمكنك إرسال أي ملف .txt للفحص{Style.RESET_ALL}")
+    
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
