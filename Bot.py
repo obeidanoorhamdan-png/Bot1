@@ -2941,7 +2941,7 @@ def main():
             })
             
             # انتظار قبل إعادة المحاولة
-            time.sleep(30)
+            time.sleep(180)
 
 if __name__ == "__main__":
     main()
