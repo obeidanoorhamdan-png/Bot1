@@ -1,4 +1,3 @@
-playwright
 python-telegram-bot
 requests
 aiohttp
@@ -8,4 +7,3 @@ pandas-ta
 scipy
 scikit-learn
 joblib
-websocket-client
