@@ -1,12 +1,11 @@
 playwright
 python-telegram-bot
 requests
-asyncio
+aiohttp
 numpy
 pandas
+pandas-ta
 scipy
 scikit-learn
-ta-lib
-aiohttp
-websocket-client
 joblib
+websocket-client
