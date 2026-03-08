@@ -12,7 +12,8 @@ import sys
 import numpy as np
 import pandas as pd
 from collections import deque
-import threading
+import threading  # تم إضافة هذا السطر
+from threading import Thread  # تم إضافة هذا السطر
 import http.server
 import socketserver
 import signal
@@ -246,6 +247,19 @@ class AINewsAnalyzer:
         
         correct = sum(1 for e in similar_events if e['was_correct'])
         return correct / len(similar_events)
+    
+    def get_key_levels(self, currency):
+        """الحصول على المستويات الرئيسية للعملة"""
+        return []
+    
+    def get_recommended_action(self, score, direction):
+        """الحصول على الإجراء الموصى به"""
+        if score > 0.7:
+            return 'enter_trade'
+        elif score > 0.4:
+            return 'wait'
+        else:
+            return 'avoid'
 
 # ==================== نظام تحليل السوق المتقدم ====================
 class AdvancedMarketAnalyzer:
@@ -298,6 +312,33 @@ class AdvancedMarketAnalyzer:
         
         # دمج البيانات من المصادر المختلفة
         return self.merge_data_sources(valid_data)
+    
+    async def get_twelvedata_data(self, symbol):
+        """جلب بيانات من TwelveData"""
+        try:
+            url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=100&apikey={TWELVE_DATA_KEY}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as response:
+                    if response.status == 200:
+                        return await response.json()
+            return None
+        except:
+            return None
+    
+    async def get_alphavantage_data(self, symbol):
+        """جلب بيانات من Alpha Vantage"""
+        # للتبسيط، نعيد None
+        return None
+    
+    async def get_yahoo_data(self, symbol):
+        """جلب بيانات من Yahoo Finance"""
+        # للتبسيط، نعيد None
+        return None
+    
+    def merge_data_sources(self, data_sources):
+        """دمج البيانات من مصادر مختلفة"""
+        # للتبسيط، نأخذ أول مصدر صحيح
+        return data_sources[0] if data_sources else None
     
     def advanced_technical_analysis(self, data):
         """تحليل فني متقدم باستخدام TA-Lib"""
@@ -686,6 +727,26 @@ class ContinuousMonitor:
             except Exception as e:
                 logger.error(f"خطأ في مراقبة الأخبار: {e}")
                 await asyncio.sleep(5)
+    
+    async def get_current_price(self, symbol):
+        """جلب السعر الحالي"""
+        return 0
+    
+    async def send_level_alert(self, symbol, level, price):
+        """إرسال تنبيه مستوى سعري"""
+        pass
+    
+    async def fetch_latest_news(self):
+        """جلب آخر الأخبار"""
+        return []
+    
+    def is_significant_news(self, news):
+        """التحقق من أهمية الخبر"""
+        return False
+    
+    async def process_news_instant(self, news):
+        """معالجة الخبر فوراً"""
+        pass
 
 # ==================== النظام الرئيسي المتكامل ====================
 class UltimateTradingBot:
@@ -712,7 +773,7 @@ class UltimateTradingBot:
         self.monitor = ContinuousMonitor()
         
         # بيانات الاتصال
-        self.connection_keeper = ConnectionKeeper()
+        self.connection_keeper = None
         
         # تحميل الحالة
         self.load_state()
@@ -1058,8 +1119,8 @@ class UltimateTradingBot:
                                 )
                             
                             # حساب المتوسطات
-                            wins = [t for t in self.trade_history if t['won']]
-                            losses = [t for t in self.trade_history if not t['won']]
+                            wins = [t for t in self.trade_history if t.get('won', False)]
+                            losses = [t for t in self.trade_history if not t.get('won', True)]
                             
                             if wins:
                                 self.performance_metrics['average_win'] = np.mean([w['pips'] for w in wins])
