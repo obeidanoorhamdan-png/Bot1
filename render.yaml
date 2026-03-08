@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: ultimate-trading-bot
+    env: python
+    buildCommand: chmod +x render-build.sh && ./render-build.sh
+    startCommand: python ultimate_bot.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.18
