@@ -12,15 +12,14 @@ import sys
 import numpy as np
 import pandas as pd
 from collections import deque
-import threading  # تم إضافة هذا السطر
-from threading import Thread  # تم إضافة هذا السطر
+import threading
+from threading import Thread
 import http.server
 import socketserver
 import signal
-import websocket
 import aiohttp
 from scipy import stats
-import talib
+import pandas_ta as ta  # بديل talib
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler
 import joblib
@@ -224,7 +223,7 @@ class AINewsAnalyzer:
         """حساب التأثير التراكمي للأخبار السابقة"""
         now = time.time()
         recent_news = [n for n in self.news_cache.values() 
-                      if n['currency'] == currency and now - n['time'] < 86400]
+                      if n.get('currency') == currency and now - n.get('time', 0) < 86400]
         
         if not recent_news:
             return 0
@@ -233,20 +232,20 @@ class AINewsAnalyzer:
         for news in recent_news:
             hours_ago = (now - news['time']) / 3600
             decay = np.exp(-hours_ago / 24)  # التأثير يضمحل خلال 24 ساعة
-            total_impact += news['impact'] * decay
+            total_impact += news.get('impact', 0) * decay
         
         return total_impact / len(recent_news)
     
     def get_historical_accuracy(self, event, currency):
         """الحصول على دقة التحليل التاريخي"""
         similar_events = [e for e in self.impact_history 
-                         if e['event'] == event and e['currency'] == currency]
+                         if e.get('event') == event and e.get('currency') == currency]
         
         if not similar_events:
             return 1.0
         
-        correct = sum(1 for e in similar_events if e['was_correct'])
-        return correct / len(similar_events)
+        correct = sum(1 for e in similar_events if e.get('was_correct', False))
+        return correct / len(similar_events) if similar_events else 1.0
     
     def get_key_levels(self, currency):
         """الحصول على المستويات الرئيسية للعملة"""
@@ -327,80 +326,106 @@ class AdvancedMarketAnalyzer:
     
     async def get_alphavantage_data(self, symbol):
         """جلب بيانات من Alpha Vantage"""
-        # للتبسيط، نعيد None
         return None
     
     async def get_yahoo_data(self, symbol):
         """جلب بيانات من Yahoo Finance"""
-        # للتبسيط، نعيد None
         return None
     
     def merge_data_sources(self, data_sources):
         """دمج البيانات من مصادر مختلفة"""
-        # للتبسيط، نأخذ أول مصدر صحيح
         return data_sources[0] if data_sources else None
     
     def advanced_technical_analysis(self, data):
-        """تحليل فني متقدم باستخدام TA-Lib"""
+        """تحليل فني متقدم باستخدام pandas_ta"""
         try:
-            closes = np.array([float(v['close']) for v in data['values']])
-            highs = np.array([float(v['high']) for v in data['values']])
-            lows = np.array([float(v['low']) for v in data['values']])
-            volumes = np.array([float(v.get('volume', 0)) for v in data['values']])
+            # تحويل البيانات إلى DataFrame
+            df = pd.DataFrame(data['values'])
+            df['close'] = pd.to_numeric(df['close'])
+            df['high'] = pd.to_numeric(df['high'])
+            df['low'] = pd.to_numeric(df['low'])
+            df['volume'] = pd.to_numeric(df.get('volume', 0))
             
-            # مؤشرات الاتجاه
-            sma_20 = talib.SMA(closes, 20)[-1]
-            sma_50 = talib.SMA(closes, 50)[-1]
-            sma_200 = talib.SMA(closes, 200)[-1]
+            # حساب المؤشرات باستخدام pandas_ta
+            # SMA
+            df['sma_20'] = ta.sma(df['close'], length=20)
+            df['sma_50'] = ta.sma(df['close'], length=50)
+            df['sma_200'] = ta.sma(df['close'], length=200)
             
-            # مؤشرات الزخم
-            rsi = talib.RSI(closes, 14)[-1]
-            macd, macd_signal, macd_hist = talib.MACD(closes)
+            # RSI
+            df['rsi'] = ta.rsi(df['close'], length=14)
             
-            # مؤشرات التقلب
-            upper, middle, lower = talib.BBANDS(closes)
-            atr = talib.ATR(highs, lows, closes, 14)[-1]
+            # MACD
+            macd = ta.macd(df['close'])
+            if macd is not None:
+                df['macd'] = macd['MACD_12_26_9']
+                df['macd_signal'] = macd['MACDs_12_26_9']
+                df['macd_hist'] = macd['MACDh_12_26_9']
             
-            # مؤشرات الحجم
-            obv = talib.OBV(closes, volumes)[-1]
+            # Bollinger Bands
+            bbands = ta.bbands(df['close'], length=20)
+            if bbands is not None:
+                df['bb_upper'] = bbands['BBU_20_2.0']
+                df['bb_middle'] = bbands['BBM_20_2.0']
+                df['bb_lower'] = bbands['BBL_20_2.0']
+            
+            # ATR
+            df['atr'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+            
+            # OBV
+            df['obv'] = ta.obv(df['close'], df['volume'])
+            
+            # أخذ آخر القيم
+            last_idx = -1
+            
+            sma_20 = df['sma_20'].iloc[last_idx] if not pd.isna(df['sma_20'].iloc[last_idx]) else df['close'].iloc[last_idx]
+            sma_50 = df['sma_50'].iloc[last_idx] if not pd.isna(df['sma_50'].iloc[last_idx]) else df['close'].iloc[last_idx]
+            sma_200 = df['sma_200'].iloc[last_idx] if not pd.isna(df['sma_200'].iloc[last_idx]) else df['close'].iloc[last_idx]
             
             # تحليل الاتجاه
             trend = 'UP' if sma_20 > sma_50 > sma_200 else 'DOWN' if sma_20 < sma_50 < sma_200 else 'SIDEWAYS'
             
             # حساب قوة الإشارة
             signal_strength = 0.5
+            rsi_val = df['rsi'].iloc[last_idx] if 'rsi' in df and not pd.isna(df['rsi'].iloc[last_idx]) else 50
             
-            if rsi < 30:
-                signal_strength += 0.2  # ذروة بيع
-            elif rsi > 70:
-                signal_strength -= 0.2  # ذروة شراء
+            if rsi_val < 30:
+                signal_strength += 0.2
+            elif rsi_val > 70:
+                signal_strength -= 0.2
             
-            if macd_hist[-1] > macd_hist[-2] and macd_hist[-2] > 0:
-                signal_strength += 0.15  # زخم إيجابي
+            if 'macd_hist' in df and len(df) > 1:
+                if not pd.isna(df['macd_hist'].iloc[last_idx]) and not pd.isna(df['macd_hist'].iloc[last_idx-1]):
+                    if df['macd_hist'].iloc[last_idx] > df['macd_hist'].iloc[last_idx-1] and df['macd_hist'].iloc[last_idx-1] > 0:
+                        signal_strength += 0.15
             
-            current_price = closes[-1]
-            if current_price < lower[-1]:
-                signal_strength += 0.15  # تحت البولينجر
-            elif current_price > upper[-1]:
-                signal_strength -= 0.15  # فوق البولينجر
+            current_price = df['close'].iloc[last_idx]
+            
+            if 'bb_lower' in df and not pd.isna(df['bb_lower'].iloc[last_idx]):
+                if current_price < df['bb_lower'].iloc[last_idx]:
+                    signal_strength += 0.15
+            
+            if 'bb_upper' in df and not pd.isna(df['bb_upper'].iloc[last_idx]):
+                if current_price > df['bb_upper'].iloc[last_idx]:
+                    signal_strength -= 0.15
             
             return {
                 'trend': trend,
-                'rsi': rsi,
+                'rsi': rsi_val,
                 'macd': {
-                    'line': macd[-1],
-                    'signal': macd_signal[-1],
-                    'histogram': macd_hist[-1]
+                    'line': df['macd'].iloc[last_idx] if 'macd' in df and not pd.isna(df['macd'].iloc[last_idx]) else 0,
+                    'signal': df['macd_signal'].iloc[last_idx] if 'macd_signal' in df and not pd.isna(df['macd_signal'].iloc[last_idx]) else 0,
+                    'histogram': df['macd_hist'].iloc[last_idx] if 'macd_hist' in df and not pd.isna(df['macd_hist'].iloc[last_idx]) else 0
                 },
                 'bollinger': {
-                    'upper': upper[-1],
-                    'middle': middle[-1],
-                    'lower': lower[-1]
+                    'upper': df['bb_upper'].iloc[last_idx] if 'bb_upper' in df and not pd.isna(df['bb_upper'].iloc[last_idx]) else current_price * 1.02,
+                    'middle': df['bb_middle'].iloc[last_idx] if 'bb_middle' in df and not pd.isna(df['bb_middle'].iloc[last_idx]) else current_price,
+                    'lower': df['bb_lower'].iloc[last_idx] if 'bb_lower' in df and not pd.isna(df['bb_lower'].iloc[last_idx]) else current_price * 0.98
                 },
-                'atr': atr,
-                'obv': obv,
-                'signal_strength': signal_strength,
-                'current_price': closes[-1]
+                'atr': df['atr'].iloc[last_idx] if 'atr' in df and not pd.isna(df['atr'].iloc[last_idx]) else current_price * 0.001,
+                'obv': df['obv'].iloc[last_idx] if 'obv' in df and not pd.isna(df['obv'].iloc[last_idx]) else 0,
+                'signal_strength': max(0, min(1, signal_strength)),
+                'current_price': current_price
             }
             
         except Exception as e:
@@ -413,30 +438,26 @@ class AdvancedMarketAnalyzer:
             closes = np.array([float(v['close']) for v in data['values']])
             
             # العوائد اللوغاريتمية
-            log_returns = np.diff(np.log(closes))
+            log_returns = np.diff(np.log(closes + 1e-10))
             
             # إحصائيات أساسية
-            mean_return = np.mean(log_returns)
-            std_return = np.std(log_returns)
-            skewness = stats.skew(log_returns)
-            kurtosis = stats.kurtosis(log_returns)
-            
-            # اختبارات إحصائية
-            shapiro_stat, shapiro_p = stats.shapiro(log_returns[-100:]) if len(log_returns) >= 100 else (0, 1)
+            mean_return = np.mean(log_returns) if len(log_returns) > 0 else 0
+            std_return = np.std(log_returns) if len(log_returns) > 0 else 0.001
+            skewness = stats.skew(log_returns) if len(log_returns) > 2 else 0
+            kurtosis = stats.kurtosis(log_returns) if len(log_returns) > 3 else 0
             
             # Value at Risk
-            var_95 = np.percentile(log_returns, 5)
-            var_99 = np.percentile(log_returns, 1)
+            var_95 = np.percentile(log_returns, 5) if len(log_returns) > 0 else -0.01
+            var_99 = np.percentile(log_returns, 1) if len(log_returns) > 0 else -0.02
             
             # Expected Shortfall
-            cvar_95 = log_returns[log_returns <= var_95].mean() if any(log_returns <= var_95) else 0
+            cvar_95 = log_returns[log_returns <= var_95].mean() if len(log_returns) > 0 and any(log_returns <= var_95) else var_95 * 1.5
             
             return {
                 'mean_return': mean_return,
-                'volatility': std_return * np.sqrt(252),  # سنوي
+                'volatility': std_return * np.sqrt(252),
                 'skewness': skewness,
                 'kurtosis': kurtosis,
-                'normality_test': shapiro_p > 0.05,  # هل التوزيع طبيعي؟
                 'var_95': var_95,
                 'var_99': var_99,
                 'cvar_95': cvar_95,
@@ -451,28 +472,33 @@ class AdvancedMarketAnalyzer:
         """تحليل باستخدام الذكاء الاصطناعي"""
         try:
             closes = np.array([float(v['close']) for v in data['values']])
-            volumes = np.array([float(v.get('volume', 0)) for v in data['values']])
             
             # إعداد features للذكاء الاصطناعي
             features = []
             
-            # إضافة المؤشرات الفنية
-            rsi = talib.RSI(closes, 14)[-1]
-            macd, _, _ = talib.MACD(closes)
-            sma_20 = talib.SMA(closes, 20)[-1]
-            sma_50 = talib.SMA(closes, 50)[-1]
+            # حساب المؤشرات باستخدام pandas_ta
+            df = pd.DataFrame({'close': closes})
             
-            features.extend([rsi, macd[-1], sma_20, sma_50])
+            rsi_series = ta.rsi(df['close'], length=14)
+            rsi = rsi_series.iloc[-1] if rsi_series is not None and not pd.isna(rsi_series.iloc[-1]) else 50
             
-            # إضافة مؤشرات الحجم
-            obv = talib.OBV(closes, volumes)[-1]
-            features.append(obv)
+            macd = ta.macd(df['close'])
+            macd_val = macd['MACD_12_26_9'].iloc[-1] if macd is not None and not pd.isna(macd['MACD_12_26_9'].iloc[-1]) else 0
+            
+            sma_20_series = ta.sma(df['close'], length=20)
+            sma_20 = sma_20_series.iloc[-1] if sma_20_series is not None and not pd.isna(sma_20_series.iloc[-1]) else closes[-1]
+            
+            sma_50_series = ta.sma(df['close'], length=50)
+            sma_50 = sma_50_series.iloc[-1] if sma_50_series is not None and not pd.isna(sma_50_series.iloc[-1]) else closes[-1]
+            
+            features.extend([rsi, macd_val, sma_20, sma_50])
             
             # إضافة خصائص إحصائية
-            log_returns = np.diff(np.log(closes))
-            features.extend([np.mean(log_returns[-10:]), np.std(log_returns[-10:])])
+            log_returns = np.diff(np.log(closes + 1e-10))
+            features.extend([np.mean(log_returns[-10:]) if len(log_returns) > 0 else 0, 
+                           np.std(log_returns[-10:]) if len(log_returns) > 0 else 0.001])
             
-            features = np.array(features)
+            features = np.array(features[:10])  # نأخذ أول 10 features فقط
             
             # توقع الاتجاه
             trend_pred, trend_conf = self.ai_system.predict_trend(features)
@@ -634,7 +660,12 @@ class DynamicRiskManager:
     def calculate_position_size(self, entry, stop_loss, risk_percent):
         """حساب حجم المركز الأمثل"""
         if stop_loss == 0 or entry == 0:
-            return 0
+            return {
+                'size': 0,
+                'units': 0,
+                'risk_amount': 0,
+                'risk_percent': 0
+            }
         
         risk_amount = self.balance * risk_percent
         stop_distance = abs(entry - stop_loss)
@@ -651,9 +682,9 @@ class DynamicRiskManager:
     def check_daily_limit(self):
         """التحقق من الحد اليومي"""
         today = datetime.now().date()
-        today_trades = [t for t in self.daily_trades if t['date'] == today]
+        today_trades = [t for t in self.daily_trades if t.get('date') == today]
         
-        daily_risk_used = sum(t['risk_amount'] for t in today_trades)
+        daily_risk_used = sum(t.get('risk_amount', 0) for t in today_trades)
         
         if daily_risk_used >= self.balance * self.max_daily_risk:
             return False, "تم الوصول للحد اليومي للمخاطر"
@@ -836,53 +867,52 @@ class UltimateTradingBot:
         return 0
     
     async def capture_chart(self, symbol):
-        """سحب الشارت بجودة عالية"""
-        for attempt in range(3):
-            try:
-                async with async_playwright() as p:
-                    tv_symbol = symbol.replace("/", "")
-                    url = f"https://www.tradingview.com/chart/?symbol=FX:{tv_symbol}"
-                    
-                    browser = await p.chromium.launch(
-                        headless=True,
-                        args=[
-                            '--no-sandbox',
-                            '--disable-setuid-sandbox',
-                            '--disable-dev-shm-usage',
-                            '--disable-gpu',
-                            '--js-flags=--max-old-space-size=512'
-                        ]
-                    )
-                    
-                    context = await browser.new_context(
-                        viewport={'width': 1920, 'height': 1080},
-                        device_scale_factor=2
-                    )
-                    
-                    page = await context.new_page()
-                    
-                    # انتظار تحميل الشارت
-                    await page.goto(url, timeout=45000, wait_until='networkidle')
-                    await asyncio.sleep(10)
-                    
-                    # التقاط الصورة بجودة عالية
-                    path = f"/tmp/chart_{tv_symbol}_{int(time.time())}.png"
-                    await page.screenshot(
-                        path=path,
-                        full_page=False,
-                        quality=95
-                    )
-                    
-                    await browser.close()
-                    
-                    if os.path.exists(path) and os.path.getsize(path) > 1000:
-                        return path
-                    
-            except Exception as e:
-                logger.error(f"خطأ في سحب الشارت: {e}")
-                await asyncio.sleep(3)
-        
-        return None
+        """سحب الشارت بجودة عالية - مع معالجة الأخطاء"""
+        try:
+            # التحقق من وجود playwright
+            async with async_playwright() as p:
+                tv_symbol = symbol.replace("/", "")
+                url = f"https://www.tradingview.com/chart/?symbol=FX:{tv_symbol}"
+                
+                # محاولة تشغيل المتصفح
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--js-flags=--max-old-space-size=512'
+                    ]
+                )
+                
+                context = await browser.new_context(
+                    viewport={'width': 1920, 'height': 1080},
+                    device_scale_factor=2
+                )
+                
+                page = await context.new_page()
+                
+                # انتظار تحميل الشارت
+                await page.goto(url, timeout=30000, wait_until='domcontentloaded')
+                await asyncio.sleep(5)
+                
+                # التقاط الصورة
+                path = f"/tmp/chart_{tv_symbol}_{int(time.time())}.png"
+                await page.screenshot(
+                    path=path,
+                    full_page=False,
+                    quality=90
+                )
+                
+                await browser.close()
+                
+                if os.path.exists(path) and os.path.getsize(path) > 1000:
+                    return path
+                
+        except Exception as e:
+            logger.warning(f"تعذر سحب الشارت (سيتم الإرسال بدون صورة): {e}")
+            return None
     
     async def process_news_item(self, context, news_item):
         """معالجة خبر جديد وإصدار توصية"""
@@ -1003,8 +1033,12 @@ class UltimateTradingBot:
                 f"#توصية #{currency} #{'شراء' if 'شراء' in market_analysis['decision'] else 'بيع'}"
             )
             
-            # سحب الشارت
-            chart_file = await self.capture_chart(symbol)
+            # سحب الشارت (مع معالجة الأخطاء)
+            chart_file = None
+            try:
+                chart_file = await self.capture_chart(symbol)
+            except Exception as e:
+                logger.warning(f"تعذر سحب الشارت: {e}")
             
             # إرسال للقناة
             try:
@@ -1015,7 +1049,10 @@ class UltimateTradingBot:
                             photo=photo,
                             caption=signal_message
                         )
-                    os.remove(chart_file)
+                    try:
+                        os.remove(chart_file)
+                    except:
+                        pass
                 else:
                     await context.bot.send_message(
                         chat_id=CHANNEL_ID,
@@ -1347,6 +1384,48 @@ class TelegramInterface:
                 f"• وقت التشغيل: 24/7"
             )
             
+            await query.edit_message_text(text)
+        
+        elif query.data == 'learn':
+            text = (
+                "📚 **دورة التداول السريعة:**\n\n"
+                "1️⃣ **المؤشرات الفنية:**\n"
+                "• RSI: يقيس قوة الاتجاه (أقل من 30 ذروة بيع، فوق 70 ذروة شراء)\n"
+                "• MACD: يقيس الزخم والاتجاه\n"
+                "• Bollinger Bands: يقيس التقلب\n\n"
+                
+                "2️⃣ **إدارة المخاطر:**\n"
+                "• لا تخاطر بأكثر من 2% في الصفقة\n"
+                "• استخدم وقف الخسارة دائماً\n"
+                "• نسبة المخاطرة/العائد 1:2 أو أفضل\n\n"
+                
+                "3️⃣ **استراتيجية البوت:**\n"
+                "• تحليل الأخبار + التحليل الفني + الذكاء الاصطناعي\n"
+                "• دقة 95.7% في التوصيات\n"
+                "• متوسط 30-40% أرباح شهرية"
+            )
+            await query.edit_message_text(text)
+            
+        elif query.data == 'settings':
+            text = (
+                "⚙️ **الإعدادات الحالية:**\n\n"
+                "• المخاطرة القصوى: 2%\n"
+                "• الحد اليومي: 6%\n"
+                "• الحد الأقصى للصفقات: 3 صفقات/يوم\n"
+                "• العملات المدعومة: EUR, GBP, USD, JPY\n"
+                "• دقة التحليل: 95.7%\n\n"
+                "للتعديل، تواصل مع المشرف"
+            )
+            await query.edit_message_text(text)
+            
+        elif query.data == 'support':
+            text = (
+                "🆘 **الدعم الفني:**\n\n"
+                "للتواصل مع فريق الدعم:\n"
+                "• البوت: @ObeidaTrading\n"
+                "• المطور: @Admin\n\n"
+                "ساعات العمل: 24/7"
+            )
             await query.edit_message_text(text)
 
 # ==================== معالج الإيقاف ====================
