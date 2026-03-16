@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Multi Gateway CC Checker Bot
-Version: 3.0
+Version: 4.0 - مع نظام العرض المباشر
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -22,7 +22,7 @@ import random
 import string
 import re
 import base64
-import os  # مهم جداً - استيراد os أولاً
+import os
 import uuid
 import threading
 import asyncio
@@ -79,7 +79,8 @@ GATES = {
         "command": "braintree",
         "enabled": True,
         "timeout": 15,
-        "cooldown": 5
+        "cooldown": 5,
+        "icon": "🔷"
     },
     "switchup": {
         "name": "🔄 SwitchUp Auth",
@@ -87,7 +88,8 @@ GATES = {
         "command": "switchup",
         "enabled": True,
         "timeout": 15,
-        "cooldown": 5
+        "cooldown": 5,
+        "icon": "🔄"
     },
     "stripe": {
         "name": "💳 Stripe Auth",
@@ -95,7 +97,8 @@ GATES = {
         "command": "stripe",
         "enabled": True,
         "timeout": 15,
-        "cooldown": 5
+        "cooldown": 5,
+        "icon": "💳"
     },
     "zendrop": {
         "name": "📦 Zendrop Auth",
@@ -103,7 +106,8 @@ GATES = {
         "command": "zendrop",
         "enabled": True,
         "timeout": 20,
-        "cooldown": 5
+        "cooldown": 5,
+        "icon": "📦"
     },
     "paypal": {
         "name": "💰 PayPal Auth",
@@ -111,7 +115,8 @@ GATES = {
         "command": "paypal",
         "enabled": True,
         "timeout": 15,
-        "cooldown": 5
+        "cooldown": 5,
+        "icon": "💰"
     }
 }
 
@@ -129,6 +134,11 @@ SUBSCRIPTION_PLANS = {
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 fake = Faker()
 ua = UserAgent()
+
+# ==================== متغيرات عامة للعرض المباشر ====================
+active_checks = {}  # تخزين الفحوصات النشطة
+user_sessions = {}  # جلسات المستخدمين
+live_stats = {}     # إحصائيات مباشرة لكل مستخدم
 
 # ==================== إدارة البيانات ====================
 class DataManager:
@@ -313,7 +323,7 @@ class DataManager:
             usage["total_checks"] += 1
             usage["last_check"] = datetime.now().isoformat()
             
-            if "approved" in result.lower() or "live" in result.lower() or "✅" in result:
+            if "approved" in result.lower() or "live" in result.lower() or "✅" in result or "مقبولة" in result:
                 usage["approved"] += 1
                 stats["total_approved"] += 1
             else:
@@ -333,7 +343,7 @@ class DataManager:
             if today not in stats["daily_stats"]:
                 stats["daily_stats"][today] = {"checks": 0, "approved": 0}
             stats["daily_stats"][today]["checks"] += 1
-            if "approved" in result.lower() or "live" in result.lower() or "✅" in result:
+            if "approved" in result.lower() or "live" in result.lower() or "✅" in result or "مقبولة" in result:
                 stats["daily_stats"][today]["approved"] += 1
         
         DataManager.save_users(users)
@@ -493,6 +503,28 @@ class Helpers:
     def random_phone() -> str:
         """توليد رقم هاتف عشوائي"""
         return fake.phone_number()
+    
+    @staticmethod
+    def format_live_stats(total: int, checked: int, approved: int, declined: int, current: str = None) -> str:
+        """تنسيق الإحصائيات المباشرة"""
+        progress = Helpers.generate_progress_bar(checked, total)
+        percentage = (checked / total * 100) if total > 0 else 0
+        
+        stats = f"""
+📊 <b>إحصائيات الفحص المباشر</b>
+━━━━━━━━━━━━━━━━
+📋 <b>إجمالي البطاقات:</b> {total}
+✅ <b>تم الفحص:</b> {checked}/{total} ({percentage:.1f}%)
+{progress}
+
+✅ <b>المقبولة:</b> {approved}
+❌ <b>المرفوضة:</b> {declined}
+⏳ <b>المتبقي:</b> {total - checked}
+"""
+        if current:
+            stats += f"\n🔄 <b>جاري فحص:</b> <code>{current}</code>"
+        
+        return stats
 
 # ==================== بوابات الفحص ====================
 class Gateways:
@@ -549,9 +581,9 @@ class Gateways:
             )
             
             if response.status_code == 200:
-                return True, "✅ البطاقة مقبولة"
+                return True, "✅ البطاقة مقبولة ✓"
             else:
-                return False, "❌ البطاقة مرفوضة"
+                return False, "❌ البطاقة مرفوضة ✗"
                 
         except Exception as e:
             return False, f"⚠️ خطأ: {str(e)[:50]}"
@@ -576,9 +608,9 @@ class Gateways:
             if Helpers.luhn_check(n):
                 # 70% نسبة نجاح وهمية للعرض
                 if random.random() > 0.3:
-                    return True, "✅ البطاقة مقبولة"
+                    return True, "✅ البطاقة مقبولة ✓"
                 else:
-                    return False, "❌ البطاقة مرفوضة"
+                    return False, "❌ البطاقة مرفوضة ✗"
             else:
                 return False, "⚠️ رقم بطاقة غير صالح"
                 
@@ -616,9 +648,9 @@ class Gateways:
             pm_response = requests.post('https://api.stripe.com/v1/payment_methods', data=pm_data, headers=pm_headers, timeout=10)
             
             if pm_response.status_code == 200:
-                return True, "✅ البطاقة مقبولة"
+                return True, "✅ البطاقة مقبولة ✓"
             else:
-                return False, "❌ البطاقة مرفوضة"
+                return False, "❌ البطاقة مرفوضة ✗"
             
         except Exception as e:
             return False, f"⚠️ خطأ: {str(e)[:50]}"
@@ -653,9 +685,9 @@ class Gateways:
             pm_response = requests.post('https://api.stripe.com/v1/payment_methods', data=pm_data, headers=pm_headers, timeout=10)
             
             if pm_response.status_code == 200:
-                return True, "✅ البطاقة مقبولة"
+                return True, "✅ البطاقة مقبولة ✓"
             else:
-                return False, "❌ البطاقة مرفوضة"
+                return False, "❌ البطاقة مرفوضة ✗"
                 
         except Exception as e:
             return False, f"⚠️ خطأ: {str(e)[:50]}"
@@ -675,9 +707,9 @@ class Gateways:
             if Helpers.luhn_check(n):
                 # 60% نسبة نجاح وهمية
                 if random.random() > 0.4:
-                    return True, "✅ البطاقة مقبولة"
+                    return True, "✅ البطاقة مقبولة ✓"
                 else:
-                    return False, "❌ البطاقة مرفوضة"
+                    return False, "❌ البطاقة مرفوضة ✗"
             else:
                 return False, "⚠️ رقم بطاقة غير صالح"
             
@@ -727,13 +759,26 @@ class UserInterface:
             InlineKeyboardButton("💰 PayPal", callback_data="gate_paypal"),
             InlineKeyboardButton("📁 فحص ملف", callback_data="mass_check"),
             InlineKeyboardButton("👤 حسابي", callback_data="my_profile"),
-            InlineKeyboardButton("📊 الإحصائيات", callback_data="stats"),
+            InlineKeyboardButton("📊 إحصائياتي", callback_data="my_stats"),
+            InlineKeyboardButton("📊 إحصائيات البوت", callback_data="global_stats"),
             InlineKeyboardButton("💎 الاشتراك", callback_data="subscribe"),
             InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
             InlineKeyboardButton("👨‍💻 المطور", url=SUPPORT_LINK)
         ]
         
-        markup.add(*buttons)
+        # إضافة أزرار إضافية للصف الثالث
+        row1 = buttons[:3]
+        row2 = buttons[3:6]
+        row3 = buttons[6:9]
+        row4 = buttons[9:11]
+        row5 = buttons[11:13]
+        
+        markup.row(*row1)
+        markup.row(*row2)
+        markup.row(*row3)
+        markup.row(*row4)
+        markup.row(*row5)
+        
         return markup
     
     @staticmethod
@@ -744,12 +789,12 @@ class UserInterface:
         for gate_id, gate_info in GATES.items():
             if gate_info.get("enabled", True):
                 markup.add(InlineKeyboardButton(
-                    f"{gate_info['name']}", 
+                    f"{gate_info['icon']} {gate_info['name']}", 
                     callback_data=f"select_gate_{gate_id}"
                 ))
         
         markup.add(
-            InlineKeyboardButton("🔙 رجوع", callback_data="back_main"),
+            InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_main"),
             InlineKeyboardButton("📁 فحص ملف", callback_data="mass_check")
         )
         return markup
@@ -780,20 +825,37 @@ class UserInterface:
             InlineKeyboardButton("👥 المستخدمين", callback_data="admin_users"),
             InlineKeyboardButton("➕ إضافة اشتراك", callback_data="admin_add_sub"),
             InlineKeyboardButton("➖ إزالة اشتراك", callback_data="admin_remove_sub"),
-            InlineKeyboardButton("📊 إحصائيات", callback_data="admin_stats"),
+            InlineKeyboardButton("📊 إحصائيات عامة", callback_data="admin_stats"),
             InlineKeyboardButton("📢 إشعار", callback_data="admin_broadcast"),
             InlineKeyboardButton("⚙️ إعدادات", callback_data="admin_settings"),
+            InlineKeyboardButton("📁 عرض المقبولة", callback_data="admin_approved"),
             InlineKeyboardButton("🔙 رجوع", callback_data="back_main")
         ]
         
-        markup.add(*buttons)
+        row1 = buttons[:2]
+        row2 = buttons[2:4]
+        row3 = buttons[4:6]
+        row4 = buttons[6:8]
+        
+        markup.row(*row1)
+        markup.row(*row2)
+        markup.row(*row3)
+        markup.row(*row4)
+        
         return markup
     
     @staticmethod
-    def back_button(callback: str = "back_main"):
+    def back_button(callback: str = "back_main", text: str = "🔙 رجوع"):
         """زر الرجوع"""
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🔙 رجوع", callback_data=callback))
+        markup.add(InlineKeyboardButton(text, callback_data=callback))
+        return markup
+    
+    @staticmethod
+    def stop_button(check_id: int):
+        """زر إيقاف الفحص"""
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("⛔ إيقاف الفحص", callback_data=f"stop_check_{check_id}"))
         return markup
     
     @staticmethod
@@ -805,6 +867,7 @@ class UserInterface:
         parts = card.split('|')
         number = parts[0] if parts else "Unknown"
         brand = Helpers.get_card_brand(number)
+        bin_info = Helpers.get_bin_info(number[:6])
         
         masked = f"{number[:6]}xxxxxx{number[-4:]}" if len(number) >= 16 else number
         
@@ -812,7 +875,9 @@ class UserInterface:
 {status_icon} <b>نتيجة الفحص</b> {status_icon}
 ━━━━━━━━━━━━━━━━
 <b>💳 البطاقة:</b> <code>{masked}</code>
-<b>🏷️ النوع:</b> {brand}
+<b>🏷️ النوع:</b> {brand} | {bin_info['brand']}
+<b>🏦 البنك:</b> {bin_info['bank']}
+<b>🌍 الدولة:</b> {bin_info['country']} {bin_info['flag']}
 <b>🚪 البوابة:</b> {gate}
 <b>📊 الحالة:</b> {result}
 ━━━━━━━━━━━━━━━━
@@ -840,6 +905,18 @@ class UserInterface:
             except:
                 expiry = "غير معروف"
         
+        # حساب النسب المئوية
+        total = usage.get('total_checks', 0)
+        approved = usage.get('approved', 0)
+        declined = usage.get('declined', 0)
+        
+        if total > 0:
+            approved_percent = (approved / total) * 100
+            declined_percent = (declined / total) * 100
+        else:
+            approved_percent = 0
+            declined_percent = 0
+        
         profile_text = f"""
 👤 <b>الملف الشخصي</b>
 ━━━━━━━━━━━━━━━━
@@ -848,12 +925,15 @@ class UserInterface:
 <b>⭐ الرتبة:</b> {'👑 مشرف' if user_data.get('is_admin') else '💎 مشترك' if sub.get('active') else '🔹 عادي'}
 <b>📅 تاريخ الانضمام:</b> {user_data.get('joined_date', 'Unknown')[:10]}
 
-<b>📊 الإحصائيات</b>
+<b>📊 إحصائيات الاستخدام</b>
 ━━━━━━━━━━━━━━━━
-<b>🔄 إجمالي الفحوصات:</b> {usage.get('total_checks', 0)}
-<b>✅ المقبولة:</b> {usage.get('approved', 0)}
-<b>❌ المرفوضة:</b> {usage.get('declined', 0)}
+<b>🔄 إجمالي الفحوصات:</b> {total}
+<b>✅ المقبولة:</b> {approved} ({approved_percent:.1f}%)
+<b>❌ المرفوضة:</b> {declined} ({declined_percent:.1f}%)
 <b>📅 آخر فحص:</b> {usage.get('last_check', 'لم يتم')[:16] if usage.get('last_check') else 'لم يتم'}
+
+<b>📊 شريط النجاح:</b>
+{Helpers.generate_progress_bar(approved, total if total > 0 else 1, 15)}
 
 <b>💎 الاشتراك</b>
 ━━━━━━━━━━━━━━━━
@@ -866,7 +946,7 @@ class UserInterface:
     
     @staticmethod
     def format_stats(stats: Dict) -> str:
-        """تنسيق الإحصائيات"""
+        """تنسيق الإحصائيات العامة"""
         today = datetime.now().strftime("%Y-%m-%d")
         daily = stats.get("daily_stats", {}).get(today, {"checks": 0, "approved": 0})
         
@@ -877,19 +957,30 @@ class UserInterface:
         gates_text = ""
         for gate, count in top_gates:
             gate_name = GATES.get(gate, {}).get("name", gate)
-            gates_text += f"  • {gate_name}: {count} فحص\n"
+            icon = GATES.get(gate, {}).get("icon", "🚪")
+            gates_text += f"  {icon} {gate_name}: {count} فحص\n"
+        
+        total = stats.get('total_checks', 0)
+        approved = stats.get('total_approved', 0)
+        declined = stats.get('total_declined', 0)
+        
+        if total > 0:
+            approved_percent = (approved / total) * 100
+        else:
+            approved_percent = 0
         
         stats_text = f"""
-📊 <b>إحصائيات البوت</b>
+📊 <b>إحصائيات البوت العامة</b>
 ━━━━━━━━━━━━━━━━
 <b>📅 اليوم ({today})</b>
   • إجمالي الفحوصات: {daily['checks']}
   • البطاقات المقبولة: {daily['approved']}
+  {Helpers.generate_progress_bar(daily['approved'], daily['checks'] if daily['checks'] > 0 else 1, 10)}
 
-<b>📈 الإجمالي</b>
-  • إجمالي الفحوصات: {stats.get('total_checks', 0)}
-  • البطاقات المقبولة: {stats.get('total_approved', 0)}
-  • البطاقات المرفوضة: {stats.get('total_declined', 0)}
+<b>📈 الإجمالي العام</b>
+  • إجمالي الفحوصات: {total}
+  • البطاقات المقبولة: {approved} ({approved_percent:.1f}%)
+  • البطاقات المرفوضة: {declined}
 
 <b>🚪 أكثر البوابات استخداماً</b>
 {gates_text if gates_text else '  • لا توجد بيانات'}
@@ -905,7 +996,9 @@ class CommandHandler:
     def __init__(self):
         self.gateways = Gateways()
         self.ui = UserInterface()
-        self.active_checks = {}  # تخزين الفحوصات النشطة
+        self.active_checks = active_checks
+        self.user_sessions = user_sessions
+        self.live_stats = live_stats
         
     def check_subscription(self, message) -> bool:
         """التحقق من صلاحية الاشتراك"""
@@ -915,6 +1008,11 @@ class CommandHandler:
         
         sub = DataManager.get_user_subscription(user_id)
         if sub is None:
+            markup = InlineKeyboardMarkup()
+            markup.add(
+                InlineKeyboardButton("💎 خطط الاشتراك", callback_data="subscribe"),
+                InlineKeyboardButton("📞 تواصل مع المطور", url=SUPPORT_LINK)
+            )
             bot.reply_to(
                 message,
                 f"⚠️ <b>عذراً، ليس لديك اشتراك نشط</b>\n\n"
@@ -923,7 +1021,7 @@ class CommandHandler:
                 f"• المطور: {DEV_CONTACT}\n\n"
                 f"أو استخدم الأمر /subscribe لعرض خطط الاشتراك",
                 parse_mode='HTML',
-                reply_markup=self.ui.subscription_plans()
+                reply_markup=markup
             )
             return False
         return True
@@ -948,6 +1046,13 @@ class CommandHandler:
                 "usage": {"total_checks": 0, "approved": 0, "declined": 0}
             }
             DataManager.save_users(users)
+        
+        # إنشاء جلسة للمستخدم
+        self.user_sessions[user_id] = {
+            "last_activity": time.time(),
+            "current_check": None,
+            "stats_message": None
+        }
         
         welcome_text = f"""
 ✨ <b>مرحباً بك في بوت Obeida Online</b> ✨
@@ -1042,6 +1147,33 @@ class CommandHandler:
             reply_markup=self.ui.back_button()
         )
     
+    def handle_my_stats(self, call):
+        """معالج إحصائيات المستخدم"""
+        user_id = call.from_user.id
+        users = DataManager.load_users()
+        user_data = users.get(str(user_id), {})
+        
+        profile_text = self.ui.format_profile(user_data, user_id)
+        bot.edit_message_text(
+            profile_text,
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode='HTML',
+            reply_markup=self.ui.back_button()
+        )
+    
+    def handle_global_stats(self, call):
+        """معالج إحصائيات البوت"""
+        stats = DataManager.load_stats()
+        stats_text = self.ui.format_stats(stats)
+        bot.edit_message_text(
+            stats_text,
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode='HTML',
+            reply_markup=self.ui.back_button()
+        )
+    
     def handle_subscribe(self, message):
         """معالج أمر /subscribe"""
         user_id = message.from_user.id
@@ -1076,6 +1208,7 @@ class CommandHandler:
 ✓ فحص غير محدود للبطاقات
 ✓ جميع البوابات متاحة
 ✓ فحص ملفات كاملة
+✓ عرض مباشر للإحصائيات
 ✓ دعم فني متميز
 ✓ تحديثات مستمرة
 
@@ -1098,7 +1231,7 @@ class CommandHandler:
         
         for gate_id, gate_info in GATES.items():
             if gate_info.get("enabled", True):
-                gates_text += f"{gate_info['name']}\n"
+                gates_text += f"{gate_info['icon']} {gate_info['name']}\n"
                 gates_text += f"📝 <code>/{gate_info['command']} رقم|شهر|سنة|cvv</code>\n\n"
         
         gates_text += f"\n<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>"
@@ -1250,7 +1383,7 @@ class CommandHandler:
             for gate_id, gate_info in GATES.items():
                 if gate_info.get("enabled", True):
                     markup.add(InlineKeyboardButton(
-                        gate_info['name'],
+                        f"{gate_info['icon']} {gate_info['name']}",
                         callback_data=f"mass_{gate_id}_{message.message_id}"
                     ))
             
@@ -1261,7 +1394,22 @@ class CommandHandler:
                 'cards': cards,
                 'user_id': message.from_user.id,
                 'chat_id': message.chat.id,
-                'message_id': message.message_id
+                'message_id': message.message_id,
+                'gate': None,
+                'status_msg': None,
+                'results': {'approved': [], 'declined': [], 'errors': []},
+                'current_index': 0,
+                'is_running': False,
+                'stop_flag': False
+            }
+            
+            # تهيئة الإحصائيات المباشرة للمستخدم
+            self.live_stats[message.from_user.id] = {
+                'total': len(cards),
+                'checked': 0,
+                'approved': 0,
+                'declined': 0,
+                'current': None
             }
             
             bot.reply_to(
@@ -1282,26 +1430,45 @@ class CommandHandler:
             )
     
     async def process_mass_check(self, call, gate: str, check_id: int):
-        """معالجة الفحص الجماعي"""
+        """معالجة الفحص الجماعي مع عرض مباشر"""
         check_data = self.active_checks.get(check_id)
         if not check_data:
             await bot.answer_callback_query(call.id, "❌ انتهت صلاحية الطلب")
             return
         
+        # تحديث بيانات الفحص
+        check_data['gate'] = gate
+        check_data['is_running'] = True
+        check_data['stop_flag'] = False
+        
         cards = check_data['cards']
         user_id = check_data['user_id']
         chat_id = check_data['chat_id']
         
-        # إرسال رسالة بدء الفحص
+        # تحديث إحصائيات المستخدم
+        self.live_stats[user_id] = {
+            'total': len(cards),
+            'checked': 0,
+            'approved': 0,
+            'declined': 0,
+            'current': None
+        }
+        
+        # إرسال رسالة بدء الفحص مع الإحصائيات المباشرة
+        initial_stats = Helpers.format_live_stats(
+            len(cards), 0, 0, 0, "جارٍ التجهيز..."
+        )
+        
         status_msg = await bot.send_message(
             chat_id,
             f"🔄 <b>بدأ الفحص الجماعي</b>\n"
-            f"🚪 البوابة: {GATES[gate]['name']}\n"
-            f"📊 عدد البطاقات: {len(cards)}\n"
-            f"⏱️ الوقت المتوقع: {len(cards) * 5} ثانية\n\n"
-            f"<b>جاري الفحص...</b>",
-            parse_mode='HTML'
+            f"🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}\n"
+            f"{initial_stats}",
+            parse_mode='HTML',
+            reply_markup=self.ui.stop_button(check_id)
         )
+        
+        check_data['status_msg'] = status_msg
         
         results = {
             'approved': [],
@@ -1311,28 +1478,53 @@ class CommandHandler:
         
         # فحص كل بطاقة
         for i, card_data in enumerate(cards, 1):
+            # التحقق من إيقاف الفحص
+            if check_data['stop_flag']:
+                await bot.edit_message_text(
+                    f"⛔ <b>تم إيقاف الفحص بواسطة المستخدم</b>\n\n"
+                    f"تم فحص {i-1} من {len(cards)} بطاقة",
+                    status_msg.chat.id,
+                    status_msg.message_id,
+                    parse_mode='HTML'
+                )
+                break
+            
             try:
+                # تحديث الإحصائيات المباشرة
+                current_card = f"{card_data['number'][:6]}xxxxxx{card_data['number'][-4:]}"
+                self.live_stats[user_id]['current'] = current_card
+                
                 # تحديث رسالة الحالة
-                progress = Helpers.generate_progress_bar(i, len(cards))
-                try:
-                    await bot.edit_message_text(
-                        f"🔄 <b>الفحص الجماعي</b>\n"
-                        f"🚪 البوابة: {GATES[gate]['name']}\n"
-                        f"📊 التقدم: {i}/{len(cards)}\n"
-                        f"{progress}\n\n"
-                        f"⏳ جاري فحص: <code>{card_data['number'][:6]}xxxxxx{card_data['number'][-4:]}</code>",
-                        status_msg.chat.id,
-                        status_msg.message_id,
-                        parse_mode='HTML'
-                    )
-                except:
-                    pass
+                stats_text = Helpers.format_live_stats(
+                    len(cards),
+                    self.live_stats[user_id]['checked'],
+                    self.live_stats[user_id]['approved'],
+                    self.live_stats[user_id]['declined'],
+                    current_card
+                )
+                
+                await bot.edit_message_text(
+                    f"🔄 <b>الفحص الجماعي</b>\n"
+                    f"🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}\n"
+                    f"{stats_text}",
+                    status_msg.chat.id,
+                    status_msg.message_id,
+                    parse_mode='HTML',
+                    reply_markup=self.ui.stop_button(check_id)
+                )
                 
                 # تنفيذ الفحص
                 result = await self.gateways.check_card(gate, card_data)
                 is_approved, response = result
                 
                 # تحديث الإحصائيات
+                self.live_stats[user_id]['checked'] += 1
+                if is_approved:
+                    self.live_stats[user_id]['approved'] += 1
+                else:
+                    self.live_stats[user_id]['declined'] += 1
+                
+                # تحديث الإحصائيات العامة
                 DataManager.update_usage(user_id, gate, response)
                 
                 # حفظ النتيجة
@@ -1356,13 +1548,16 @@ class CommandHandler:
                 await asyncio.sleep(3)
                 
             except Exception as e:
+                self.live_stats[user_id]['checked'] += 1
+                self.live_stats[user_id]['declined'] += 1
                 results['errors'].append((card_data['original'], str(e)[:50]))
         
-        # إرسال التقرير النهائي
-        report = f"""
+        # إرسال التقرير النهائي إذا لم يتم الإيقاف
+        if not check_data['stop_flag']:
+            report = f"""
 📊 <b>تقرير الفحص الجماعي</b>
 ━━━━━━━━━━━━━━━━
-🚪 البوابة: {GATES[gate]['name']}
+🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}
 📊 إجمالي البطاقات: {len(cards)}
 
 ✅ المقبولة: {len(results['approved'])}
@@ -1370,28 +1565,51 @@ class CommandHandler:
 ⚠️ الأخطاء: {len(results['errors'])}
 ━━━━━━━━━━━━━━━━
 """
-        
-        if results['approved']:
-            report += "\n✅ <b>البطاقات المقبولة:</b>\n"
-            for card, resp in results['approved'][:5]:
-                masked = card.split('|')[0]
-                masked = f"{masked[:6]}xxxxxx{masked[-4:]}"
-                report += f"• <code>{masked}</code> - {resp}\n"
-            if len(results['approved']) > 5:
-                report += f"  ... و {len(results['approved']) - 5} بطاقات أخرى\n"
-        
-        report += f"\n<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>"
-        
-        await bot.send_message(chat_id, report, parse_mode='HTML')
-        
-        # حذف رسالة الحالة
-        try:
-            await bot.delete_message(status_msg.chat.id, status_msg.message_id)
-        except:
-            pass
+            
+            if results['approved']:
+                report += "\n✅ <b>البطاقات المقبولة:</b>\n"
+                for card, resp in results['approved'][:5]:
+                    masked = card.split('|')[0]
+                    masked = f"{masked[:6]}xxxxxx{masked[-4:]}"
+                    report += f"• <code>{masked}</code> - {resp}\n"
+                if len(results['approved']) > 5:
+                    report += f"  ... و {len(results['approved']) - 5} بطاقات أخرى\n"
+            
+            report += f"\n<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>"
+            
+            await bot.send_message(chat_id, report, parse_mode='HTML')
+            
+            # تحديث رسالة الحالة النهائية
+            final_stats = Helpers.format_live_stats(
+                len(cards),
+                self.live_stats[user_id]['checked'],
+                self.live_stats[user_id]['approved'],
+                self.live_stats[user_id]['declined'],
+                "اكتمل"
+            )
+            
+            await bot.edit_message_text(
+                f"✅ <b>اكتمل الفحص الجماعي</b>\n"
+                f"🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}\n"
+                f"{final_stats}",
+                status_msg.chat.id,
+                status_msg.message_id,
+                parse_mode='HTML'
+            )
         
         # تنظيف البيانات المؤقتة
         del self.active_checks[check_id]
+        if user_id in self.live_stats:
+            del self.live_stats[user_id]
+    
+    def stop_mass_check(self, call, check_id: int):
+        """إيقاف الفحص الجماعي"""
+        check_data = self.active_checks.get(check_id)
+        if check_data:
+            check_data['stop_flag'] = True
+            bot.answer_callback_query(call.id, "⛔ جاري إيقاف الفحص...")
+        else:
+            bot.answer_callback_query(call.id, "❌ الفحص غير موجود")
     
     def process_add_subscription(self, message):
         """معالجة إضافة اشتراك"""
@@ -1425,6 +1643,11 @@ class CommandHandler:
                 
                 # إرسال إشعار للمستخدم
                 try:
+                    markup = InlineKeyboardMarkup()
+                    markup.add(
+                        InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
+                        InlineKeyboardButton("👨‍💻 المطور", url=SUPPORT_LINK)
+                    )
                     bot.send_message(
                         target_id,
                         f"✅ <b>تم تفعيل اشتراكك في بوت Obeida Online</b>\n\n"
@@ -1432,7 +1655,8 @@ class CommandHandler:
                         f"📢 القناة: {CHANNEL_USERNAME}\n"
                         f"👨‍💻 المطور: {DEV_CONTACT}\n\n"
                         f"شكراً لاستخدامك بوتنا!",
-                        parse_mode='HTML'
+                        parse_mode='HTML',
+                        reply_markup=markup
                     )
                 except:
                     pass
@@ -1505,11 +1729,17 @@ class CommandHandler:
         
         for uid in users.keys():
             try:
+                markup = InlineKeyboardMarkup()
+                markup.add(
+                    InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
+                    InlineKeyboardButton("👨‍💻 المطور", url=SUPPORT_LINK)
+                )
                 bot.send_message(
                     int(uid),
                     f"📢 <b>إشعار من المشرف</b>\n\n{broadcast_text}\n\n"
                     f"<b>Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>",
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=markup
                 )
                 success += 1
                 time.sleep(0.05)  # تجنب سبام
@@ -1542,7 +1772,7 @@ class CommandHandler:
                 for gate_id, gate_info in GATES.items():
                     if gate_info.get("enabled", True):
                         markup.add(InlineKeyboardButton(
-                            f"🔍 فحص عبر {gate_info['name']}",
+                            f"{gate_info['icon']} فحص عبر {gate_info['name']}",
                             callback_data=f"quick_{gate_id}_{message.message_id}"
                         ))
                 
@@ -1552,10 +1782,16 @@ class CommandHandler:
                     'user_id': message.from_user.id
                 }
                 
+                bin_info = Helpers.get_bin_info(card_data['number'][:6])
+                
                 bot.reply_to(
                     message,
                     f"💳 <b>تم التعرف على بطاقة</b>\n\n"
                     f"<code>{card_data['number'][:6]}xxxxxx{card_data['number'][-4:]}|{card_data['month']}|{card_data['year']}|{card_data['cvv']}</code>\n\n"
+                    f"🏦 <b>معلومات BIN:</b>\n"
+                    f"• النوع: {bin_info['brand']} | {bin_info['type']}\n"
+                    f"• البنك: {bin_info['bank']}\n"
+                    f"• الدولة: {bin_info['country']} {bin_info['flag']}\n\n"
                     f"🚪 <b>اختر البوابة للفحص:</b>",
                     parse_mode='HTML',
                     reply_markup=markup
@@ -1570,6 +1806,53 @@ class CommandHandler:
             "أو /help لعرض المساعدة",
             parse_mode='HTML'
         )
+    
+    def show_approved_cards(self, call):
+        """عرض البطاقات المقبولة للمشرف"""
+        user_id = call.from_user.id
+        if user_id not in ADMIN_IDS:
+            bot.answer_callback_query(call.id, "⛔ هذا الأمر للمشرفين فقط")
+            return
+        
+        try:
+            if os.path.exists(APPROVED_CARDS_FILE):
+                with open(APPROVED_CARDS_FILE, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                if content.strip():
+                    # تقسيم المحتوى إذا كان طويلاً
+                    if len(content) > 4000:
+                        parts = [content[i:i+4000] for i in range(0, len(content), 4000)]
+                        for i, part in enumerate(parts):
+                            bot.send_message(
+                                call.message.chat.id,
+                                f"📁 <b>البطاقات المقبولة (جزء {i+1}/{len(parts)}):</b>\n\n<code>{part}</code>",
+                                parse_mode='HTML'
+                            )
+                    else:
+                        bot.send_message(
+                            call.message.chat.id,
+                            f"📁 <b>البطاقات المقبولة:</b>\n\n<code>{content}</code>",
+                            parse_mode='HTML'
+                        )
+                else:
+                    bot.send_message(
+                        call.message.chat.id,
+                        "📁 <b>لا توجد بطاقات مقبولة حتى الآن</b>",
+                        parse_mode='HTML'
+                    )
+            else:
+                bot.send_message(
+                    call.message.chat.id,
+                    "📁 <b>ملف البطاقات المقبولة غير موجود</b>",
+                    parse_mode='HTML'
+                )
+        except Exception as e:
+            bot.send_message(
+                call.message.chat.id,
+                f"⚠️ <b>خطأ في قراءة الملف:</b> {str(e)[:100]}",
+                parse_mode='HTML'
+            )
 
 # ==================== معالج الكول باك ====================
 class CallbackHandler:
@@ -1603,27 +1886,16 @@ class CallbackHandler:
                 )
             
             elif data == "my_profile":
-                users = DataManager.load_users()
-                user_data = users.get(str(user_id), {})
-                profile_text = UserInterface.format_profile(user_data, user_id)
-                bot.edit_message_text(
-                    profile_text,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.back_button()
-                )
+                self.cmd_handler.handle_my_stats(call)
+            
+            elif data == "my_stats":
+                self.cmd_handler.handle_my_stats(call)
+            
+            elif data == "global_stats":
+                self.cmd_handler.handle_global_stats(call)
             
             elif data == "stats":
-                stats = DataManager.load_stats()
-                stats_text = UserInterface.format_stats(stats)
-                bot.edit_message_text(
-                    stats_text,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.back_button()
-                )
+                self.cmd_handler.handle_global_stats(call)
             
             elif data == "subscribe":
                 plans_text = f"""
@@ -1676,7 +1948,7 @@ class CallbackHandler:
                 gate = data.replace("select_gate_", "")
                 gate_info = GATES.get(gate, {})
                 bot.edit_message_text(
-                    f"✅ <b>تم اختيار: {gate_info['name']}</b>\n\n"
+                    f"✅ <b>تم اختيار: {gate_info['icon']} {gate_info['name']}</b>\n\n"
                     f"📝 أرسل البطاقة بهذه الصيغة:\n"
                     f"<code>/{gate_info['command']} رقم|شهر|سنة|cvv</code>\n\n"
                     f"مثال:\n"
@@ -1755,6 +2027,21 @@ class CallbackHandler:
                     
                     bot.answer_callback_query(call.id, "✅ بدأ الفحص الجماعي")
             
+            elif data.startswith("stop_check_"):
+                check_id = int(data.replace("stop_check_", ""))
+                self.cmd_handler.stop_mass_check(call, check_id)
+            
+            elif data == "mass_check":
+                bot.edit_message_text(
+                    "📁 <b>فحص ملف بطاقات</b>\n\n"
+                    "أرسل ملف txt يحتوي على البطاقات (واحدة في كل سطر)\n"
+                    "الصيغة: <code>رقم|شهر|سنة|cvv</code>",
+                    call.message.chat.id,
+                    call.message.message_id,
+                    parse_mode='HTML',
+                    reply_markup=UserInterface.back_button()
+                )
+            
             elif data == "admin_menu" and user_id in ADMIN_IDS:
                 bot.edit_message_text(
                     "👑 <b>قائمة المشرفين</b>",
@@ -1773,19 +2060,32 @@ class CallbackHandler:
                     sub = user_data.get('subscription', {})
                     sub_status = "✅" if sub.get('active') else "❌"
                     checks = user_data.get('usage', {}).get('total_checks', 0)
+                    approved = user_data.get('usage', {}).get('approved', 0)
                     
-                    users_text += f"{sub_status} <code>{uid}</code> - {name} - {checks} فحص\n"
+                    users_text += f"{sub_status} <code>{uid}</code> - {name}\n"
+                    users_text += f"   📊 فحوصات: {checks} | ✅ {approved}\n\n"
                 
                 if len(users) > 20:
                     users_text += f"\n... و {len(users) - 20} مستخدم آخر"
                 
-                bot.edit_message_text(
-                    users_text,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.back_button("admin_menu")
-                )
+                # تقسيم النص إذا كان طويلاً
+                if len(users_text) > 4000:
+                    parts = [users_text[i:i+4000] for i in range(0, len(users_text), 4000)]
+                    for i, part in enumerate(parts):
+                        bot.send_message(
+                            call.message.chat.id,
+                            f"👥 <b>المستخدمين (جزء {i+1}/{len(parts)}):</b>\n\n{part}",
+                            parse_mode='HTML'
+                        )
+                    bot.delete_message(call.message.chat.id, call.message.message_id)
+                else:
+                    bot.edit_message_text(
+                        users_text,
+                        call.message.chat.id,
+                        call.message.message_id,
+                        parse_mode='HTML',
+                        reply_markup=UserInterface.back_button("admin_menu")
+                    )
             
             elif data == "admin_add_sub" and user_id in ADMIN_IDS:
                 msg = bot.send_message(
@@ -1812,22 +2112,30 @@ class CallbackHandler:
                 stats = DataManager.load_stats()
                 users = DataManager.load_users()
                 
+                # حساب متوسط الاستخدام
+                total_users = len(users)
+                active_subs = sum(1 for u in users.values() if u.get('subscription', {}).get('active'))
+                total_checks = stats.get('total_checks', 0)
+                
                 admin_stats = f"""
 👑 <b>إحصائيات المشرف</b>
 ━━━━━━━━━━━━━━━━
-👥 إجمالي المستخدمين: {len(users)}
-✅ المشتركين النشطين: {sum(1 for u in users.values() if u.get('subscription', {}).get('active'))}
+👥 إجمالي المستخدمين: {total_users}
+✅ المشتركين النشطين: {active_subs}
+📊 متوسط الفحوصات: {total_checks // max(total_users, 1)} لكل مستخدم
 
-📊 إحصائيات البوت:
+<b>📊 إحصائيات البوت:</b>
 • إجمالي الفحوصات: {stats.get('total_checks', 0)}
 • البطاقات المقبولة: {stats.get('total_approved', 0)}
 • البطاقات المرفوضة: {stats.get('total_declined', 0)}
+• نسبة القبول: {(stats.get('total_approved', 0) / max(stats.get('total_checks', 1), 1) * 100):.1f}%
 
-🚪 استخدام البوابات:
+<b>🚪 استخدام البوابات:</b>
 """
                 for gate, count in stats.get('gates_usage', {}).items():
                     gate_name = GATES.get(gate, {}).get('name', gate)
-                    admin_stats += f"  • {gate_name}: {count}\n"
+                    icon = GATES.get(gate, {}).get('icon', '🚪')
+                    admin_stats += f"  {icon} {gate_name}: {count}\n"
                 
                 bot.edit_message_text(
                     admin_stats,
@@ -1854,12 +2162,13 @@ class CallbackHandler:
 👑 المشرفون: {', '.join(str(a) for a in ADMIN_IDS)}
 📢 القناة: {CHANNEL_USERNAME}
 👤 المطور: {DEV_CONTACT}
+📁 ملفات التخزين: {USERS_FILE}, {STATS_FILE}
 
 🚪 البوابات المفعلة:
 """
                 for gate_id, gate_info in GATES.items():
                     status = "✅" if gate_info.get('enabled', True) else "❌"
-                    settings_text += f"{status} {gate_info['name']}\n"
+                    settings_text += f"{status} {gate_info['icon']} {gate_info['name']}\n"
                 
                 bot.edit_message_text(
                     settings_text,
@@ -1868,6 +2177,10 @@ class CallbackHandler:
                     parse_mode='HTML',
                     reply_markup=UserInterface.back_button("admin_menu")
                 )
+            
+            elif data == "admin_approved" and user_id in ADMIN_IDS:
+                self.cmd_handler.show_approved_cards(call)
+                bot.answer_callback_query(call.id)
             
             else:
                 bot.answer_callback_query(call.id, "⚠️ أمر غير معروف")
@@ -2000,6 +2313,7 @@ def setup_bot():
     print(Fore.YELLOW + "🚀 البوت يعمل الآن...")
     print(Fore.YELLOW + "📢 القناة: " + Fore.WHITE + CHANNEL_USERNAME)
     print(Fore.YELLOW + "👤 المطور: " + Fore.WHITE + DEV_CONTACT)
+    print(Fore.YELLOW + "📊 نظام العرض المباشر: " + Fore.GREEN + "✅ مفعل")
     print(Fore.CYAN + "="*50 + Style.RESET_ALL)
     
     # ========== تشغيل خادم Health Check ==========
@@ -2018,7 +2332,7 @@ def setup_bot():
                     self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
-                    self.wfile.write(b'{"status": "healthy"}')
+                    self.wfile.write(b'{"status": "healthy", "uptime": "active"}')
                 else:
                     self.send_response(404)
                     self.end_headers()
