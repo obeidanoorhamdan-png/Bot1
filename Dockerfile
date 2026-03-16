@@ -18,5 +18,8 @@ RUN pip install --no-cache-dir \
 # نسخ ملف البوت
 COPY Bot.py .
 
+# التحقق من التثبيت
+RUN python -c "import telebot; print('✅ Telebot installed successfully')"
+
 # تشغيل البوت
 CMD ["python", "Bot.py"]
