@@ -2009,6 +2009,7 @@ def setup_bot():
     import os
     
     def run_health_server():
+        import os
         port = int(os.environ.get('PORT', 10000))
         handler = http.server.SimpleHTTPRequestHandler
         
