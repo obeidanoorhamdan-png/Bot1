@@ -76,8 +76,10 @@ from typing import Dict, List, Tuple, Optional, Any
 from collections import defaultdict
 from urllib.parse import urlparse
 import html
+import http.server
+import socketserver
 
-# استيراد المكتبات بعد التثبيت
+# استيراد المكتبات الخارجية
 try:
     import requests
     import aiohttp
@@ -90,19 +92,8 @@ try:
     from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 except ImportError as e:
     print(f"❌ خطأ في استيراد المكتبات: {e}")
-    print("📦 جاري إعادة التثبيت...")
-    for package in required_packages:
-        install_package(package)
-    # إعادة الاستيراد
-    import requests
-    import aiohttp
-    from bs4 import BeautifulSoup
-    from fake_useragent import UserAgent
-    from faker import Faker
-    from colorama import init, Fore, Style, Back
-    import telebot
-    from telebot import types
-    from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+    print("⚠️ تأكد من تثبيت المكتبات في Dockerfile")
+    sys.exit(1)
 
 # تهيئة الألوان
 init(autoreset=True)
