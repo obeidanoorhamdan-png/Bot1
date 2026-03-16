@@ -2047,39 +2047,38 @@ def setup_bot():
     print(Fore.YELLOW + "👤 المطور: " + Fore.WHITE + DEV_CONTACT)
     print(Fore.CYAN + "="*50 + Style.RESET_ALL)
     
-    # ========== هنا ضع كود Health Server ==========
+    # تشغيل خادم health check في خيط منفصل
     import http.server
     import socketserver
     import threading
+    import os
 
     def run_health_server():
-        """تشغيل خادم بسيط لـ health checks على Render"""
-        port = int(os.environ.get('PORT', 10000))
-        handler = http.server.SimpleHTTPRequestHandler
+      port = int(os.environ.get('PORT', 10000))
+      handler = http.server.SimpleHTTPRequestHandler
+    
+      class HealthCheckHandler(handler):
+          def do_GET(self):
+              if self.path == '/':
+                  self.send_response(200)
+                  self.send_header('Content-type', 'text/html')
+                  self.end_headers()
+                  self.wfile.write(b'<h1>Obeida Online Bot is Running!</h1>')
+              elif self.path == '/health':
+                  self.send_response(200)
+                  self.send_header('Content-type', 'application/json')
+                  self.end_headers()
+                  self.wfile.write(b'{"status": "healthy"}')
+              else:
+                  self.send_response(404)
+                  self.end_headers()
+    
+      with socketserver.TCPServer(("0.0.0.0", port), HealthCheckHandler) as httpd:
+          print(f"🌐 Health check server running on port {port}")
+          httpd.serve_forever()
 
-        class HealthCheckHandler(handler):
-            def do_GET(self):
-                if self.path == '/':
-                    self.send_response(200)
-                    self.send_header('Content-type', 'text/html')
-                    self.end_headers()
-                    self.wfile.write(b'<h1>Obeida Online Bot is Running!</h1>')
-                elif self.path == '/health':
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(b'{"status": "healthy"}')
-                else:
-                    self.send_response(404)
-                    self.end_headers()
-
-        with socketserver.TCPServer(("0.0.0.0", port), HealthCheckHandler) as httpd:
-            print(f"🌐 Health check server running on port {port}")
-            httpd.serve_forever()
-
-    # تشغيل خادم health check في خيط منفصل
-    health_thread = threading.Thread(target=run_health_server, daemon=True)
-    health_thread.start()
+  health_thread = threading.Thread(target=run_health_server, daemon=True)
+  health_thread.start()
     # ========== نهاية كود Health Server ==========
 
     # تشغيل البوت
