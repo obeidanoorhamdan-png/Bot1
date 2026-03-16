@@ -1,15 +1,10 @@
 services:
   - type: worker
     name: obeida-online-bot
-    runtime: python
+    runtime: docker
     plan: free
     region: frankfurt
-    buildCommand: |
-      pip install --upgrade pip
-      pip install python-telegram-bot requests aiohttp beautifulsoup4 fake-useragent Faker colorama pyfiglet cfonts user_agent
-    startCommand: python Bot.py
+    dockerfilePath: ./Dockerfile
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0  # استخدم إصدار مستقر
       - key: TZ
         value: Asia/Baghdad
