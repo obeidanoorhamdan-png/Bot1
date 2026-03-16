@@ -15,51 +15,6 @@ import platform
 print(f"📌 إصدار Python: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
 print(f"📌 نظام التشغيل: {platform.system()} {platform.release()}")
 
-# ==================== التثبيت التلقائي للمكتبات ====================
-import subprocess
-import os
-
-required_packages = [
-    'python-telegram-bot==20.7',
-    'requests==2.31.0',
-    'aiohttp==3.9.1',
-    'beautifulsoup4==4.12.2',
-    'fake-useragent==1.4.0',
-    'Faker==20.1.0',
-    'colorama==0.4.6',
-    'pyfiglet==0.8.post1',
-    'cfonts==3.2.0',
-    'user_agent==0.1.10'
-]
-
-def install_package(package):
-    """تثبيت حزمة Python"""
-    package_name = package.split('==')[0].replace('-', '_')
-    try:
-        __import__(package_name)
-        return True
-    except ImportError:
-        print(f"📦 جاري تثبيت {package}...")
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", package])
-            return True
-        except subprocess.CalledProcessError:
-            # محاولة بدون تحديد الإصدار
-            try:
-                base_package = package.split('==')[0]
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", base_package])
-                return True
-            except:
-                return False
-        except:
-            return False
-
-# تثبيت جميع المكتبات
-print("📦 جاري التحقق من المكتبات المطلوبة...")
-for package in required_packages:
-    install_package(package)
-print("✅ تم التحقق من جميع المكتبات")
-
 # ==================== المكتبات المطلوبة ====================
 import time
 import json
