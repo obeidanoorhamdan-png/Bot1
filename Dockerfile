@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# تثبيت المكتبات المطلوبة - مع إضافة pyTelegramBotAPI
+# تثبيت المكتبات المطلوبة مع تحديث pip
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
         python-telegram-bot \
