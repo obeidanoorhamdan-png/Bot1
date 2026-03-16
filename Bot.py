@@ -12,16 +12,8 @@ Channel: https://t.me/ObeidaTrading
 import sys
 import platform
 
-MIN_PYTHON = (3, 10)
-MAX_PYTHON = (3, 13)
-CURRENT_PYTHON = sys.version_info[:2]
-
-if CURRENT_PYTHON < MIN_PYTHON or CURRENT_PYTHON > MAX_PYTHON:
-    print(f"⚠️ خطأ: إصدار Python غير مدعوم!")
-    print(f"📌 الإصدارات المدعومة: Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} - {MAX_PYTHON[0]}.{MAX_PYTHON[1]}")
-    print(f"📌 الإصدار الحالي: Python {CURRENT_PYTHON[0]}.{CURRENT_PYTHON[1]}")
-    print(f"📌 نظام التشغيل: {platform.system()} {platform.release()}")
-    sys.exit(1)
+print(f"📌 إصدار Python: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+print(f"📌 نظام التشغيل: {platform.system()} {platform.release()}")
 
 # ==================== التثبيت التلقائي للمكتبات ====================
 import subprocess
