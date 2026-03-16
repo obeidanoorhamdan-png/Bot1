@@ -126,7 +126,7 @@ SUBSCRIPTION_PLANS = {
 }
 
 # ==================== تهيئة البوت ====================
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
+application = Application.builder().token(BOT_TOKEN).build()
 fake = Faker()
 ua = UserAgent()
 
