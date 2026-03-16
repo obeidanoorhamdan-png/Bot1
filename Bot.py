@@ -2048,7 +2048,7 @@ def setup_bot():
 ╚══════════════════════════╝
     """
     
-        print(Fore.CYAN + "="*50)
+    print(Fore.CYAN + "="*50)
     print(Fore.GREEN + bot_info)
     print(Fore.CYAN + "="*50)
     print(Fore.YELLOW + "🚀 البوت يعمل الآن...")
@@ -2060,12 +2060,12 @@ def setup_bot():
     import http.server
     import socketserver
     import threading
-    
+
     def run_health_server():
         """تشغيل خادم بسيط لـ health checks على Render"""
         port = int(os.environ.get('PORT', 10000))
         handler = http.server.SimpleHTTPRequestHandler
-        
+
         class HealthCheckHandler(handler):
             def do_GET(self):
                 if self.path == '/':
@@ -2081,16 +2081,16 @@ def setup_bot():
                 else:
                     self.send_response(404)
                     self.end_headers()
-        
+
         with socketserver.TCPServer(("0.0.0.0", port), HealthCheckHandler) as httpd:
             print(f"🌐 Health check server running on port {port}")
             httpd.serve_forever()
-    
+
     # تشغيل خادم health check في خيط منفصل
     health_thread = threading.Thread(target=run_health_server, daemon=True)
     health_thread.start()
     # ========== نهاية كود Health Server ==========
-    
+
     # تشغيل البوت
     try:
         bot.infinity_polling(timeout=60, long_polling_timeout=60)
