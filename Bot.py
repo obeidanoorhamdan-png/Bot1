@@ -2047,40 +2047,41 @@ def setup_bot():
     print(Fore.YELLOW + "👤 المطور: " + Fore.WHITE + DEV_CONTACT)
     print(Fore.CYAN + "="*50 + Style.RESET_ALL)
     
-    # تشغيل خادم health check في خيط منفصل
+    # ========== تشغيل خادم Health Check ==========
     import http.server
     import socketserver
     import threading
     import os
-
+    
     def run_health_server():
-      port = int(os.environ.get('PORT', 10000))
-      handler = http.server.SimpleHTTPRequestHandler
+        port = int(os.environ.get('PORT', 10000))
+        handler = http.server.SimpleHTTPRequestHandler
+        
+        class HealthCheckHandler(handler):
+            def do_GET(self):
+                if self.path == '/':
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    self.wfile.write(b'<h1>Obeida Online Bot is Running!</h1>')
+                elif self.path == '/health':
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(b'{"status": "healthy"}')
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+        
+        with socketserver.TCPServer(("0.0.0.0", port), HealthCheckHandler) as httpd:
+            print(f"🌐 Health check server running on port {port}")
+            httpd.serve_forever()
     
-      class HealthCheckHandler(handler):
-          def do_GET(self):
-              if self.path == '/':
-                  self.send_response(200)
-                  self.send_header('Content-type', 'text/html')
-                  self.end_headers()
-                  self.wfile.write(b'<h1>Obeida Online Bot is Running!</h1>')
-              elif self.path == '/health':
-                  self.send_response(200)
-                  self.send_header('Content-type', 'application/json')
-                  self.end_headers()
-                  self.wfile.write(b'{"status": "healthy"}')
-              else:
-                  self.send_response(404)
-                  self.end_headers()
+    # تشغيل خادم health check في خيط منفصل
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    # ========== نهاية كود Health Check ==========
     
-      with socketserver.TCPServer(("0.0.0.0", port), HealthCheckHandler) as httpd:
-          print(f"🌐 Health check server running on port {port}")
-          httpd.serve_forever()
-
-  health_thread = threading.Thread(target=run_health_server, daemon=True)
-  health_thread.start()
-    # ========== نهاية كود Health Server ==========
-
     # تشغيل البوت
     try:
         bot.infinity_polling(timeout=60, long_polling_timeout=60)
@@ -2089,3 +2090,14 @@ def setup_bot():
         time.sleep(5)
         # إعادة التشغيل التلقائي
         setup_bot()
+
+# ==================== نقطة البداية ====================
+if __name__ == "__main__":
+    try:
+        setup_bot()
+    except KeyboardInterrupt:
+        print(Fore.RED + "\n\n⚠️ تم إيقاف البوت بواسطة المستخدم" + Style.RESET_ALL)
+        sys.exit(0)
+    except Exception as e:
+        print(Fore.RED + f"\n❌ خطأ غير متوقع: {e}" + Style.RESET_ALL)
+        sys.exit(1)
