@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: obeida-online-bot
     runtime: docker
     plan: free
