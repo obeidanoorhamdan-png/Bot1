@@ -42,7 +42,7 @@ try:
     from fake_useragent import UserAgent
     from faker import Faker
     from colorama import init, Fore, Style, Back
-    import telebot  # هذا هو السطر المهم
+    import telebot  # هذا هو المهم
     from telebot import types
     from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 except ImportError as e:
@@ -126,7 +126,7 @@ SUBSCRIPTION_PLANS = {
 }
 
 # ==================== تهيئة البوت ====================
-application = Application.builder().token(BOT_TOKEN).build()
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 fake = Faker()
 ua = UserAgent()
 
