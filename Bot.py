@@ -22,7 +22,7 @@ import random
 import string
 import re
 import base64
-import os
+import os  # مهم جداً - استيراد os أولاً
 import uuid
 import threading
 import asyncio
@@ -42,7 +42,7 @@ try:
     from fake_useragent import UserAgent
     from faker import Faker
     from colorama import init, Fore, Style, Back
-    import telebot  # هذا هو المهم
+    import telebot
     from telebot import types
     from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 except ImportError as e:
@@ -2003,13 +2003,7 @@ def setup_bot():
     print(Fore.CYAN + "="*50 + Style.RESET_ALL)
     
     # ========== تشغيل خادم Health Check ==========
-    import http.server
-    import socketserver
-    import threading
-    import os
-    
     def run_health_server():
-        import os
         port = int(os.environ.get('PORT', 10000))
         handler = http.server.SimpleHTTPRequestHandler
         
