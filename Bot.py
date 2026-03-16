@@ -42,9 +42,9 @@ try:
     from fake_useragent import UserAgent
     from faker import Faker
     from colorama import init, Fore, Style, Back
-    import telebot
-    from telebot import types
-    from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+    import telegram
+    from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, Update
 except ImportError as e:
     print(f"❌ خطأ في استيراد المكتبات: {e}")
     print("⚠️ تأكد من تثبيت المكتبات في Dockerfile")
