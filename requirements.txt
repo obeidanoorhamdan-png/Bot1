@@ -1,9 +1,13 @@
+# Obeida Online Bot - المتطلبات
+# Python Version: 3.10 - 3.13
+
 python-telegram-bot
 requests
 aiohttp
-numpy
-pandas
-pandas-ta
-scipy
-scikit-learn
-joblib
+beautifulsoup4
+fake-useragent
+Faker
+colorama
+pyfiglet
+cfonts
+user_agent
