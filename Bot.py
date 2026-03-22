@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Real Multi Gateway CC Checker Bot
-Version: 9.0 - Three Gateways (Stripe v1, Stripe v2, PayPal)
+Version: 10.0 - Three Gateways with Mass Check Manager
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -21,7 +21,6 @@ import json
 import random
 import string
 import re
-import base64
 import os
 import uuid
 import threading
@@ -132,10 +131,6 @@ fake = Faker()
 ua = UserAgent()
 
 # متغيرات عامة
-active_checks = {}
-user_sessions = {}
-live_stats = {}
-user_current_gate = {}
 user_last_file = {}
 
 # ==================== إدارة البيانات ====================
@@ -1273,6 +1268,84 @@ class RealGateways:
         else:
             return False, "❌ بوابة غير مدعومة"
 
+# ==================== مدير الفحص المتعدد ====================
+class MassCheckManager:
+    """مدير الفحص المتعدد - يتحكم في عمليات الفحص المتعددة"""
+    
+    def __init__(self):
+        self.active_checks = {}  # {check_id: check_data}
+        self.user_current_check = {}  # {user_id: check_id}
+    
+    def start_check(self, user_id: int, chat_id: int, cards: List[Dict], gate: str, message_id: int = None) -> int:
+        """بدء فحص جديد للمستخدم"""
+        # إذا كان المستخدم لديه فحص نشط، قم بإلغائه أولاً
+        if user_id in self.user_current_check:
+            self.stop_check(user_id)
+        
+        check_id = int(time.time() * 1000)  # معرف فريد
+        
+        self.active_checks[check_id] = {
+            'user_id': user_id,
+            'chat_id': chat_id,
+            'cards': cards,
+            'gate': gate,
+            'total': len(cards),
+            'checked': 0,
+            'approved': 0,
+            'declined': 0,
+            'stop': False,
+            'message_id': message_id,
+            'start_time': datetime.now()
+        }
+        
+        self.user_current_check[user_id] = check_id
+        return check_id
+    
+    def stop_check(self, user_id: int) -> bool:
+        """إيقاف الفحص النشط للمستخدم"""
+        if user_id in self.user_current_check:
+            check_id = self.user_current_check[user_id]
+            if check_id in self.active_checks:
+                self.active_checks[check_id]['stop'] = True
+                return True
+        return False
+    
+    def get_check(self, user_id: int) -> Optional[Dict]:
+        """الحصول على بيانات الفحص النشط للمستخدم"""
+        if user_id in self.user_current_check:
+            check_id = self.user_current_check[user_id]
+            return self.active_checks.get(check_id)
+        return None
+    
+    def remove_check(self, user_id: int):
+        """إزالة الفحص بعد الانتهاء"""
+        if user_id in self.user_current_check:
+            check_id = self.user_current_check[user_id]
+            if check_id in self.active_checks:
+                del self.active_checks[check_id]
+            del self.user_current_check[user_id]
+    
+    def is_checking(self, user_id: int) -> bool:
+        """التحقق مما إذا كان المستخدم يقوم بفحص حاليًا"""
+        if user_id in self.user_current_check:
+            check_id = self.user_current_check[user_id]
+            if check_id in self.active_checks:
+                return not self.active_checks[check_id].get('stop', False)
+        return False
+    
+    def get_progress(self, user_id: int) -> Optional[Dict]:
+        """الحصول على تقدم الفحص الحالي"""
+        check = self.get_check(user_id)
+        if check:
+            return {
+                'total': check['total'],
+                'checked': check['checked'],
+                'approved': check['approved'],
+                'declined': check['declined'],
+                'gate': check['gate']
+            }
+        return None
+
 # ==================== واجهة المستخدم ====================
 class UserInterface:
     @staticmethod
@@ -1332,8 +1405,7 @@ class CommandHandler:
     def __init__(self):
         self.gateways = RealGateways()
         self.ui = UserInterface()
-        self.active_checks = active_checks
-        self.live_stats = live_stats
+        self.mass_manager = MassCheckManager()
         self.user_last_file = user_last_file
         self.start_auto_tasks()
     
@@ -1413,6 +1485,7 @@ class CommandHandler:
 /st1m - فحص ملف عبر Stripe v1
 /st2m - فحص ملف عبر Stripe v2
 /paym - فحص ملف عبر PayPal
+/stop - إيقاف الفحص الحالي
 
 <b>📢 القناة:</b> {CHANNEL_USERNAME}
 <b>👨‍💻 المطور:</b> {DEV_CONTACT}
@@ -1427,6 +1500,7 @@ class CommandHandler:
 • أرسل البطاقة مع منشن البوت: <code>@{BOT_USERNAME} 4111111111111111|12|25|123</code>
 • أرسل ملف txt مع منشن البوت
 • استخدم /st1@ObeidaOnlineBot أو /st2@ObeidaOnlineBot أو /pay@ObeidaOnlineBot
+• /stop@ObeidaOnlineBot - إيقاف الفحص الحالي
 
 <b>📢 القناة:</b> {CHANNEL_USERNAME}
 <b>👨‍💻 المطور:</b> {DEV_CONTACT}
@@ -1434,6 +1508,20 @@ class CommandHandler:
         
         bot.send_message(user.id if chat_type == "private" else chat_id, welcome, 
                         parse_mode='HTML', reply_markup=self.ui.main_menu(chat_type))
+    
+    def handle_stop(self, message):
+        """إيقاف الفحص الحالي للمستخدم"""
+        user_id = message.from_user.id
+        
+        if self.mass_manager.stop_check(user_id):
+            bot.reply_to(message, "⛔ <b>تم إيقاف الفحص بنجاح</b>\n\nيمكنك بدء فحص جديد في أي وقت.", parse_mode='HTML')
+        else:
+            # التحقق إذا كان هناك فحص نشط
+            check = self.mass_manager.get_check(user_id)
+            if check:
+                bot.reply_to(message, "⚠️ <b>لا يمكن إيقاف الفحص حالياً</b>\n\nيرجى المحاولة مرة أخرى.", parse_mode='HTML')
+            else:
+                bot.reply_to(message, "ℹ️ <b>لا يوجد فحص نشط حالياً</b>\n\nاستخدم /st1m أو /st2m أو /paym لبدء فحص جديد.", parse_mode='HTML')
     
     def handle_profile(self, message):
         user_id = message.from_user.id
@@ -1606,118 +1694,125 @@ class CommandHandler:
             bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", progress_msg.chat.id, progress_msg.message_id)
     
     def check_multiple_cards(self, message, cards: List[Dict], gate: str):
-        check_id = message.message_id
+        """فحص عدة بطاقات متسلسلة"""
+        user_id = message.from_user.id
+        chat_id = message.chat.id
         
-        self.active_checks[check_id] = {
-            'cards': cards,
-            'user_id': message.from_user.id,
-            'chat_id': message.chat.id,
-            'message_id': message.message_id,
-            'gate': gate,
-            'stop': False
-        }
-        
-        self.live_stats[message.from_user.id] = {
-            'total': len(cards),
-            'checked': 0,
-            'approved': 0,
-            'declined': 0
-        }
-        
-        start_msg = f"""
-🚀  بدء الفحص المتسلسل 🚀
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-📊 إجمالي البطاقات: {len(cards)}
-🚪 البوابة: {GATES[gate]['name']}
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-✅ المقبولة: 0
-❌ المرفوضة: 0
-🔄 جاري بدء الفحص...
-"""
-        bot.reply_to(message, start_msg, parse_mode='HTML')
-        
-        asyncio.run_coroutine_threadsafe(self.process_mass_async(check_id, gate), asyncio.new_event_loop())
-    
-    async def process_mass_async(self, check_id, gate):
-        data = self.active_checks.get(check_id)
-        if not data:
+        # التحقق من وجود فحص نشط
+        if self.mass_manager.is_checking(user_id):
+            bot.reply_to(message, "⚠️ <b>لديك فحص نشط حالياً!</b>\n\nاستخدم /stop لإيقاف الفحص الحالي أولاً.", parse_mode='HTML')
             return
         
-        cards = data['cards']
-        uid, cid = data['user_id'], data['chat_id']
-        stats = self.live_stats[uid]
+        # بدء فحص جديد
+        check_id = self.mass_manager.start_check(user_id, chat_id, cards, gate, message.message_id)
+        
+        # إرسال رسالة بدء الفحص
+        start_msg = bot.reply_to(message, f"""
+🚀 <b>بدء الفحص المتسلسل</b> 🚀
+━━━━━━━━━━━━
+📊 <b>إجمالي البطاقات:</b> {len(cards)}
+🚪 <b>البوابة:</b> {GATES[gate]['icon']} {GATES[gate]['name']}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+✅ <b>المقبولة:</b> 0
+❌ <b>المرفوضة:</b> 0
+🔄 <b>الحالة:</b> جاري الفحص...
+━━━━━━━━━━━━
+💡 استخدم /stop لإيقاف الفحص
+""", parse_mode='HTML', reply_markup=self.ui.stop_button(check_id))
+        
+        # تحديث معرف الرسالة في بيانات الفحص
+        check = self.mass_manager.get_check(user_id)
+        if check:
+            check['message_id'] = start_msg.message_id
+        
+        # بدء الفحص في thread منفصل
+        threading.Thread(target=self._run_mass_check, args=(user_id,), daemon=True).start()
+    
+    def _run_mass_check(self, user_id: int):
+        """تشغيل الفحص المتعدد في thread منفصل"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._process_mass_check(user_id))
+            loop.close()
+        except Exception as e:
+            print(f"Error in mass check: {e}")
+    
+    async def _process_mass_check(self, user_id: int):
+        """معالجة الفحص المتعدد"""
+        check = self.mass_manager.get_check(user_id)
+        if not check:
+            return
+        
+        cards = check['cards']
+        gate = check['gate']
+        chat_id = check['chat_id']
         gate_name = GATES[gate]['name']
-        
-        results_text = ResultFormatter.format_mass_result_header(len(cards), gate_name)
-        
-        progress_msg = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: bot.send_message(
-                cid,
-                f"""
-🚀  جاري الفحص المتسلسل 🚀
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-📊 إجمالي البطاقات: {len(cards)}
-🚪 البوابة: {gate_name}
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-✅ المقبولة: 0
-❌ المرفوضة: 0
-🔄 جاري الفحص...
-""",
-                parse_mode='HTML',
-                reply_markup=self.ui.stop_button(check_id)
-            )
-        )
         
         card_results = []
         
         for i, card in enumerate(cards, 1):
-            if data.get('stop'):
+            # التحقق من طلب الإيقاف
+            check = self.mass_manager.get_check(user_id)
+            if not check or check.get('stop'):
                 await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: bot.edit_message_text(
-                        f"⛔ تم إيقاف الفحص\n\n✅ المقبولة: {stats['approved']}\n❌ المرفوضة: {stats['declined']}\n📊 تم فحص: {stats['checked']}/{len(cards)}",
-                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML'
-                    )
+                        f"⛔ <b>تم إيقاف الفحص</b>\n━━━━━━━━━━━━\n✅ المقبولة: {check['approved'] if check else 0}\n❌ المرفوضة: {check['declined'] if check else 0}\n📊 تم فحص: {check['checked'] if check else 0}/{check['total'] if check else 0}",
+                        chat_id,
+                        check['message_id'] if check else None,
+                        parse_mode='HTML'
+                    ) if check and check.get('message_id') else None
                 )
                 break
             
             try:
                 current_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
                 
+                # تحديث التقدم
+                progress_text = f"""
+🚀 <b>جاري الفحص المتسلسل</b> 🚀
+━━━━━━━━━━━━
+📊 <b>إجمالي البطاقات:</b> {check['total']}
+🚪 <b>البوابة:</b> {GATES[gate]['icon']} {gate_name}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+✅ <b>المقبولة:</b> {check['approved']}
+❌ <b>المرفوضة:</b> {check['declined']}
+🔄 <b>جاري فحص:</b> <code>{current_card}</code>
+━━━━━━━━━━━━
+💡 استخدم /stop لإيقاف الفحص
+"""
+                
                 await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: bot.edit_message_text(
-                        f"""
-🚀  جاري الفحص المتسلسل 🚀
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-📊 إجمالي البطاقات: {len(cards)}
-🚪 البوابة: {gate_name}
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-✅ المقبولة: {stats['approved']}
-❌ المرفوضة: {stats['declined']}
-🔄 جاري فحص: {current_card}
-""",
-                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
-                        reply_markup=self.ui.stop_button(check_id)
-                    )
+                        progress_text,
+                        chat_id,
+                        check['message_id'],
+                        parse_mode='HTML',
+                        reply_markup=self.ui.stop_button(int(time.time() * 1000))
+                    ) if check['message_id'] else None
                 )
                 
+                # فحص البطاقة
                 approved, resp = await self.gateways.check_card(gate, card)
-                stats['checked'] += 1
+                
+                # تحديث الإحصائيات
+                check = self.mass_manager.get_check(user_id)
+                if not check:
+                    break
+                
+                check['checked'] += 1
                 
                 card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
                 card_results.append(card_result)
                 
                 if approved:
-                    stats['approved'] += 1
+                    check['approved'] += 1
                     
+                    # إرسال البطاقة المقبولة فوراً
                     number = card['number']
                     masked = f"{number[:6]}xxxxxx{number[-4:]}"
                     bin_info = Helpers.get_bin_info(number[:6])
@@ -1738,101 +1833,95 @@ class CommandHandler:
                     
                     await asyncio.get_event_loop().run_in_executor(
                         None,
-                        lambda: bot.send_message(cid, approved_msg, parse_mode='HTML')
+                        lambda: bot.send_message(chat_id, approved_msg, parse_mode='HTML')
                     )
                     
-                    DataManager.save_card_result(card['original'], gate_name, resp, uid, True)
+                    DataManager.save_card_result(card['original'], gate_name, resp, user_id, True)
                     
                 else:
-                    stats['declined'] += 1
-                    DataManager.save_card_result(card['original'], gate_name, resp, uid, False)
+                    check['declined'] += 1
+                    DataManager.save_card_result(card['original'], gate_name, resp, user_id, False)
                 
-                DataManager.update_usage(uid, gate, resp)
+                DataManager.update_usage(user_id, gate, resp)
+                
+                # تحديث التقدم بعد الفحص
+                progress_text = f"""
+🚀 <b>جاري الفحص المتسلسل</b> 🚀
+━━━━━━━━━━━━
+📊 <b>إجمالي البطاقات:</b> {check['total']}
+🚪 <b>البوابة:</b> {GATES[gate]['icon']} {gate_name}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+✅ <b>المقبولة:</b> {check['approved']}
+❌ <b>المرفوضة:</b> {check['declined']}
+🔄 <b>تم فحص:</b> {check['checked']}/{check['total']}
+━━━━━━━━━━━━
+💡 استخدم /stop لإيقاف الفحص
+"""
                 
                 await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: bot.edit_message_text(
-                        f"""
-🚀  جاري الفحص المتسلسل 🚀
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-📊 إجمالي البطاقات: {len(cards)}
-🚪 البوابة: {gate_name}
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-✅ المقبولة: {stats['approved']}
-❌ المرفوضة: {stats['declined']}
-🔄 تم فحص: {stats['checked']}/{len(cards)}
-""",
-                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
-                        reply_markup=self.ui.stop_button(check_id)
-                    )
+                        progress_text,
+                        chat_id,
+                        check['message_id'],
+                        parse_mode='HTML',
+                        reply_markup=self.ui.stop_button(int(time.time() * 1000))
+                    ) if check['message_id'] else None
                 )
                 
                 await asyncio.sleep(1.5)
                 
             except Exception as e:
-                stats['checked'] += 1
-                stats['declined'] += 1
+                check = self.mass_manager.get_check(user_id)
+                if not check:
+                    break
+                
+                check['checked'] += 1
+                check['declined'] += 1
                 card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
                 card_results.append(card_result)
-                
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.edit_message_text(
-                        f"""
-🚀  جاري الفحص المتسلسل 🚀
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-📊 إجمالي البطاقات: {len(cards)}
-🚪 البوابة: {gate_name}
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-✅ المقبولة: {stats['approved']}
-❌ المرفوضة: {stats['declined']}
-🔄 تم فحص: {stats['checked']}/{len(cards)} (⚠️ خطأ)
-""",
-                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
-                        reply_markup=self.ui.stop_button(check_id)
-                    )
-                )
         
-        results_text += "\n".join(card_results)
-        results_text += ResultFormatter.format_mass_result_footer(
-            stats['approved'], stats['declined'], len(cards), len(cards) - stats['checked']
-        )
-        
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: bot.edit_message_text(results_text, progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML')
-        )
-        
-        summary = f"""
+        # انتهاء الفحص
+        check = self.mass_manager.get_check(user_id)
+        if check and not check.get('stop'):
+            # تجميع النتائج النهائية
+            results_text = ResultFormatter.format_mass_result_header(check['total'], gate_name)
+            results_text += "\n".join(card_results)
+            results_text += ResultFormatter.format_mass_result_footer(
+                check['approved'], check['declined'], check['total'], 0
+            )
+            
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.edit_message_text(
+                    results_text,
+                    chat_id,
+                    check['message_id'],
+                    parse_mode='HTML'
+                ) if check['message_id'] else None
+            )
+            
+            # إرسال ملخص
+            summary = f"""
 ✅ <b>اكتمل الفحص</b>
 ━━━━━━━━━━━━
-📊 إجمالي البطاقات: {len(cards)}
-✅ المقبولة: {stats['approved']}
-❌ المرفوضة: {stats['declined']}
-📈 نسبة النجاح: {(stats['approved']/len(cards)*100) if len(cards) > 0 else 0:.1f}%
+📊 إجمالي البطاقات: {check['total']}
+✅ المقبولة: {check['approved']}
+❌ المرفوضة: {check['declined']}
+📈 نسبة النجاح: {(check['approved']/check['total']*100) if check['total'] > 0 else 0:.1f}%
 ━━━━━━━━━━━━
-{'📌 تم إرسال البطاقات المقبولة فوراً' if stats['approved'] > 0 else '❌ لا توجد بطاقات مقبولة'}
+{'📌 تم إرسال البطاقات المقبولة فوراً' if check['approved'] > 0 else '❌ لا توجد بطاقات مقبولة'}
 📁 تم حفظ النتائج في الملفات
 """
+            
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.send_message(chat_id, summary, parse_mode='HTML')
+            )
         
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: bot.send_message(cid, summary, parse_mode='HTML')
-        )
-        
-        del self.active_checks[check_id]
-        del self.live_stats[uid]
-    
-    def stop_check(self, call, check_id):
-        if check_id in self.active_checks:
-            self.active_checks[check_id]['stop'] = True
-            bot.answer_callback_query(call.id, "⛔ جاري إيقاف الفحص...")
-        else:
-            bot.answer_callback_query(call.id, "❌ لا يوجد فحص نشط")
+        # إزالة الفحص من المدير
+        self.mass_manager.remove_check(user_id)
     
     def handle_single(self, message, gate):
         if not self.check_sub(message):
@@ -2040,7 +2129,8 @@ class CallbackHandler:
         
         elif data.startswith("stop_"):
             cid = int(data.replace("stop_", ""))
-            self.handler.stop_check(call, cid)
+            self.handler.mass_manager.stop_check(cid)
+            bot.answer_callback_query(call.id, "⛔ جاري إيقاف الفحص...")
 
 # ==================== إعداد البوت ====================
 def setup():
@@ -2059,6 +2149,9 @@ def setup():
             bot.reply_to(m, "📚 أرسل البطاقة مباشرة أو استخدم /start للقائمة الرئيسية")
         else:
             bot.reply_to(m, f"📚 أرسل البطاقة مع منشن البوت: <code>@{BOT_USERNAME} 4111111111111111|12|25|123</code>", parse_mode='HTML')
+    
+    @bot.message_handler(commands=['stop'])
+    def stop(m): handler.handle_stop(m)
     
     @bot.message_handler(commands=['profile'])
     def profile(m): handler.handle_profile(m)
@@ -2148,6 +2241,10 @@ def setup():
     print(Fore.WHITE + "   💳 Stripe v1: /st1 (فردي) | /st1m (ملف)" + Style.RESET_ALL)
     print(Fore.WHITE + "   💎 Stripe v2: /st2 (فردي) | /st2m (ملف)" + Style.RESET_ALL)
     print(Fore.WHITE + "   💸 PayPal Charge: /pay (فردي) | /paym (ملف)" + Style.RESET_ALL)
+    print(Fore.CYAN + "=" * 60 + Style.RESET_ALL)
+    print(Fore.YELLOW + "📌 الأوامر الإضافية:" + Style.RESET_ALL)
+    print(Fore.WHITE + "   /stop - إيقاف الفحص الحالي" + Style.RESET_ALL)
+    print(Fore.WHITE + "   /lastfile - فحص آخر ملف تم إرساله" + Style.RESET_ALL)
     print(Fore.CYAN + "=" * 60 + Style.RESET_ALL)
     print(Fore.GREEN + "✅ البوت جاهز للعمل!" + Style.RESET_ALL)
     
