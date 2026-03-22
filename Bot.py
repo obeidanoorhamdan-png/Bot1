@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Real Multi Gateway CC Checker Bot
-Version: 6.0 - Stripe Gateways Only
+Version: 7.0 - Group Support & File Memory
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -32,6 +32,7 @@ from urllib.parse import urlparse
 import http.server
 import socketserver
 import shutil
+import tempfile
 
 # استيراد المكتبات الخارجية
 try:
@@ -53,20 +54,22 @@ init(autoreset=True)
 # ==================== إعدادات البوت ====================
 BOT_TOKEN = "8375573526:AAFa882xWsLWl6LAfl0IcaZEU12hyP6YIy0"
 ADMIN_IDS = [6207431030]
-CHANNEL_USERNAME = "@ObeidaTrading"
+CHANNEL_USERNAME = "@ObeidaOnline"
 DEV_CONTACT = "@Sz2zv"
-BOT_USERNAME = "ObeidaOnlineBot"
+BOT_USERNAME = "@farah_obeida_bot"
 
-CHANNEL_LINK = "https://t.me/ObeidaTrading"
-SUPPORT_LINK = "https://t.me/Sz2zv"
+CHANNEL_LINK = "t.me/ObeidaOnline"
+SUPPORT_LINK = "t.me/Sz2zv"
 
 # مجلدات التخزين
 DATA_FOLDER = "data"
 BACKUP_FOLDER = "backups"
+TEMP_FOLDER = "temp"
 
 # إنشاء المجلدات تلقائياً
 os.makedirs(DATA_FOLDER, exist_ok=True)
 os.makedirs(BACKUP_FOLDER, exist_ok=True)
+os.makedirs(TEMP_FOLDER, exist_ok=True)
 
 # ملفات التخزين (داخل مجلد data)
 USERS_FILE = os.path.join(DATA_FOLDER, "users.json")
@@ -74,6 +77,7 @@ APPROVED_CARDS_FILE = os.path.join(DATA_FOLDER, "approved.txt")
 DECLINED_CARDS_FILE = os.path.join(DATA_FOLDER, "declined.txt")
 STATS_FILE = os.path.join(DATA_FOLDER, "stats.json")
 SETTINGS_FILE = os.path.join(DATA_FOLDER, "settings.json")
+GROUPS_FILE = os.path.join(DATA_FOLDER, "groups.json")
 
 # ==================== إعدادات البوابات ====================
 GATES = {
@@ -84,7 +88,8 @@ GATES = {
         "mass_command": "st1m",
         "enabled": True,
         "timeout": 30,
-        "icon": "💳"
+        "icon": "💳",
+        "default": True
     },
     "stripe2": {
         "name": "💎 Stripe Auth v2",
@@ -93,7 +98,8 @@ GATES = {
         "mass_command": "st2m",
         "enabled": True,
         "timeout": 30,
-        "icon": "💎"
+        "icon": "💎",
+        "default": False
     }
 }
 
@@ -116,6 +122,9 @@ ua = UserAgent()
 active_checks = {}
 user_sessions = {}
 live_stats = {}
+user_current_gate = {}
+user_last_file = {}  # تخزين آخر ملف أرسله كل مستخدم {user_id: {"file_id": xxx, "file_name": xxx, "content": xxx}}
+group_settings = {}  # إعدادات المجموعات
 
 # ==================== إدارة البيانات التلقائية ====================
 class DataManager:
@@ -123,7 +132,6 @@ class DataManager:
     @staticmethod
     def init_files():
         """تهيئة جميع الملفات تلقائياً"""
-        # تهيئة ملف المستخدمين
         if not os.path.exists(USERS_FILE):
             users = {}
             for admin_id in ADMIN_IDS:
@@ -135,11 +143,11 @@ class DataManager:
                     "is_admin": True,
                     "is_subscribed": True,
                     "subscription": {"plan": "lifetime", "expiry": "2099-12-31", "active": True},
-                    "usage": {"total_checks": 0, "approved": 0, "declined": 0}
+                    "usage": {"total_checks": 0, "approved": 0, "declined": 0},
+                    "default_gate": "stripe1"
                 }
             DataManager.save_json(USERS_FILE, users)
         
-        # تهيئة ملف الإحصائيات
         if not os.path.exists(STATS_FILE):
             DataManager.save_json(STATS_FILE, {
                 "total_checks": 0,
@@ -150,7 +158,6 @@ class DataManager:
                 "last_backup": None
             })
         
-        # تهيئة ملف الإعدادات
         if not os.path.exists(SETTINGS_FILE):
             DataManager.save_json(SETTINGS_FILE, {
                 "auto_backup": True,
@@ -158,10 +165,19 @@ class DataManager:
                 "auto_clean": True,
                 "clean_days": 30,
                 "maintenance_mode": False,
-                "maintenance_message": "البوت تحت الصيانة حالياً"
+                "maintenance_message": "البوت تحت الصيانة حالياً",
+                "default_check_gate": "stripe1",
+                "group_mode": True,  # تفعيل العمل في المجموعات
+                "require_sub_in_groups": True  # هل يتطلب اشتراك في المجموعات
             })
         
-        # إنشاء ملفات النتائج إذا لم توجد
+        if not os.path.exists(GROUPS_FILE):
+            DataManager.save_json(GROUPS_FILE, {
+                "allowed_groups": [],  # المجموعات المسموح لها باستخدام البوت
+                "blocked_groups": [],  # المجموعات المحظورة
+                "group_settings": {}   # إعدادات لكل مجموعة
+            })
+        
         for file in [APPROVED_CARDS_FILE, DECLINED_CARDS_FILE]:
             if not os.path.exists(file):
                 with open(file, 'w', encoding='utf-8') as f:
@@ -181,7 +197,6 @@ class DataManager:
     @staticmethod
     def save_json(file_path: str, data: Any) -> bool:
         try:
-            # إنشاء نسخة احتياطية قبل الحفظ
             if os.path.exists(file_path) and file_path.endswith('.json'):
                 backup_path = os.path.join(BACKUP_FOLDER, f"{os.path.basename(file_path)}.{int(time.time())}.bak")
                 shutil.copy2(file_path, backup_path)
@@ -198,12 +213,13 @@ class DataManager:
         DataManager.init_files()
         users = DataManager.load_json(USERS_FILE, {})
         
-        # التأكد من وجود جميع الحقول للمستخدمين
         for uid, user in users.items():
             if "usage" not in user:
                 user["usage"] = {"total_checks": 0, "approved": 0, "declined": 0}
             if "subscription" not in user:
                 user["subscription"] = {"active": False}
+            if "default_gate" not in user:
+                user["default_gate"] = "stripe1"
         
         return users
     
@@ -222,7 +238,6 @@ class DataManager:
             "daily_stats": {}
         })
         
-        # التأكد من وجود جميع المفاتيح
         defaults = {
             "total_checks": 0,
             "total_approved": 0,
@@ -249,7 +264,10 @@ class DataManager:
             "backup_interval_hours": 24,
             "auto_clean": True,
             "clean_days": 30,
-            "maintenance_mode": False
+            "maintenance_mode": False,
+            "default_check_gate": "stripe1",
+            "group_mode": True,
+            "require_sub_in_groups": True
         })
     
     @staticmethod
@@ -257,8 +275,19 @@ class DataManager:
         return DataManager.save_json(SETTINGS_FILE, settings)
     
     @staticmethod
+    def load_groups() -> Dict:
+        return DataManager.load_json(GROUPS_FILE, {
+            "allowed_groups": [],
+            "blocked_groups": [],
+            "group_settings": {}
+        })
+    
+    @staticmethod
+    def save_groups(groups: Dict) -> bool:
+        return DataManager.save_json(GROUPS_FILE, groups)
+    
+    @staticmethod
     def save_card_result(card: str, gate: str, response: str, user_id: int, is_approved: bool):
-        """حفظ نتيجة البطاقة تلقائياً"""
         try:
             file_path = APPROVED_CARDS_FILE if is_approved else DECLINED_CARDS_FILE
             with open(file_path, 'a', encoding='utf-8') as f:
@@ -272,7 +301,6 @@ class DataManager:
         user = users.get(str(user_id), {})
         sub = user.get("subscription", {})
         if sub.get("active"):
-            # التحقق من انتهاء الاشتراك
             expiry = sub.get("expiry")
             if expiry and expiry != "2099-12-31":
                 try:
@@ -287,16 +315,53 @@ class DataManager:
         return None
     
     @staticmethod
-    def check_access(user_id: int) -> bool:
+    def check_access(user_id: int, chat_id: int = None) -> bool:
+        """التحقق من صلاحية المستخدم مع مراعاة المجموعات"""
+        # المشرفين دائماً مسموح لهم
         if user_id in ADMIN_IDS:
             return True
+        
         settings = DataManager.load_settings()
         if settings.get("maintenance_mode", False):
             return False
+        
+        # إذا كان في مجموعة
+        if chat_id and chat_id < 0:  # chat_id سالب يعني مجموعة
+            groups = DataManager.load_groups()
+            
+            # التحقق إذا كانت المجموعة محظورة
+            if chat_id in groups.get("blocked_groups", []):
+                return False
+            
+            # التحقق إذا كانت المجموعة مسموحة (إذا تم تعيين قائمة مسموحة)
+            allowed = groups.get("allowed_groups", [])
+            if allowed and chat_id not in allowed:
+                return False
+            
+            # التحقق من إعدادات المجموعة
+            group_set = groups.get("group_settings", {}).get(str(chat_id), {})
+            if group_set.get("disabled", False):
+                return False
+            
+            # إذا كان يتطلب اشتراك في المجموعات
+            if settings.get("require_sub_in_groups", True):
+                return DataManager.get_user_subscription(user_id) is not None
+            else:
+                return True
+        
+        # في الخاص
         return DataManager.get_user_subscription(user_id) is not None
     
     @staticmethod
-    def add_subscription(user_id: int, days: int) -> bool:
+    def get_user_default_gate(user_id: int) -> str:
+        users = DataManager.load_users()
+        user = users.get(str(user_id), {})
+        return user.get("default_gate", "stripe1")
+    
+    @staticmethod
+    def set_user_default_gate(user_id: int, gate: str) -> bool:
+        if gate not in GATES:
+            return False
         users = DataManager.load_users()
         uid = str(user_id)
         if uid not in users:
@@ -305,13 +370,38 @@ class DataManager:
                 "joined_date": datetime.now().isoformat(),
                 "usage": {"total_checks": 0, "approved": 0, "declined": 0}
             }
+        users[uid]["default_gate"] = gate
+        return DataManager.save_users(users)
+    
+    @staticmethod
+    def add_subscription(user_id: int, days: int) -> bool:
+        users = DataManager.load_users()
+        uid = str(user_id)
+        
+        if uid not in users:
+            users[uid] = {
+                "user_id": user_id,
+                "joined_date": datetime.now().isoformat(),
+                "usage": {"total_checks": 0, "approved": 0, "declined": 0}
+            }
         
         expiry = datetime.now() + timedelta(days=days)
+        
+        plan_name = "مخصص"
+        for plan_key, plan in SUBSCRIPTION_PLANS.items():
+            if plan["duration"] == days:
+                plan_name = plan["name"]
+                break
+        
         users[uid]["subscription"] = {
-            "plan": "custom",
+            "plan": plan_name,
             "expiry": expiry.isoformat(),
-            "active": True
+            "active": True,
+            "added_by": "admin",
+            "added_date": datetime.now().isoformat(),
+            "duration_days": days
         }
+        
         return DataManager.save_users(users)
     
     @staticmethod
@@ -324,7 +414,6 @@ class DataManager:
     
     @staticmethod
     def update_usage(user_id: int, gate: str, result: str):
-        """تحديث الإحصائيات تلقائياً"""
         users = DataManager.load_users()
         stats = DataManager.load_stats()
         
@@ -338,7 +427,6 @@ class DataManager:
         
         is_approved = any(x in result for x in ["✅", "LIVE", "Approved", "approved", "UwU"])
         
-        # تحديث إحصائيات المستخدم
         usage = users[uid].get("usage", {"total_checks": 0, "approved": 0, "declined": 0})
         usage["total_checks"] += 1
         
@@ -351,11 +439,9 @@ class DataManager:
         
         users[uid]["usage"] = usage
         
-        # تحديث إحصائيات البوت
         stats["total_checks"] = stats.get("total_checks", 0) + 1
         stats["gates_usage"][gate] = stats["gates_usage"].get(gate, 0) + 1
         
-        # إحصائيات يومية
         today = datetime.now().strftime("%Y-%m-%d")
         if today not in stats["daily_stats"]:
             stats["daily_stats"][today] = {"checks": 0, "approved": 0}
@@ -368,7 +454,6 @@ class DataManager:
     
     @staticmethod
     def auto_backup():
-        """عمل نسخة احتياطية تلقائية"""
         settings = DataManager.load_settings()
         if not settings.get("auto_backup", True):
             return
@@ -385,7 +470,6 @@ class DataManager:
             except:
                 pass
         
-        # عمل نسخة احتياطية
         backup_name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         backup_dir = os.path.join(BACKUP_FOLDER, backup_name)
         os.makedirs(backup_dir, exist_ok=True)
@@ -399,9 +483,8 @@ class DataManager:
         stats["last_backup"] = datetime.now().isoformat()
         DataManager.save_stats(stats)
         
-        # تنظيف النسخ الاحتياطية القديمة
         backups = sorted([d for d in os.listdir(BACKUP_FOLDER) if d.startswith("backup_")])
-        if len(backups) > 10:  # الاحتفاظ بآخر 10 نسخ
+        if len(backups) > 10:
             for old_backup in backups[:-10]:
                 shutil.rmtree(os.path.join(BACKUP_FOLDER, old_backup))
         
@@ -409,7 +492,6 @@ class DataManager:
     
     @staticmethod
     def auto_clean():
-        """تنظيف الملفات القديمة تلقائياً"""
         settings = DataManager.load_settings()
         if not settings.get("auto_clean", True):
             return
@@ -417,14 +499,11 @@ class DataManager:
         clean_days = settings.get("clean_days", 30)
         cutoff = datetime.now() - timedelta(days=clean_days)
         
-        # تنظيف ملفات النتائج القديمة
         for file_path in [APPROVED_CARDS_FILE, DECLINED_CARDS_FILE]:
             if os.path.exists(file_path):
-                # قراءة جميع السطور
                 with open(file_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                 
-                # الاحتفاظ بالسطور الجديدة فقط
                 new_lines = []
                 for line in lines:
                     if line.startswith('#'):
@@ -438,7 +517,6 @@ class DataManager:
                         except:
                             new_lines.append(line)
                 
-                # حفظ الملف النظيف
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.writelines(new_lines)
         
@@ -466,6 +544,19 @@ class Helpers:
             return None
         except:
             return None
+    
+    @staticmethod
+    def extract_cards_from_text(text: str) -> List[Dict]:
+        """استخراج جميع البطاقات من النص"""
+        cards = []
+        lines = text.strip().split('\n')
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                card = Helpers.parse_card(line)
+                if card and Helpers.luhn_check(card['number']):
+                    cards.append(card)
+        return cards
     
     @staticmethod
     def generate_progress_bar(current: int, total: int, length: int = 10) -> str:
@@ -523,13 +614,17 @@ class Helpers:
         stats = f"📊 {checked}/{total} ({percentage:.1f}%)\n{progress}\n✅ {approved} | ❌ {declined} | ⏳ {total - checked}"
         if current: stats += f"\n🔄 {current}"
         return stats
+    
+    @staticmethod
+    def get_chat_type(chat_id: int) -> str:
+        """تحديد نوع المحادثة"""
+        if chat_id > 0:
+            return "private"
+        else:
+            return "group"
 
 # ==================== بوابة Stripe 1 ====================
-_0x4f2b = base64.b64decode('QG11bWlydV9icm8=').decode()
-
 class StripeGateway1:
-    """Stripe Gateway 1 - SetupIntent Auth"""
-    
     @staticmethod
     def normalize_url(url):
         url = url.strip()
@@ -660,8 +755,6 @@ class StripeGateway1:
 
 # ==================== بوابة Stripe 2 ====================
 class StripeGateway2:
-    """Stripe Gateway 2 - Alternative Auth Method"""
-    
     @staticmethod
     def generate_random_email():
         username = ''.join(random.choices(string.ascii_lowercase, k=10))
@@ -784,21 +877,41 @@ class RealGateways:
 # ==================== واجهة المستخدم ====================
 class UserInterface:
     @staticmethod
-    def main_menu():
+    def main_menu(chat_type: str = "private"):
         markup = InlineKeyboardMarkup(row_width=2)
-        btns = [
-            InlineKeyboardButton("💳 Stripe v1", callback_data="gate_stripe1"),
-            InlineKeyboardButton("💎 Stripe v2", callback_data="gate_stripe2"),
-            InlineKeyboardButton("📁 فحص ملف v1", callback_data="mass_stripe1"),
-            InlineKeyboardButton("📁 فحص ملف v2", callback_data="mass_stripe2"),
-            InlineKeyboardButton("👤 حسابي", callback_data="my_profile"),
-            InlineKeyboardButton("📊 الإحصائيات", callback_data="stats"),
-            InlineKeyboardButton("💎 الاشتراك", callback_data="subscribe"),
-            InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings"),
-            InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
-            InlineKeyboardButton("👨‍💻 المطور", url=SUPPORT_LINK)
-        ]
+        
+        if chat_type == "private":
+            btns = [
+                InlineKeyboardButton("💳 Stripe v1", callback_data="gate_stripe1"),
+                InlineKeyboardButton("💎 Stripe v2", callback_data="gate_stripe2"),
+                InlineKeyboardButton("📁 فحص ملف", callback_data="mass_check"),
+                InlineKeyboardButton("⚙️ البوابة الافتراضية", callback_data="default_gate"),
+                InlineKeyboardButton("👤 حسابي", callback_data="my_profile"),
+                InlineKeyboardButton("📊 الإحصائيات", callback_data="stats"),
+                InlineKeyboardButton("💎 الاشتراك", callback_data="subscribe"),
+                InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
+                InlineKeyboardButton("👨‍💻 المطور", url=SUPPORT_LINK)
+            ]
+        else:
+            btns = [
+                InlineKeyboardButton("💳 Stripe v1", callback_data="gate_stripe1"),
+                InlineKeyboardButton("💎 Stripe v2", callback_data="gate_stripe2"),
+                InlineKeyboardButton("📁 فحص آخر ملف", callback_data="check_last_file"),
+                InlineKeyboardButton("📊 الإحصائيات", callback_data="stats"),
+                InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
+                InlineKeyboardButton("👨‍💻 المطور", url=SUPPORT_LINK)
+            ]
+        
         markup.add(*btns)
+        return markup
+    
+    @staticmethod
+    def default_gate_menu(current_gate: str):
+        markup = InlineKeyboardMarkup(row_width=2)
+        for gate_id, gate in GATES.items():
+            status = "✅ " if gate_id == current_gate else ""
+            markup.add(InlineKeyboardButton(f"{status}{gate['icon']} {gate['name']}", callback_data=f"set_default_{gate_id}"))
+        markup.add(InlineKeyboardButton("🔙 رجوع", callback_data="back_main"))
         return markup
     
     @staticmethod
@@ -840,10 +953,10 @@ class CommandHandler:
         self.ui = UserInterface()
         self.active_checks = active_checks
         self.live_stats = live_stats
+        self.user_last_file = user_last_file
         self.start_auto_tasks()
     
     def start_auto_tasks(self):
-        """تشغيل المهام التلقائية"""
         def auto_tasks():
             while True:
                 try:
@@ -851,28 +964,28 @@ class CommandHandler:
                     DataManager.auto_clean()
                 except Exception as e:
                     print(f"⚠️ خطأ في المهام التلقائية: {e}")
-                time.sleep(3600)  # كل ساعة
+                time.sleep(3600)
         
         thread = threading.Thread(target=auto_tasks, daemon=True)
         thread.start()
     
     def check_sub(self, message) -> bool:
+        """التحقق من صلاحية المستخدم مع مراعاة المجموعات"""
+        user_id = message.from_user.id
+        chat_id = message.chat.id
+        
         settings = DataManager.load_settings()
         if settings.get("maintenance_mode", False):
             bot.reply_to(message, f"🔧 {settings.get('maintenance_message', 'البوت تحت الصيانة')}")
             return False
         
-        if message.from_user.id in ADMIN_IDS:
-            return True
-        
-        if DataManager.get_user_subscription(message.from_user.id):
-            return True
-        
-        bot.reply_to(message, "⚠️ ليس لديك اشتراك نشط\nللاشتراك: /subscribe", reply_markup=self.ui.back_button())
-        return False
+        return DataManager.check_access(user_id, chat_id)
     
     def handle_start(self, message):
         user = message.from_user
+        chat_id = message.chat.id
+        chat_type = Helpers.get_chat_type(chat_id)
+        
         users = DataManager.load_users()
         uid = str(user.id)
         
@@ -883,32 +996,46 @@ class CommandHandler:
                 "first_name": user.first_name,
                 "joined_date": datetime.now().isoformat(),
                 "is_admin": user.id in ADMIN_IDS,
-                "usage": {"total_checks": 0, "approved": 0, "declined": 0}
+                "usage": {"total_checks": 0, "approved": 0, "declined": 0},
+                "default_gate": "stripe1"
             }
             DataManager.save_users(users)
         
-        welcome = f"""
+        default_gate = DataManager.get_user_default_gate(user.id)
+        default_gate_name = GATES.get(default_gate, {}).get("name", "Stripe v1")
+        
+        if chat_type == "private":
+            welcome = f"""
 ✨ <b>مرحباً بك في بوت Obeida Online</b> ✨
 
-<b>🚪 البوابات:</b>
-💳 Stripe v1 - فحص عبر SetupIntent
-💎 Stripe v2 - فحص بديل
+<b>🚪 البوابة الافتراضية:</b> {default_gate_name}
+<b>💡 يمكنك إرسال البطاقة مباشرة وسيتم فحصها تلقائياً!</b>
 
-<b>📝 الأوامر:</b>
-/start - القائمة الرئيسية
-/st1 - فحص بطاقة فردي عبر Stripe v1
-/st2 - فحص بطاقة فردي عبر Stripe v2
-/st1m - فحص ملف عبر Stripe v1
-/st2m - فحص ملف عبر Stripe v2
-/profile - حسابي
-/stats - الإحصائيات
-/subscribe - الاشتراك
-/settings - الإعدادات (للمشرفين)
+<b>📝 الطرق المتاحة:</b>
+• أرسل البطاقة مباشرة: <code>4111111111111111|12|25|123</code>
+• أرسل ملف txt وسيتم فحص جميع البطاقات
+• استخدم /st1 أو /st2 لاختيار بوابة معينة
 
 <b>📢 القناة:</b> {CHANNEL_USERNAME}
 <b>👨‍💻 المطور:</b> {DEV_CONTACT}
 """
-        bot.send_message(user.id, welcome, parse_mode='HTML', reply_markup=self.ui.main_menu())
+        else:
+            welcome = f"""
+✨ <b>مرحباً بك في بوت Obeida Online</b> ✨
+
+<b>🚪 البوابة الافتراضية:</b> {default_gate_name}
+
+<b>📝 كيفية الاستخدام في المجموعة:</b>
+• أرسل البطاقة مباشرة مع منشن البوت: <code>@{BOT_USERNAME} 4111111111111111|12|25|123</code>
+• أرسل ملف txt مع منشن البوت
+• استخدم /st1@ObeidaOnlineBot أو /st2@ObeidaOnlineBot
+
+<b>📢 القناة:</b> {CHANNEL_USERNAME}
+<b>👨‍💻 المطور:</b> {DEV_CONTACT}
+"""
+        
+        bot.send_message(user.id if chat_type == "private" else chat_id, welcome, 
+                        parse_mode='HTML', reply_markup=self.ui.main_menu(chat_type))
     
     def handle_profile(self, message):
         user_id = message.from_user.id
@@ -916,6 +1043,8 @@ class CommandHandler:
         data = users.get(str(user_id), {})
         usage = data.get('usage', {})
         sub = data.get('subscription', {})
+        default_gate = data.get('default_gate', 'stripe1')
+        default_gate_name = GATES.get(default_gate, {}).get("name", "Stripe v1")
         expiry = sub.get('expiry', 'لا يوجد')[:10] if sub.get('expiry') else 'لا يوجد'
         total = usage.get('total_checks', 0)
         approved = usage.get('approved', 0)
@@ -927,6 +1056,7 @@ class CommandHandler:
 <b>🆔 المعرف:</b> <code>{user_id}</code>
 <b>👤 الاسم:</b> {data.get('first_name', 'Unknown')}
 <b>⭐ الرتبة:</b> {'👑 مشرف' if user_id in ADMIN_IDS else '💎 مشترك' if sub.get('active') else '🔹 عادي'}
+<b>🚪 البوابة الافتراضية:</b> {default_gate_name}
 <b>📅 الانضمام:</b> {data.get('joined_date', 'Unknown')[:10]}
 
 <b>📊 الإحصائيات:</b>
@@ -972,57 +1102,81 @@ class CommandHandler:
     def handle_subscribe(self, message):
         sub = DataManager.get_user_subscription(message.from_user.id)
         if sub:
-            bot.reply_to(message, f"💎 لديك اشتراك نشط\nينتهي: {sub.get('expiry', '')[:10]}", parse_mode='HTML')
+            expiry_date = sub.get('expiry', '')
+            if expiry_date and expiry_date != "2099-12-31":
+                remaining = (datetime.fromisoformat(expiry_date) - datetime.now()).days
+                text = f"💎 اشتراكك نشط\n📅 ينتهي: {expiry_date[:10]}\n⏰ متبقي: {remaining} يوم"
+            else:
+                text = "💎 لديك اشتراك دائم (Lifetime)"
+            bot.reply_to(message, text, parse_mode='HTML')
         else:
             plans = "\n".join([f"• {p['name']}: {p['price']}" for p in SUBSCRIPTION_PLANS.values()])
-            text = f"💎 <b>خطط الاشتراك</b>\n{plans}\n\nللاشتراك تواصل: {DEV_CONTACT}"
+            text = f"""
+💎 <b>خطط الاشتراك</b>
+━━━━━━━━━━━━
+{plans}
+━━━━━━━━━━━━
+<b>للاشتراك تواصل مع المطور:</b> {DEV_CONTACT}
+"""
             bot.reply_to(message, text, parse_mode='HTML', reply_markup=self.ui.back_button())
     
-    def handle_settings(self, message):
-        if message.from_user.id not in ADMIN_IDS:
-            return
-        
-        settings = DataManager.load_settings()
-        maint_status = "🟢 نشط" if settings.get("maintenance_mode") else "🔴 معطل"
-        
-        text = f"""
-⚙️ <b>إعدادات البوت</b>
-━━━━━━━━━━━━
-🔧 <b>وضع الصيانة:</b> {maint_status}
-📦 <b>النسخ الاحتياطي:</b> {'✅ مفعل' if settings.get('auto_backup') else '❌ معطل'}
-🗑️ <b>التنظيف التلقائي:</b> {'✅ مفعل' if settings.get('auto_clean') else '❌ معطل'}
-⏰ <b>فترة التنظيف:</b> {settings.get('clean_days', 30)} يوم
-━━━━━━━━━━━━
-استخدم الأزرار للتحكم:
-"""
-        markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            InlineKeyboardButton("🔧 تبديل الصيانة", callback_data="toggle_maintenance"),
-            InlineKeyboardButton("📦 نسخ احتياطي الآن", callback_data="backup_now"),
-            InlineKeyboardButton("🗑️ تنظيف الآن", callback_data="clean_now"),
-            InlineKeyboardButton("📊 تصدير الإحصائيات", callback_data="export_stats"),
-            InlineKeyboardButton("🔙 رجوع", callback_data="back_main")
-        )
-        bot.reply_to(message, text, parse_mode='HTML', reply_markup=markup)
+    def handle_default_gate(self, message):
+        user_id = message.from_user.id
+        current_gate = DataManager.get_user_default_gate(user_id)
+        bot.reply_to(message, f"⚙️ <b>اختر البوابة الافتراضية</b>\n\nالبوابة الحالية: {GATES[current_gate]['icon']} {GATES[current_gate]['name']}",
+                    parse_mode='HTML', reply_markup=self.ui.default_gate_menu(current_gate))
     
-    def handle_single(self, message, gate):
-        if not self.check_sub(message):
+    def handle_set_default_gate(self, call, gate_id):
+        if DataManager.set_user_default_gate(call.from_user.id, gate_id):
+            gate_name = GATES[gate_id]['name']
+            bot.answer_callback_query(call.id, f"✅ تم تعيين {gate_name} كبوابة افتراضية")
+            bot.edit_message_text(f"✅ تم تعيين {gate_name} كبوابة افتراضية\n\nالآن أي بطاقة ترسلها سيتم فحصها بهذه البوابة",
+                                 call.message.chat.id, call.message.message_id,
+                                 reply_markup=self.ui.back_button())
+        else:
+            bot.answer_callback_query(call.id, "❌ فشل في تعيين البوابة")
+    
+    # ========== الفحص التلقائي ==========
+    
+    def save_last_file(self, user_id: int, file_id: str, file_name: str, content: str):
+        """حفظ آخر ملف أرسله المستخدم"""
+        self.user_last_file[user_id] = {
+            "file_id": file_id,
+            "file_name": file_name,
+            "content": content,
+            "timestamp": datetime.now().isoformat()
+        }
+        # تنظيف الملفات القديمة (أكثر من ساعة)
+        for uid in list(self.user_last_file.keys()):
+            try:
+                ts = datetime.fromisoformat(self.user_last_file[uid]["timestamp"])
+                if (datetime.now() - ts).seconds > 3600:
+                    del self.user_last_file[uid]
+            except:
+                pass
+    
+    def get_last_file(self, user_id: int) -> Optional[Dict]:
+        """الحصول على آخر ملف أرسله المستخدم"""
+        return self.user_last_file.get(user_id)
+    
+    def auto_check_cards(self, message, cards: List[Dict], gate: str = None):
+        """فحص البطاقات تلقائياً (واحدة تلو الأخرى)"""
+        if not cards:
             return
         
-        parts = message.text.strip().split(' ', 1)
-        if len(parts) < 2:
-            bot.reply_to(message, f"⚠️ الاستخدام: /{GATES[gate]['command']} رقم|شهر|سنة|cvv\nمثال: /{GATES[gate]['command']} 4111111111111111|12|25|123")
-            return
+        if gate is None:
+            gate = DataManager.get_user_default_gate(message.from_user.id)
         
-        card = Helpers.parse_card(parts[1])
-        if not card:
-            bot.reply_to(message, "❌ صيغة غير صحيحة\nالصيغة: رقم|شهر|سنة|cvv")
-            return
+        if gate not in GATES or not GATES[gate]['enabled']:
+            gate = "stripe1"
         
-        if not Helpers.luhn_check(card['number']):
-            bot.reply_to(message, "❌ البطاقة غير صالحة (Luhn check failed)")
-            return
-        
+        if len(cards) == 1:
+            self.check_single_card(message, cards[0], gate)
+        else:
+            self.check_multiple_cards(message, cards, gate)
+    
+    def check_single_card(self, message, card: Dict, gate: str):
+        """فحص بطاقة واحدة"""
         msg = bot.reply_to(message, f"🔄 جاري الفحص عبر {GATES[gate]['icon']} {GATES[gate]['name']}...")
         
         try:
@@ -1040,48 +1194,27 @@ class CommandHandler:
         except Exception as e:
             bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", msg.chat.id, msg.message_id)
     
-    def handle_mass(self, message, gate):
-        if not self.check_sub(message):
-            return
+    def check_multiple_cards(self, message, cards: List[Dict], gate: str):
+        """فحص عدة بطاقات متسلسلة"""
+        check_id = message.message_id
         
-        if not message.document:
-            bot.reply_to(message, f"📁 أرسل ملف txt بالبطاقات\nاستخدم: /{GATES[gate]['mass_command']}")
-            return
+        self.active_checks[check_id] = {
+            'cards': cards,
+            'user_id': message.from_user.id,
+            'chat_id': message.chat.id,
+            'message_id': message.message_id,
+            'gate': gate,
+            'stop': False
+        }
         
-        try:
-            file = bot.get_file(message.document.file_id)
-            content = bot.download_file(file.file_path).decode('utf-8', errors='ignore')
-            cards = []
-            
-            for line in content.split('\n'):
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    c = Helpers.parse_card(line)
-                    if c and Helpers.luhn_check(c['number']):
-                        cards.append(c)
-            
-            if not cards:
-                bot.reply_to(message, "❌ لا توجد بطاقات صالحة")
-                return
-            
-            self.active_checks[message.message_id] = {
-                'cards': cards,
-                'user_id': message.from_user.id,
-                'chat_id': message.chat.id,
-                'message_id': message.message_id,
-                'gate': gate
-            }
-            self.live_stats[message.from_user.id] = {
-                'total': len(cards),
-                'checked': 0,
-                'approved': 0,
-                'declined': 0
-            }
-            
-            asyncio.run_coroutine_threadsafe(self.process_mass_async(message.message_id, gate), asyncio.new_event_loop())
-            
-        except Exception as e:
-            bot.reply_to(message, f"⚠️ {str(e)[:50]}")
+        self.live_stats[message.from_user.id] = {
+            'total': len(cards),
+            'checked': 0,
+            'approved': 0,
+            'declined': 0
+        }
+        
+        asyncio.run_coroutine_threadsafe(self.process_mass_async(check_id, gate), asyncio.new_event_loop())
     
     async def process_mass_async(self, check_id, gate):
         data = self.active_checks.get(check_id)
@@ -1096,7 +1229,7 @@ class CommandHandler:
             None,
             lambda: bot.send_message(
                 cid,
-                f"🔄 بدء الفحص عبر {GATES[gate]['icon']}\n{Helpers.format_live_stats(len(cards), 0, 0, 0)}",
+                f"🔄 بدء الفحص المتسلسل عبر {GATES[gate]['icon']} {GATES[gate]['name']}\n\n{Helpers.format_live_stats(len(cards), 0, 0, 0)}",
                 parse_mode='HTML',
                 reply_markup=self.ui.stop_button(check_id)
             )
@@ -1107,18 +1240,19 @@ class CommandHandler:
                 await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: bot.edit_message_text(
-                        f"⛔ تم الإيقاف\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'])}",
+                        f"⛔ تم إيقاف الفحص\n\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'])}",
                         msg.chat.id, msg.message_id, parse_mode='HTML'
                     )
                 )
                 break
             
             try:
-                stats['current'] = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
+                current_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
+                
                 await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: bot.edit_message_text(
-                        f"🔄 {GATES[gate]['icon']}\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'], stats['current'])}",
+                        f"🔄 <b>جاري الفحص</b> {GATES[gate]['icon']}\n\n📌 <code>{current_card}</code>\n\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'], current_card)}",
                         msg.chat.id, msg.message_id, parse_mode='HTML',
                         reply_markup=self.ui.stop_button(check_id)
                     )
@@ -1150,52 +1284,266 @@ class CommandHandler:
                 stats['checked'] += 1
                 stats['declined'] += 1
         
+        final_text = f"✅ <b>اكتمل الفحص المتسلسل</b>\n\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'])}"
+        
         await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: bot.edit_message_text(
-                f"✅ اكتمل الفحص\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'])}",
-                msg.chat.id, msg.message_id, parse_mode='HTML'
-            )
+            lambda: bot.edit_message_text(final_text, msg.chat.id, msg.message_id, parse_mode='HTML')
         )
         
         del self.active_checks[check_id]
         del self.live_stats[uid]
     
+    def check_last_file(self, message):
+        """فحص آخر ملف أرسله المستخدم"""
+        user_id = message.from_user.id
+        last_file = self.get_last_file(user_id)
+        
+        if not last_file:
+            bot.reply_to(message, "❌ لم تقم بإرسال أي ملف من قبل\nأرسل ملف txt أولاً ثم استخدم هذا الأمر")
+            return
+        
+        cards = Helpers.extract_cards_from_text(last_file["content"])
+        
+        if not cards:
+            bot.reply_to(message, "❌ لا توجد بطاقات صالحة في الملف المحفوظ")
+            return
+        
+        gate = DataManager.get_user_default_gate(user_id)
+        
+        bot.reply_to(message, f"📁 جاري فحص آخر ملف: {last_file['file_name']}\n📊 عدد البطاقات: {len(cards)}\n🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}")
+        
+        self.check_multiple_cards(message, cards, gate)
+    
     def stop_check(self, call, check_id):
         if check_id in self.active_checks:
             self.active_checks[check_id]['stop'] = True
-            bot.answer_callback_query(call.id, "⛔ جاري الإيقاف...")
+            bot.answer_callback_query(call.id, "⛔ جاري إيقاف الفحص...")
         else:
             bot.answer_callback_query(call.id, "❌ لا يوجد فحص نشط")
     
-    def add_sub(self, message):
+    # ========== الأوامر اليدوية ==========
+    
+    def handle_single(self, message, gate):
+        if not self.check_sub(message):
+            return
+        
+        parts = message.text.strip().split(' ', 1)
+        # إزالة منشن البوت إذا وجد
+        if len(parts) > 0 and '@' in parts[0]:
+            parts[0] = parts[0].split('@')[0]
+        
+        if len(parts) < 2:
+            bot.reply_to(message, f"⚠️ الاستخدام: /{GATES[gate]['command']} رقم|شهر|سنة|cvv\nمثال: /{GATES[gate]['command']} 4111111111111111|12|25|123")
+            return
+        
+        card = Helpers.parse_card(parts[1])
+        if not card:
+            bot.reply_to(message, "❌ صيغة غير صحيحة\nالصيغة: رقم|شهر|سنة|cvv")
+            return
+        
+        if not Helpers.luhn_check(card['number']):
+            bot.reply_to(message, "❌ البطاقة غير صالحة (Luhn check failed)")
+            return
+        
+        self.check_single_card(message, card, gate)
+    
+    def handle_mass(self, message, gate):
+        if not self.check_sub(message):
+            return
+        
+        # التحقق من وجود ملف مرفق أو آخر ملف محفوظ
+        if message.document:
+            self.handle_file_upload(message, gate)
+        else:
+            # لا يوجد ملف مرفق، نفحص آخر ملف
+            last_file = self.get_last_file(message.from_user.id)
+            if last_file:
+                cards = Helpers.extract_cards_from_text(last_file["content"])
+                if cards:
+                    bot.reply_to(message, f"📁 استخدام آخر ملف: {last_file['file_name']}\n📊 عدد البطاقات: {len(cards)}")
+                    self.check_multiple_cards(message, cards, gate)
+                else:
+                    bot.reply_to(message, "❌ لا توجد بطاقات صالحة في الملف المحفوظ")
+            else:
+                bot.reply_to(message, f"📁 أرسل ملف txt بالبطاقات\nاستخدم: /{GATES[gate]['mass_command']}")
+    
+    def handle_file_upload(self, message, gate=None):
+        """معالجة الملفات المرفوعة"""
+        if not self.check_sub(message):
+            return
+        
+        try:
+            file = bot.get_file(message.document.file_id)
+            content = bot.download_file(file.file_path).decode('utf-8', errors='ignore')
+            cards = Helpers.extract_cards_from_text(content)
+            
+            if not cards:
+                bot.reply_to(message, "❌ لا توجد بطاقات صالحة في الملف")
+                return
+            
+            # حفظ آخر ملف
+            self.save_last_file(
+                message.from_user.id,
+                message.document.file_id,
+                message.document.file_name,
+                content
+            )
+            
+            if gate is None:
+                gate = DataManager.get_user_default_gate(message.from_user.id)
+            
+            bot.reply_to(message, f"📁 تم استلام الملف: {message.document.file_name}\n📊 عدد البطاقات: {len(cards)}\n🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}\n🔄 جاري بدء الفحص...")
+            
+            self.check_multiple_cards(message, cards, gate)
+            
+        except Exception as e:
+            bot.reply_to(message, f"⚠️ خطأ في قراءة الملف: {str(e)[:50]}")
+    
+    # ========== الأوامر الإدارية ==========
+    
+    def handle_add_sub(self, message):
         if message.from_user.id not in ADMIN_IDS:
             return
+        
         try:
             parts = message.text.strip().split()
-            if len(parts) >= 2:
-                uid = int(parts[1])
-                days = int(parts[2]) if len(parts) > 2 else 30
-                if DataManager.add_subscription(uid, days):
-                    bot.reply_to(message, f"✅ تمت إضافة اشتراك {days} يوم للمستخدم {uid}")
-                else:
-                    bot.reply_to(message, "❌ فشل في إضافة الاشتراك")
+            if len(parts) < 2:
+                bot.reply_to(message, "❌ الصيغة: /addsub [ايدي المستخدم] [المدة بالأيام]\nمثال: /addsub 123456789 30")
+                return
+            
+            user_id = int(parts[1])
+            days = int(parts[2]) if len(parts) > 2 else 30
+            
+            if DataManager.add_subscription(user_id, days):
+                try:
+                    bot.send_message(user_id, f"🎉 تم تفعيل اشتراكك لمدة {days} يوم بنجاح!\nاستمتع بفحص البطاقات.")
+                except:
+                    pass
+                
+                bot.reply_to(message, f"""
+✅ <b>تم إضافة الاشتراك بنجاح</b>
+━━━━━━━━━━━━
+👤 <b>المستخدم:</b> <code>{user_id}</code>
+📅 <b>المدة:</b> {days} يوم
+📆 <b>ينتهي:</b> {(datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')}
+━━━━━━━━━━━━
+تم إشعار المستخدم.
+""", parse_mode='HTML')
             else:
-                bot.reply_to(message, "❌ الصيغة: /addsub ايدي المدة")
+                bot.reply_to(message, "❌ فشل في إضافة الاشتراك")
+                
         except Exception as e:
             bot.reply_to(message, f"❌ خطأ: {e}")
     
-    def remove_sub(self, message):
+    def handle_remove_sub(self, message):
         if message.from_user.id not in ADMIN_IDS:
             return
+        
         try:
-            uid = int(message.text.strip().split()[1])
-            if DataManager.remove_subscription(uid):
-                bot.reply_to(message, f"✅ تم إزالة اشتراك {uid}")
+            parts = message.text.strip().split()
+            if len(parts) < 2:
+                bot.reply_to(message, "❌ الصيغة: /removesub [ايدي المستخدم]")
+                return
+            
+            user_id = int(parts[1])
+            
+            if DataManager.remove_subscription(user_id):
+                try:
+                    bot.send_message(user_id, "⚠️ تم إلغاء اشتراكك. للاشتراك مرة أخرى تواصل مع المطور.")
+                except:
+                    pass
+                
+                bot.reply_to(message, f"✅ تم إزالة اشتراك المستخدم <code>{user_id}</code>", parse_mode='HTML')
             else:
                 bot.reply_to(message, "❌ فشل في إزالة الاشتراك")
-        except:
-            bot.reply_to(message, "❌ الصيغة: /removesub ايدي")
+                
+        except Exception as e:
+            bot.reply_to(message, f"❌ خطأ: {e}")
+    
+    def handle_users_list(self, message):
+        if message.from_user.id not in ADMIN_IDS:
+            return
+        
+        users = DataManager.load_users()
+        total_users = len(users)
+        active_subs = 0
+        total_checks = 0
+        
+        for user in users.values():
+            if user.get("subscription", {}).get("active"):
+                active_subs += 1
+            total_checks += user.get("usage", {}).get("total_checks", 0)
+        
+        text = f"""
+📋 <b>قائمة المستخدمين</b>
+━━━━━━━━━━━━
+👥 <b>إجمالي المستخدمين:</b> {total_users}
+💎 <b>المشتركين النشطين:</b> {active_subs}
+📊 <b>إجمالي الفحوصات:</b> {total_checks}
+━━━━━━━━━━━━
+"""
+        
+        user_list = []
+        for uid, user in list(users.items())[:10]:
+            username = user.get("username", "لا يوجد")
+            sub_status = "✅" if user.get("subscription", {}).get("active") else "❌"
+            checks = user.get("usage", {}).get("total_checks", 0)
+            user_list.append(f"{sub_status} <code>{uid}</code> | @{username} | {checks} فحص")
+        
+        if user_list:
+            text += "\n".join(user_list)
+            if len(users) > 10:
+                text += f"\n\n... و {len(users) - 10} مستخدم آخر"
+        else:
+            text += "لا يوجد مستخدمين"
+        
+        text += "\n━━━━━━━━━━━━\nاستخدم /users لرؤية الكل"
+        
+        bot.reply_to(message, text, parse_mode='HTML', reply_markup=self.ui.back_button())
+    
+    def handle_group_settings(self, message):
+        """إعدادات المجموعات (للمشرفين فقط)"""
+        if message.from_user.id not in ADMIN_IDS:
+            return
+        
+        chat_id = message.chat.id
+        groups = DataManager.load_groups()
+        group_set = groups.get("group_settings", {}).get(str(chat_id), {})
+        
+        status = "🟢 مفعل" if not group_set.get("disabled", False) else "🔴 معطل"
+        
+        text = f"""
+⚙️ <b>إعدادات المجموعة</b>
+━━━━━━━━━━━━
+📌 <b>المجموعة:</b> {message.chat.title if message.chat.title else "هذه المحادثة"}
+🆔 <b>المعرف:</b> <code>{chat_id}</code>
+🎯 <b>الحالة:</b> {status}
+━━━━━━━━━━━━
+استخدم الأزرار للتحكم:
+"""
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            InlineKeyboardButton("🔧 تبديل التفعيل", callback_data=f"toggle_group_{chat_id}"),
+            InlineKeyboardButton("📊 إحصائيات المجموعة", callback_data=f"group_stats_{chat_id}"),
+            InlineKeyboardButton("🔙 رجوع", callback_data="back_main")
+        )
+        bot.reply_to(message, text, parse_mode='HTML', reply_markup=markup)
+    
+    def toggle_group(self, chat_id: int):
+        """تفعيل/تعطيل المجموعة"""
+        groups = DataManager.load_groups()
+        if "group_settings" not in groups:
+            groups["group_settings"] = {}
+        
+        str_chat_id = str(chat_id)
+        if str_chat_id not in groups["group_settings"]:
+            groups["group_settings"][str_chat_id] = {"disabled": False}
+        
+        groups["group_settings"][str_chat_id]["disabled"] = not groups["group_settings"][str_chat_id].get("disabled", False)
+        DataManager.save_groups(groups)
+        
+        return groups["group_settings"][str_chat_id]["disabled"]
 
 # ==================== معالج الكول باك ====================
 class CallbackHandler:
@@ -1207,8 +1555,9 @@ class CallbackHandler:
         uid = call.from_user.id
         
         if data == "back_main":
+            chat_type = Helpers.get_chat_type(call.message.chat.id)
             bot.edit_message_text("✨ القائمة الرئيسية", call.message.chat.id, call.message.message_id,
-                                 reply_markup=UserInterface.main_menu(), parse_mode='HTML')
+                                 reply_markup=UserInterface.main_menu(chat_type), parse_mode='HTML')
         
         elif data == "my_profile":
             self.handler.handle_profile(call.message)
@@ -1219,8 +1568,13 @@ class CallbackHandler:
         elif data == "subscribe":
             sub = DataManager.get_user_subscription(uid)
             if sub:
-                bot.edit_message_text(f"💎 اشتراكك نشط حتى {sub.get('expiry', '')[:10]}",
-                                     call.message.chat.id, call.message.message_id,
+                expiry_date = sub.get('expiry', '')
+                if expiry_date and expiry_date != "2099-12-31":
+                    remaining = (datetime.fromisoformat(expiry_date) - datetime.now()).days
+                    text = f"💎 اشتراكك نشط\n📅 ينتهي: {expiry_date[:10]}\n⏰ متبقي: {remaining} يوم"
+                else:
+                    text = "💎 لديك اشتراك دائم (Lifetime)"
+                bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
                                      reply_markup=UserInterface.back_button())
             else:
                 plans = "\n".join([f"• {p['name']}: {p['price']}" for p in SUBSCRIPTION_PLANS.values()])
@@ -1228,37 +1582,21 @@ class CallbackHandler:
                 bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
                                      parse_mode='HTML', reply_markup=UserInterface.back_button())
         
-        elif data == "settings":
-            self.handler.handle_settings(call.message)
+        elif data == "default_gate":
+            self.handler.handle_default_gate(call.message)
         
-        elif data == "toggle_maintenance":
-            if uid in ADMIN_IDS:
-                settings = DataManager.load_settings()
-                settings["maintenance_mode"] = not settings.get("maintenance_mode", False)
-                DataManager.save_settings(settings)
-                status = "🟢 نشط" if settings["maintenance_mode"] else "🔴 معطل"
-                bot.answer_callback_query(call.id, f"وضع الصيانة: {status}")
-                self.handler.handle_settings(call.message)
+        elif data == "mass_check":
+            bot.edit_message_text("📁 أرسل ملف txt بالبطاقات\nسيتم فحص جميع البطاقات تلقائياً\n\n💡 بعد إرسال الملف، يمكنك استخدام /st1m أو /st2m لفحص آخر ملف",
+                                 call.message.chat.id, call.message.message_id,
+                                 reply_markup=UserInterface.back_button())
         
-        elif data == "backup_now":
-            if uid in ADMIN_IDS:
-                DataManager.auto_backup()
-                bot.answer_callback_query(call.id, "✅ تم عمل نسخة احتياطية")
+        elif data == "check_last_file":
+            self.handler.check_last_file(call.message)
+            bot.answer_callback_query(call.id)
         
-        elif data == "clean_now":
-            if uid in ADMIN_IDS:
-                DataManager.auto_clean()
-                bot.answer_callback_query(call.id, "✅ تم التنظيف")
-        
-        elif data == "export_stats":
-            if uid in ADMIN_IDS:
-                stats = DataManager.load_stats()
-                file_path = os.path.join(DATA_FOLDER, f"stats_{datetime.now().strftime('%Y%m%d')}.json")
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(stats, f, indent=4, ensure_ascii=False)
-                with open(file_path, 'rb') as f:
-                    bot.send_document(call.message.chat.id, f, caption="📊 ملف الإحصائيات")
-                bot.answer_callback_query(call.id, "✅ تم تصدير الإحصائيات")
+        elif data.startswith("set_default_"):
+            gate_id = data.replace("set_default_", "")
+            self.handler.handle_set_default_gate(call, gate_id)
         
         elif data.startswith("gate_"):
             gate = data.replace("gate_", "")
@@ -1266,19 +1604,25 @@ class CallbackHandler:
                                   call.message.chat.id, call.message.message_id,
                                   parse_mode='HTML', reply_markup=UserInterface.back_button("gates_menu"))
         
-        elif data.startswith("mass_"):
-            gate = data.replace("mass_", "")
-            bot.edit_message_text(f"✅ {GATES[gate]['icon']} {GATES[gate]['name']}\nأرسل ملف txt بالبطاقات",
-                                  call.message.chat.id, call.message.message_id,
-                                  parse_mode='HTML', reply_markup=UserInterface.back_button("gates_menu"))
-        
         elif data.startswith("stop_"):
             cid = int(data.replace("stop_", ""))
             self.handler.stop_check(call, cid)
+        
+        elif data.startswith("toggle_group_"):
+            if uid in ADMIN_IDS:
+                chat_id = int(data.replace("toggle_group_", ""))
+                disabled = self.handler.toggle_group(chat_id)
+                status = "معطل 🔴" if disabled else "مفعل 🟢"
+                bot.answer_callback_query(call.id, f"تم {status} المجموعة")
+                self.handler.handle_group_settings(call.message)
+        
+        # الأوامر الإدارية
+        elif data == "admin_users":
+            if uid in ADMIN_IDS:
+                self.handler.handle_users_list(call.message)
 
 # ==================== إعداد البوت ====================
 def setup():
-    # تهيئة الملفات تلقائياً
     DataManager.init_files()
     
     handler = CommandHandler()
@@ -1288,7 +1632,12 @@ def setup():
     def start(m): handler.handle_start(m)
     
     @bot.message_handler(commands=['help'])
-    def help(m): bot.reply_to(m, "📚 استخدم /start للقائمة الرئيسية")
+    def help(m): 
+        chat_type = Helpers.get_chat_type(m.chat.id)
+        if chat_type == "private":
+            bot.reply_to(m, "📚 أرسل البطاقة مباشرة أو استخدم /start للقائمة الرئيسية")
+        else:
+            bot.reply_to(m, f"📚 أرسل البطاقة مع منشن البوت: <code>@{BOT_USERNAME} 4111111111111111|12|25|123</code>", parse_mode='HTML')
     
     @bot.message_handler(commands=['profile'])
     def profile(m): handler.handle_profile(m)
@@ -1299,43 +1648,73 @@ def setup():
     @bot.message_handler(commands=['subscribe'])
     def sub(m): handler.handle_subscribe(m)
     
-    @bot.message_handler(commands=['gates'])
-    def gates(m):
-        gates_text = "\n".join([f"{g['icon']} {g['name']}\n   <code>/{g['command']} رقم|شهر|سنة|cvv</code>\n   <code>/{g['mass_command']}</code>" for g in GATES.values()])
-        bot.reply_to(m, f"🚪 <b>البوابات:</b>\n\n{gates_text}", parse_mode='HTML', reply_markup=UserInterface.back_button())
+    @bot.message_handler(commands=['default'])
+    def default(m): handler.handle_default_gate(m)
     
-    @bot.message_handler(commands=['settings'])
-    def settings(m): handler.handle_settings(m)
+    @bot.message_handler(commands=['lastfile'])
+    def lastfile(m): handler.check_last_file(m)
     
+    # الأوامر الإدارية
     @bot.message_handler(commands=['addsub'])
-    def addsub(m): handler.add_sub(m)
+    def addsub(m): handler.handle_add_sub(m)
     
     @bot.message_handler(commands=['removesub'])
-    def removesub(m): handler.remove_sub(m)
+    def removesub(m): handler.handle_remove_sub(m)
     
-    # Stripe v1 commands
+    @bot.message_handler(commands=['users'])
+    def users(m): handler.handle_users_list(m)
+    
+    @bot.message_handler(commands=['groupsettings'])
+    def groupsettings(m): handler.handle_group_settings(m)
+    
+    # بوابات يدوية
     @bot.message_handler(commands=['st1'])
     def stripe1(m): handler.handle_single(m, 'stripe1')
     
     @bot.message_handler(commands=['st1m'])
     def stripe1_mass(m): handler.handle_mass(m, 'stripe1')
     
-    # Stripe v2 commands
     @bot.message_handler(commands=['st2'])
     def stripe2(m): handler.handle_single(m, 'stripe2')
     
     @bot.message_handler(commands=['st2m'])
     def stripe2_mass(m): handler.handle_mass(m, 'stripe2')
     
+    # ========== الفحص التلقائي ==========
+    
     @bot.message_handler(content_types=['document'])
-    def doc(m): handler.handle_mass(m, 'stripe1')
+    def handle_document(m):
+        """فحص الملفات تلقائياً"""
+        if not handler.check_sub(m):
+            return
+        handler.handle_file_upload(m)
     
     @bot.message_handler(func=lambda m: True)
-    def text(m):
-        if '|' in m.text:
-            handler.handle_single(m, 'stripe1')
+    def handle_text(m):
+        """فحص النص تلقائياً (مع دعم منشن البوت في المجموعات)"""
+        if not handler.check_sub(m):
+            return
+        
+        text = m.text.strip()
+        
+        # إزالة منشن البوت إذا وجد
+        if f"@{BOT_USERNAME}" in text:
+            text = text.replace(f"@{BOT_USERNAME}", "").strip()
+        
+        # استخراج البطاقات من النص
+        cards = Helpers.extract_cards_from_text(text)
+        
+        if cards:
+            if len(cards) == 1:
+                handler.auto_check_cards(m, cards)
+            else:
+                bot.reply_to(m, f"📝 تم العثور على {len(cards)} بطاقة في النص\n🔄 جاري بدء الفحص المتسلسل...")
+                handler.auto_check_cards(m, cards)
         else:
-            bot.reply_to(m, "⚠️ أمر غير معروف\nاستخدم /start للقائمة الرئيسية")
+            # رسالة عادية - فقط في الخاص
+            if Helpers.get_chat_type(m.chat.id) == "private":
+                bot.reply_to(m, "⚠️ أمر غير معروف\n\n💡 يمكنك إرسال البطاقة مباشرة بالصيغة:\n<code>4111111111111111|12|25|123</code>\n\nأو إرسال ملف txt للفحص التلقائي",
+                            parse_mode='HTML', reply_markup=UserInterface.main_menu("private"))
     
     @bot.callback_query_handler(func=lambda c: True)
     def cb(c): callback.handle(c)
@@ -1350,11 +1729,8 @@ def setup():
     threading.Thread(target=run_health, daemon=True).start()
     
     print(Fore.GREEN + "🚀 البوت يعمل..." + Style.RESET_ALL)
-    print(Fore.CYAN + f"📌 البوابات:" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   💳 Stripe v1: /st1 (فردي) | /st1m (ملف)" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   💎 Stripe v2: /st2 (فردي) | /st2m (ملف)" + Style.RESET_ALL)
-    print(Fore.CYAN + f"📁 مجلد البيانات: {DATA_FOLDER}" + Style.RESET_ALL)
-    print(Fore.CYAN + f"💾 مجلد النسخ الاحتياطي: {BACKUP_FOLDER}" + Style.RESET_ALL)
+    print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
+    print(Fore.GREEN + "✅ البوت جاهز للعمل!" + Style.RESET_ALL)
     
     bot.infinity_polling()
 
