@@ -1309,151 +1309,187 @@ class CommandHandler:
         asyncio.run_coroutine_threadsafe(self.process_mass_async(check_id, gate), asyncio.new_event_loop())
     
     async def process_mass_async(self, check_id, gate):
-        data = self.active_checks.get(check_id)
-        if not data:
-            return
-        
-        cards = data['cards']
-        uid, cid = data['user_id'], data['chat_id']
-        stats = self.live_stats[uid]
-        gate_name = GATES[gate]['name']
-        
-        results_text = ResultFormatter.format_mass_result_header(len(cards), gate_name)
-        
-        progress_msg = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: bot.send_message(
-                cid,
-                f"""
-🚀  جاري الفحص المتعدد 🚀
+    """معالجة الفحص المتعدد مع تحديث مباشر للأرقام"""
+    data = self.active_checks.get(check_id)
+    if not data:
+        return
+    
+    cards = data['cards']
+    uid, cid = data['user_id'], data['chat_id']
+    stats = self.live_stats[uid]
+    gate_name = GATES[gate]['name']
+    
+    results_text = ResultFormatter.format_mass_result_header(len(cards), gate_name)
+    
+    # رسالة البداية
+    progress_msg = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: bot.send_message(
+            cid,
+            f"""
+🚀  جاري الفحص المتسلسل 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
 📊 إجمالي البطاقات: {len(cards)}
 🚪 البوابة: {gate_name}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
-✅ {stats['approved']}
-❌ {stats['declined']}
+✅ المقبولة: 0
+❌ المرفوضة: 0
 🔄 جاري الفحص...
 """,
-                parse_mode='HTML',
-                reply_markup=self.ui.stop_button(check_id)
-            )
+            parse_mode='HTML',
+            reply_markup=self.ui.stop_button(check_id)
         )
-        
-        card_results = []
-        
-        for i, card in enumerate(cards, 1):
-            if data.get('stop'):
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.edit_message_text(
-                        f"⛔ تم إيقاف الفحص\n\n✅ {stats['approved']}\n❌ {stats['declined']}\n📊 تم فحص: {stats['checked']}/{len(cards)}",
-                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML'
-                    )
+    )
+    
+    card_results = []
+    approved_cards = []
+    
+    for i, card in enumerate(cards, 1):
+        if data.get('stop'):
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.edit_message_text(
+                    f"⛔ تم إيقاف الفحص\n\n✅ المقبولة: {stats['approved']}\n❌ المرفوضة: {stats['declined']}\n📊 تم فحص: {stats['checked']}/{len(cards)}",
+                    progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML'
                 )
-                break
+            )
+            break
+        
+        try:
+            current_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
             
-            try:
-                current_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
-                
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.edit_message_text(
-                        f"""
-🚀  جاري الفحص المتعدد 🚀
+            # تحديث شريط التقدم مع الأرقام الحالية
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.edit_message_text(
+                    f"""
+🚀  جاري الفحص المتسلسل 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
 📊 إجمالي البطاقات: {len(cards)}
 🚪 البوابة: {gate_name}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
-✅ {stats['approved']}
-❌ {stats['declined']}
+✅ المقبولة: {stats['approved']}
+❌ المرفوضة: {stats['declined']}
 🔄 جاري فحص: {current_card}
 """,
-                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
-                        reply_markup=self.ui.stop_button(check_id)
-                    )
+                    progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
+                    reply_markup=self.ui.stop_button(check_id)
                 )
+            )
+            
+            # فحص البطاقة
+            approved, resp = await self.gateways.check_card(gate, card)
+            stats['checked'] += 1
+            
+            card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
+            card_results.append(card_result)
+            
+            # ========== معالجة النتيجة ==========
+            if approved:
+                stats['approved'] += 1
                 
-                approved, resp = await self.gateways.check_card(gate, card)
-                stats['checked'] += 1
+                # تنسيق البطاقة المقبولة
+                number = card['number']
+                masked = f"{number[:6]}xxxxxx{number[-4:]}"
+                bin_info = Helpers.get_bin_info(number[:6])
                 
-                card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
-                card_results.append(card_result)
+                approved_msg = f"""
+✅ <b>بطاقة مقبولة</b>
+━━━━━━━━━━━━
+<b>💳 البطاقة:</b> <code>{card['original']}</code>
+<b>🔢 الرقم المخفي:</b> <code>{masked}</code>
+<b>🏷️ النوع:</b> {bin_info.get('brand', 'Unknown')}
+<b>🏦 البنك:</b> {bin_info.get('bank', 'Unknown')}
+<b>🌍 الدولة:</b> {bin_info.get('country', 'Unknown')} {bin_info.get('flag', '🏁')}
+<b>🚪 البوابة:</b> {gate_name}
+<b>📊 الحالة:</b> {resp}
+━━━━━━━━━━━━
+🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+"""
                 
-                if approved:
-                    stats['approved'] += 1
-                else:
-                    stats['declined'] += 1
-                
+                # إرسال البطاقة المقبولة فوراً
                 await asyncio.get_event_loop().run_in_executor(
                     None,
-                    lambda: bot.edit_message_text(
-                        f"""
-🚀  جاري الفحص المتعدد 🚀
+                    lambda: bot.send_message(cid, approved_msg, parse_mode='HTML')
+                )
+                
+                DataManager.save_card_result(card['original'], gate_name, resp, uid, True)
+                
+            else:
+                stats['declined'] += 1
+                DataManager.save_card_result(card['original'], gate_name, resp, uid, False)
+            
+            # تحديث الإحصائيات
+            DataManager.update_usage(uid, gate, resp)
+            
+            # تحديث شريط التقدم بعد الفحص (مع الأرقام الجديدة)
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.edit_message_text(
+                    f"""
+🚀  جاري الفحص المتسلسل 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
 📊 إجمالي البطاقات: {len(cards)}
 🚪 البوابة: {gate_name}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
-✅ {stats['approved']}
-❌ {stats['declined']}
+✅ المقبولة: {stats['approved']}
+❌ المرفوضة: {stats['declined']}
 🔄 تم فحص: {stats['checked']}/{len(cards)}
 """,
-                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
-                        reply_markup=self.ui.stop_button(check_id)
-                    )
+                    progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
+                    reply_markup=self.ui.stop_button(check_id)
                 )
-                
-                DataManager.update_usage(uid, gate, resp)
-                DataManager.save_card_result(card['original'], gate_name, resp, uid, approved)
-                
-                await asyncio.sleep(1.5)
-                
-            except Exception as e:
-                stats['checked'] += 1
-                stats['declined'] += 1
-                card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
-                card_results.append(card_result)
-                
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.edit_message_text(
-                        f"""
-🚀  جاري الفحص المتعدد 🚀
+            )
+            
+            await asyncio.sleep(1.5)
+            
+        except Exception as e:
+            stats['checked'] += 1
+            stats['declined'] += 1
+            card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
+            card_results.append(card_result)
+            
+            # تحديث مع الخطأ
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.edit_message_text(
+                    f"""
+🚀  جاري الفحص المتسلسل 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
 📊 إجمالي البطاقات: {len(cards)}
 🚪 البوابة: {gate_name}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
-✅ {stats['approved']}
-❌ {stats['declined']}
+✅ المقبولة: {stats['approved']}
+❌ المرفوضة: {stats['declined']}
 🔄 تم فحص: {stats['checked']}/{len(cards)} (⚠️ خطأ)
 """,
-                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
-                        reply_markup=self.ui.stop_button(check_id)
-                    )
+                    progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
+                    reply_markup=self.ui.stop_button(check_id)
                 )
-        
-        results_text += "\n".join(card_results)
-        results_text += ResultFormatter.format_mass_result_footer(
-            stats['approved'], stats['declined'], len(cards), len(cards) - stats['checked']
-        )
-        
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: bot.edit_message_text(results_text, progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML')
-        )
-        
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: bot.send_message(
-                cid,
-                f"""
+            )
+    
+    # تجميع النتائج النهائية
+    results_text += "\n".join(card_results)
+    results_text += ResultFormatter.format_mass_result_footer(
+        stats['approved'], stats['declined'], len(cards), len(cards) - stats['checked']
+    )
+    
+    # إرسال التقرير النهائي
+    await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: bot.edit_message_text(results_text, progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML')
+    )
+    
+    # إرسال ملخص نهائي
+    summary = f"""
 ✅ <b>اكتمل الفحص</b>
 ━━━━━━━━━━━━
 📊 إجمالي البطاقات: {len(cards)}
@@ -1461,14 +1497,17 @@ class CommandHandler:
 ❌ المرفوضة: {stats['declined']}
 📈 نسبة النجاح: {(stats['approved']/len(cards)*100) if len(cards) > 0 else 0:.1f}%
 ━━━━━━━━━━━━
+{'📌 تم إرسال البطاقات المقبولة فوراً' if stats['approved'] > 0 else '❌ لا توجد بطاقات مقبولة'}
 📁 تم حفظ النتائج في الملفات
-""",
-                parse_mode='HTML'
-            )
-        )
-        
-        del self.active_checks[check_id]
-        del self.live_stats[uid]
+"""
+    
+    await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: bot.send_message(cid, summary, parse_mode='HTML')
+    )
+    
+    del self.active_checks[check_id]
+    del self.live_stats[uid]
     
     def stop_check(self, call, check_id):
         if check_id in self.active_checks:
