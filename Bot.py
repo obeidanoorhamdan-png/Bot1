@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-Obeida Online - Real Multi Gateway CC Checker Bot
-Version: 7.0 - Group Support & File Memory
-Author: @ObeidaOnline
-Channel: https://t.me/ObeidaTrading
-"""
-
 # ==================== التحقق من إصدار Python ====================
 import sys
 import platform
@@ -58,8 +48,8 @@ CHANNEL_USERNAME = "@ObeidaOnline"
 DEV_CONTACT = "@Sz2zv"
 BOT_USERNAME = "@farah_obeida_bot"
 
-CHANNEL_LINK = "t.me/ObeidaOnline"
-SUPPORT_LINK = "t.me/Sz2zv"
+CHANNEL_LINK = "@ObeidaOnline"
+SUPPORT_LINK = "@Sz2zv"
 
 # مجلدات التخزين
 DATA_FOLDER = "data"
@@ -941,9 +931,8 @@ class UserInterface:
 <b>🏦 البنك:</b> {bin_info['bank']}
 <b>🌍 الدولة:</b> {bin_info['country']} {bin_info['flag']}
 <b>🚪 البوابة:</b> {gate}
-<b>📊 الحالة:</b> {result}
 ━━━━━━━━━━━━
-<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>@ObeidaTrading</a>
+<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>انقرهنا</a>
 """
 
 # ==================== معالج الأوامر ====================
@@ -1012,7 +1001,6 @@ class CommandHandler:
 <b>💡 يمكنك إرسال البطاقة مباشرة وسيتم فحصها تلقائياً!</b>
 
 <b>📝 الطرق المتاحة:</b>
-• أرسل البطاقة مباشرة: <code>4111111111111111|12|25|123</code>
 • أرسل ملف txt وسيتم فحص جميع البطاقات
 • استخدم /st1 أو /st2 لاختيار بوابة معينة
 
