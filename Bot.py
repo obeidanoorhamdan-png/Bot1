@@ -1740,84 +1740,114 @@ class CommandHandler:
             print(f"Error in mass check: {e}")
     
     async def _process_mass_check(self, user_id: int):
-        """معالجة الفحص المتعدد"""
-        check = self.mass_manager.get_check(user_id)
-        if not check:
-            return
-        
-        cards = check['cards']
-        gate = check['gate']
-        chat_id = check['chat_id']
-        gate_name = GATES[gate]['name']
-        
-        card_results = []
-        
-        for i, card in enumerate(cards, 1):
-            # التحقق من طلب الإيقاف
-            check = self.mass_manager.get_check(user_id)
-            if not check or check.get('stop'):
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.edit_message_text(
-                        f"⛔ <b>تم إيقاف الفحص</b>\n━━━━━━━━━━━━\n✅ المقبولة: {check['approved'] if check else 0}\n❌ المرفوضة: {check['declined'] if check else 0}\n📊 تم فحص: {check['checked'] if check else 0}/{check['total'] if check else 0}",
-                        chat_id,
-                        check['message_id'] if check else None,
-                        parse_mode='HTML'
-                    ) if check and check.get('message_id') else None
-                )
-                break
-            
-            try:
-                current_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
-                
-                # تحديث التقدم
-                progress_text = f"""
+    """معالجة الفحص المتعدد - نسخة معدلة بالكامل"""
+    check = self.mass_manager.get_check(user_id)
+    if not check:
+        return
+    
+    cards = check['cards']
+    gate = check['gate']
+    chat_id = check['chat_id']
+    gate_name = GATES[gate]['name']
+    total_cards = len(cards)
+    
+    # قائمة لتخزين النتائج
+    all_results = []
+    
+    # إرسال رسالة البداية
+    progress_msg = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: bot.send_message(
+            chat_id,
+            f"""
 🚀 <b>جاري الفحص المتسلسل</b> 🚀
 ━━━━━━━━━━━━
-📊 <b>إجمالي البطاقات:</b> {check['total']}
+📊 <b>إجمالي البطاقات:</b> {total_cards}
+🚪 <b>البوابة:</b> {GATES[gate]['icon']} {gate_name}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+✅ <b>المقبولة:</b> 0
+❌ <b>المرفوضة:</b> 0
+🔄 <b>تم فحص:</b> 0/{total_cards}
+━━━━━━━━━━━━
+💡 استخدم /stop لإيقاف الفحص
+""",
+            parse_mode='HTML',
+            reply_markup=self.ui.stop_button(int(time.time() * 1000))
+        )
+    )
+    
+    # حفظ معرف الرسالة
+    message_id = progress_msg.message_id
+    
+    # فحص كل بطاقة
+    for i, card in enumerate(cards, 1):
+        # التحقق من طلب الإيقاف
+        check = self.mass_manager.get_check(user_id)
+        if not check or check.get('stop'):
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.edit_message_text(
+                    f"⛔ <b>تم إيقاف الفحص</b>\n━━━━━━━━━━━━\n✅ المقبولة: {check['approved'] if check else 0}\n❌ المرفوضة: {check['declined'] if check else 0}\n📊 تم فحص: {check['checked'] if check else 0}/{total_cards}",
+                    chat_id,
+                    message_id,
+                    parse_mode='HTML'
+                )
+            )
+            break
+        
+        try:
+            current_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
+            
+            # تحديث حالة "جاري الفحص" مع الأرقام الحالية
+            current_progress = f"""
+🚀 <b>جاري الفحص المتسلسل</b> 🚀
+━━━━━━━━━━━━
+📊 <b>إجمالي البطاقات:</b> {total_cards}
 🚪 <b>البوابة:</b> {GATES[gate]['icon']} {gate_name}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
 ✅ <b>المقبولة:</b> {check['approved']}
 ❌ <b>المرفوضة:</b> {check['declined']}
-🔄 <b>جاري فحص:</b> <code>{current_card}</code>
+🔄 <b>جاري فحص:</b> <code>{current_card}</code> ({i}/{total_cards})
 ━━━━━━━━━━━━
 💡 استخدم /stop لإيقاف الفحص
 """
-                
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.edit_message_text(
-                        progress_text,
-                        chat_id,
-                        check['message_id'],
-                        parse_mode='HTML',
-                        reply_markup=self.ui.stop_button(int(time.time() * 1000))
-                    ) if check['message_id'] else None
+            
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.edit_message_text(
+                    current_progress,
+                    chat_id,
+                    message_id,
+                    parse_mode='HTML',
+                    reply_markup=self.ui.stop_button(int(time.time() * 1000))
                 )
+            )
+            
+            # فحص البطاقة
+            approved, resp = await self.gateways.check_card(gate, card)
+            
+            # تحديث الإحصائيات
+            check = self.mass_manager.get_check(user_id)
+            if not check:
+                break
+            
+            check['checked'] += 1
+            
+            # تنسيق نتيجة البطاقة
+            card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
+            all_results.append(card_result)
+            
+            if approved:
+                check['approved'] += 1
                 
-                # فحص البطاقة
-                approved, resp = await self.gateways.check_card(gate, card)
+                # إرسال البطاقة المقبولة فوراً
+                number = card['number']
+                masked = f"{number[:6]}xxxxxx{number[-4:]}"
+                bin_info = Helpers.get_bin_info(number[:6])
                 
-                # تحديث الإحصائيات
-                check = self.mass_manager.get_check(user_id)
-                if not check:
-                    break
-                
-                check['checked'] += 1
-                
-                card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
-                card_results.append(card_result)
-                
-                if approved:
-                    check['approved'] += 1
-                    
-                    # إرسال البطاقة المقبولة فوراً
-                    number = card['number']
-                    masked = f"{number[:6]}xxxxxx{number[-4:]}"
-                    bin_info = Helpers.get_bin_info(number[:6])
-                    
-                    approved_msg = f"""
+                approved_msg = f"""
 ✅ <b>بطاقة مقبولة</b>
 ━━━━━━━━━━━━
 <b>💳 البطاقة:</b> <code>{card['original']}</code>
@@ -1830,98 +1860,107 @@ class CommandHandler:
 ━━━━━━━━━━━━
 🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
-                    
-                    await asyncio.get_event_loop().run_in_executor(
-                        None,
-                        lambda: bot.send_message(chat_id, approved_msg, parse_mode='HTML')
-                    )
-                    
-                    DataManager.save_card_result(card['original'], gate_name, resp, user_id, True)
-                    
-                else:
-                    check['declined'] += 1
-                    DataManager.save_card_result(card['original'], gate_name, resp, user_id, False)
                 
-                DataManager.update_usage(user_id, gate, resp)
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.send_message(chat_id, approved_msg, parse_mode='HTML')
+                )
                 
-                # تحديث التقدم بعد الفحص
-                progress_text = f"""
+                DataManager.save_card_result(card['original'], gate_name, resp, user_id, True)
+                
+            else:
+                check['declined'] += 1
+                DataManager.save_card_result(card['original'], gate_name, resp, user_id, False)
+            
+            DataManager.update_usage(user_id, gate, resp)
+            
+            # تحديث التقدم بعد الفحص (عرض الأرقام الجديدة)
+            after_progress = f"""
 🚀 <b>جاري الفحص المتسلسل</b> 🚀
 ━━━━━━━━━━━━
-📊 <b>إجمالي البطاقات:</b> {check['total']}
+📊 <b>إجمالي البطاقات:</b> {total_cards}
 🚪 <b>البوابة:</b> {GATES[gate]['icon']} {gate_name}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
 ✅ <b>المقبولة:</b> {check['approved']}
 ❌ <b>المرفوضة:</b> {check['declined']}
-🔄 <b>تم فحص:</b> {check['checked']}/{check['total']}
+🔄 <b>تم فحص:</b> {check['checked']}/{total_cards}
 ━━━━━━━━━━━━
 💡 استخدم /stop لإيقاف الفحص
 """
-                
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.edit_message_text(
-                        progress_text,
-                        chat_id,
-                        check['message_id'],
-                        parse_mode='HTML',
-                        reply_markup=self.ui.stop_button(int(time.time() * 1000))
-                    ) if check['message_id'] else None
+            
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.edit_message_text(
+                    after_progress,
+                    chat_id,
+                    message_id,
+                    parse_mode='HTML',
+                    reply_markup=self.ui.stop_button(int(time.time() * 1000))
                 )
-                
-                await asyncio.sleep(1.5)
-                
-            except Exception as e:
-                check = self.mass_manager.get_check(user_id)
-                if not check:
-                    break
-                
+            )
+            
+            await asyncio.sleep(1.5)
+            
+        except Exception as e:
+            print(f"Error: {e}")
+            check = self.mass_manager.get_check(user_id)
+            if check:
                 check['checked'] += 1
                 check['declined'] += 1
                 card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
-                card_results.append(card_result)
+                all_results.append(card_result)
+    
+    # انتهاء الفحص - عرض النتائج النهائية
+    check = self.mass_manager.get_check(user_id)
+    if check and not check.get('stop'):
+        # تجميع النتائج النهائية
+        results_text = ResultFormatter.format_mass_result_header(total_cards, gate_name)
+        results_text += "\n".join(all_results[:50])
+        if len(all_results) > 50:
+            results_text += f"\n\n... و {len(all_results) - 50} نتيجة أخرى"
+        results_text += ResultFormatter.format_mass_result_footer(
+            check['approved'], check['declined'], total_cards, 0
+        )
         
-        # انتهاء الفحص
-        check = self.mass_manager.get_check(user_id)
-        if check and not check.get('stop'):
-            # تجميع النتائج النهائية
-            results_text = ResultFormatter.format_mass_result_header(check['total'], gate_name)
-            results_text += "\n".join(card_results)
-            results_text += ResultFormatter.format_mass_result_footer(
-                check['approved'], check['declined'], check['total'], 0
-            )
-            
+        # إرسال النتائج النهائية
+        try:
             await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: bot.edit_message_text(
                     results_text,
                     chat_id,
-                    check['message_id'],
+                    message_id,
                     parse_mode='HTML'
-                ) if check['message_id'] else None
+                )
             )
-            
-            # إرسال ملخص
-            summary = f"""
+        except Exception as e:
+            print(f"Error editing final message: {e}")
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.send_message(chat_id, results_text, parse_mode='HTML')
+            )
+        
+        # إرسال ملخص
+        summary = f"""
 ✅ <b>اكتمل الفحص</b>
 ━━━━━━━━━━━━
-📊 إجمالي البطاقات: {check['total']}
+📊 إجمالي البطاقات: {total_cards}
 ✅ المقبولة: {check['approved']}
 ❌ المرفوضة: {check['declined']}
-📈 نسبة النجاح: {(check['approved']/check['total']*100) if check['total'] > 0 else 0:.1f}%
+📈 نسبة النجاح: {(check['approved']/total_cards*100) if total_cards > 0 else 0:.1f}%
 ━━━━━━━━━━━━
 {'📌 تم إرسال البطاقات المقبولة فوراً' if check['approved'] > 0 else '❌ لا توجد بطاقات مقبولة'}
 📁 تم حفظ النتائج في الملفات
 """
-            
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.send_message(chat_id, summary, parse_mode='HTML')
-            )
         
-        # إزالة الفحص من المدير
-        self.mass_manager.remove_check(user_id)
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: bot.send_message(chat_id, summary, parse_mode='HTML')
+        )
+    
+    # إزالة الفحص من المدير
+    self.mass_manager.remove_check(user_id)
     
     def handle_single(self, message, gate):
         if not self.check_sub(message):
