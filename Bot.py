@@ -1,3 +1,13 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Obeida Online - Real Multi Gateway CC Checker Bot
+Version: 8.0 - Full Features with Progress Bar
+Author: @ObeidaOnline
+Channel: https://t.me/ObeidaTrading
+"""
+
 # ==================== التحقق من إصدار Python ====================
 import sys
 import platform
@@ -22,7 +32,7 @@ from urllib.parse import urlparse
 import http.server
 import socketserver
 import shutil
-import tempfile
+import warnings
 
 # استيراد المكتبات الخارجية
 try:
@@ -38,18 +48,21 @@ except ImportError as e:
     print(f"❌ خطأ في استيراد المكتبات: {e}")
     sys.exit(1)
 
+# تجاهل التحذيرات
+warnings.filterwarnings("ignore")
+
 # تهيئة الألوان
 init(autoreset=True)
 
 # ==================== إعدادات البوت ====================
 BOT_TOKEN = "8375573526:AAFa882xWsLWl6LAfl0IcaZEU12hyP6YIy0"
 ADMIN_IDS = [6207431030]
-CHANNEL_USERNAME = "@ObeidaOnline"
+CHANNEL_USERNAME = "@ObeidaTrading"
 DEV_CONTACT = "@Sz2zv"
-BOT_USERNAME = "@farah_obeida_bot"
+BOT_USERNAME = "ObeidaOnlineBot"
 
-CHANNEL_LINK = "@ObeidaOnline"
-SUPPORT_LINK = "@Sz2zv"
+CHANNEL_LINK = "https://t.me/ObeidaTrading"
+SUPPORT_LINK = "https://t.me/Sz2zv"
 
 # مجلدات التخزين
 DATA_FOLDER = "data"
@@ -61,7 +74,7 @@ os.makedirs(DATA_FOLDER, exist_ok=True)
 os.makedirs(BACKUP_FOLDER, exist_ok=True)
 os.makedirs(TEMP_FOLDER, exist_ok=True)
 
-# ملفات التخزين (داخل مجلد data)
+# ملفات التخزين
 USERS_FILE = os.path.join(DATA_FOLDER, "users.json")
 APPROVED_CARDS_FILE = os.path.join(DATA_FOLDER, "approved.txt")
 DECLINED_CARDS_FILE = os.path.join(DATA_FOLDER, "declined.txt")
@@ -113,10 +126,9 @@ active_checks = {}
 user_sessions = {}
 live_stats = {}
 user_current_gate = {}
-user_last_file = {}  # تخزين آخر ملف أرسله كل مستخدم {user_id: {"file_id": xxx, "file_name": xxx, "content": xxx}}
-group_settings = {}  # إعدادات المجموعات
+user_last_file = {}
 
-# ==================== إدارة البيانات التلقائية ====================
+# ==================== إدارة البيانات ====================
 class DataManager:
     
     @staticmethod
@@ -157,15 +169,15 @@ class DataManager:
                 "maintenance_mode": False,
                 "maintenance_message": "البوت تحت الصيانة حالياً",
                 "default_check_gate": "stripe1",
-                "group_mode": True,  # تفعيل العمل في المجموعات
-                "require_sub_in_groups": True  # هل يتطلب اشتراك في المجموعات
+                "group_mode": True,
+                "require_sub_in_groups": True
             })
         
         if not os.path.exists(GROUPS_FILE):
             DataManager.save_json(GROUPS_FILE, {
-                "allowed_groups": [],  # المجموعات المسموح لها باستخدام البوت
-                "blocked_groups": [],  # المجموعات المحظورة
-                "group_settings": {}   # إعدادات لكل مجموعة
+                "allowed_groups": [],
+                "blocked_groups": [],
+                "group_settings": {}
             })
         
         for file in [APPROVED_CARDS_FILE, DECLINED_CARDS_FILE]:
@@ -306,8 +318,6 @@ class DataManager:
     
     @staticmethod
     def check_access(user_id: int, chat_id: int = None) -> bool:
-        """التحقق من صلاحية المستخدم مع مراعاة المجموعات"""
-        # المشرفين دائماً مسموح لهم
         if user_id in ADMIN_IDS:
             return True
         
@@ -315,31 +325,20 @@ class DataManager:
         if settings.get("maintenance_mode", False):
             return False
         
-        # إذا كان في مجموعة
-        if chat_id and chat_id < 0:  # chat_id سالب يعني مجموعة
+        if chat_id and chat_id < 0:
             groups = DataManager.load_groups()
-            
-            # التحقق إذا كانت المجموعة محظورة
             if chat_id in groups.get("blocked_groups", []):
                 return False
-            
-            # التحقق إذا كانت المجموعة مسموحة (إذا تم تعيين قائمة مسموحة)
             allowed = groups.get("allowed_groups", [])
             if allowed and chat_id not in allowed:
                 return False
-            
-            # التحقق من إعدادات المجموعة
             group_set = groups.get("group_settings", {}).get(str(chat_id), {})
             if group_set.get("disabled", False):
                 return False
-            
-            # إذا كان يتطلب اشتراك في المجموعات
             if settings.get("require_sub_in_groups", True):
                 return DataManager.get_user_subscription(user_id) is not None
-            else:
-                return True
+            return True
         
-        # في الخاص
         return DataManager.get_user_subscription(user_id) is not None
     
     @staticmethod
@@ -537,7 +536,6 @@ class Helpers:
     
     @staticmethod
     def extract_cards_from_text(text: str) -> List[Dict]:
-        """استخراج جميع البطاقات من النص"""
         cards = []
         lines = text.strip().split('\n')
         for line in lines:
@@ -547,12 +545,6 @@ class Helpers:
                 if card and Helpers.luhn_check(card['number']):
                     cards.append(card)
         return cards
-    
-    @staticmethod
-    def generate_progress_bar(current: int, total: int, length: int = 10) -> str:
-        if total == 0: return "⬜" * length
-        filled = int((current / total) * length)
-        return "🟩" * filled + "⬜" * (length - filled)
     
     @staticmethod
     def luhn_check(card_number: str) -> bool:
@@ -598,20 +590,124 @@ class Helpers:
         return {"brand": "Unknown", "type": "Unknown", "bank": "Unknown", "country": "Unknown", "flag": "🏁"}
     
     @staticmethod
-    def format_live_stats(total: int, checked: int, approved: int, declined: int, current: str = None) -> str:
-        progress = Helpers.generate_progress_bar(checked, total)
-        percentage = (checked / total * 100) if total > 0 else 0
-        stats = f"📊 {checked}/{total} ({percentage:.1f}%)\n{progress}\n✅ {approved} | ❌ {declined} | ⏳ {total - checked}"
-        if current: stats += f"\n🔄 {current}"
-        return stats
-    
-    @staticmethod
     def get_chat_type(chat_id: int) -> str:
-        """تحديد نوع المحادثة"""
         if chat_id > 0:
             return "private"
+        return "group"
+
+# ==================== تنسيق النتائج ====================
+class ResultFormatter:
+    
+    @staticmethod
+    def format_mass_result_header(total_cards: int, gate_name: str) -> str:
+        return f"""
+🚀  {gate_name} 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+"""
+    
+    @staticmethod
+    def format_card_result(card: str, result: str, is_approved: bool) -> str:
+        number = card.split('|')[0] if '|' in card else card
+        masked = f"{number[:6]}xxxxxx{number[-4:]}"
+        status_text = "LIVE" if is_approved else "DECLINED"
+        
+        if "insufficient" in result.lower():
+            status_text = "LIVE - INSUFFICIENT FUNDS"
+        elif "cvv" in result.lower():
+            status_text = "LIVE - CVV ERROR"
+        elif "stolen" in result.lower() or "risk" in result.lower():
+            status_text = "LIVE - RISK CARD"
+        
+        return f"""
+𒊹︎︎︎ 𝗖𝗖 ⌁ {masked}
+𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ {status_text} | {result}
+"""
+    
+    @staticmethod
+    def format_mass_result_footer(approved: int, declined: int, total: int, remaining: int = None) -> str:
+        if remaining is None:
+            remaining = 0
+        return f"""
+𒊹︎︎︎ 𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅ ⌁ {approved}
+𒊹︎︎︎ 𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌ ⌁ {declined}
+𒊹︎︎︎ 𝗥𝗘𝗠𝗔𝗜𝗡 ♻️ ⌁ {remaining}
+
+𝗧𝗢𝗧𝗔𝗟 💀 ➺ [ {total} ]
+━━━━━━━━━━━━
+🆔 Obeida Online | @ObeidaTrading
+"""
+    
+    @staticmethod
+    def format_live_progress(current_card: str, checked: int, total: int, approved: int, declined: int, is_single: bool = False) -> str:
+        percentage = (checked / total * 100) if total > 0 else 0
+        bar_length = 20
+        filled = int((checked / total) * bar_length) if total > 0 else 0
+        bar = "█" * filled + "░" * (bar_length - filled)
+        
+        if is_single:
+            return f"""
+🚀  جاري الفحص 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+📊 [{bar}] {percentage:.1f}%
+𒊹︎︎︎ 𝗕𝗔𝗧𝗔𝗤𝗔𝗛 ⌁ {current_card}
+𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق...
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+"""
         else:
-            return "group"
+            return f"""
+🚀  جاري الفحص المتسلسل 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+📊 [{bar}] {percentage:.1f}%
+𒊹︎︎︎ 𝗖𝗛𝗘𝗖𝗞𝗘𝗗 ⌁ {checked}/{total}
+𒊹︎︎︎ 𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅ ⌁ {approved}
+𒊹︎︎︎ 𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌ ⌁ {declined}
+𒊹︎︎︎ 𝗖𝗨𝗥𝗥𝗘𝗡𝗧 ⌁ {current_card}
+"""
+    
+    @staticmethod
+    def format_single_result(card: str, result: str, is_approved: bool, gate_name: str, bin_info: Dict = None) -> str:
+        number = card.split('|')[0] if '|' in card else card
+        masked = f"{number[:6]}xxxxxx{number[-4:]}"
+        
+        if is_approved:
+            status_text = "✅ LIVE - CARD APPROVED"
+            if "cvv" in result.lower():
+                status_text = "💳 LIVE - CVV ERROR"
+            elif "insufficient" in result.lower():
+                status_text = "💰 LIVE - INSUFFICIENT FUNDS"
+            elif "stolen" in result.lower() or "risk" in result.lower():
+                status_text = "⚠️ LIVE - RISK CARD"
+        else:
+            status_text = "❌ DECLINED"
+        
+        if bin_info:
+            bin_text = f"""
+𒊹︎︎︎ 𝗕𝗜𝗡 ⌁ {number[:6]}
+𒊹︎︎︎ 𝗕𝗥𝗔𝗡𝗗 ⌁ {bin_info.get('brand', 'Unknown')}
+𒊹︎︎︎ 𝗧𝗬𝗣𝗘 ⌁ {bin_info.get('type', 'Unknown')}
+𒊹︎︎︎ 𝗕𝗔𝗡𝗞 ⌁ {bin_info.get('bank', 'Unknown')}
+𒊹︎︎︎ 𝗖𝗢𝗨𝗡𝗧𝗥𝗬 ⌁ {bin_info.get('country', 'Unknown')} {bin_info.get('flag', '🏁')}
+"""
+        else:
+            bin_text = ""
+        
+        return f"""
+🚀  {gate_name} 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+𒊹︎︎︎ 𝗖𝗖 ⌁ {masked}
+𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ {status_text}
+{bin_text}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+🆔 Obeida Online | @ObeidaTrading
+"""
+    
+    @staticmethod
+    def get_loading_animation(frame: int) -> str:
+        frames = ["◐", "◓", "◑", "◒"]
+        return frames[frame % len(frames)]
 
 # ==================== بوابة Stripe 1 ====================
 class StripeGateway1:
@@ -633,10 +729,6 @@ class StripeGateway1:
         number = random.randint(100, 9999)
         domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'protonmail.com']
         return f"{username}{number}@{random.choice(domains)}"
-    
-    @staticmethod
-    def generate_guid():
-        return str(uuid.uuid4())
     
     @staticmethod
     def gets(s, start, end):
@@ -861,8 +953,7 @@ class RealGateways:
             return await self.gateway1.process_card(site_url, card)
         elif gate == 'stripe2':
             return await self.gateway2.process_card(card)
-        else:
-            return False, "❌ بوابة غير مدعومة"
+        return False, "❌ بوابة غير مدعومة"
 
 # ==================== واجهة المستخدم ====================
 class UserInterface:
@@ -915,25 +1006,6 @@ class UserInterface:
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("⛔ إيقاف الفحص", callback_data=f"stop_{check_id}"))
         return markup
-    
-    @staticmethod
-    def format_result(card: str, result: str, gate: str, is_approved: bool) -> str:
-        status = "✅" if is_approved else "❌"
-        number = card.split('|')[0] if '|' in card else card
-        masked = f"{number[:6]}xxxxxx{number[-4:]}"
-        brand = Helpers.get_card_brand(number)
-        bin_info = Helpers.get_bin_info(number[:6])
-        return f"""
-{status} <b>نتيجة الفحص</b>
-━━━━━━━━━━━━
-<b>💳 البطاقة:</b> <code>{masked}</code>
-<b>🏷️ النوع:</b> {brand} | {bin_info['brand']}
-<b>🏦 البنك:</b> {bin_info['bank']}
-<b>🌍 الدولة:</b> {bin_info['country']} {bin_info['flag']}
-<b>🚪 البوابة:</b> {gate}
-━━━━━━━━━━━━
-<b>🆔 Obeida Online</b> | <a href='{CHANNEL_LINK}'>انقرهنا</a>
-"""
 
 # ==================== معالج الأوامر ====================
 class CommandHandler:
@@ -959,16 +1031,25 @@ class CommandHandler:
         thread.start()
     
     def check_sub(self, message) -> bool:
-        """التحقق من صلاحية المستخدم مع مراعاة المجموعات"""
-        user_id = message.from_user.id
-        chat_id = message.chat.id
-        
-        settings = DataManager.load_settings()
-        if settings.get("maintenance_mode", False):
-            bot.reply_to(message, f"🔧 {settings.get('maintenance_message', 'البوت تحت الصيانة')}")
-            return False
-        
-        return DataManager.check_access(user_id, chat_id)
+        return DataManager.check_access(message.from_user.id, message.chat.id)
+    
+    def save_last_file(self, user_id: int, file_id: str, file_name: str, content: str):
+        self.user_last_file[user_id] = {
+            "file_id": file_id,
+            "file_name": file_name,
+            "content": content,
+            "timestamp": datetime.now().isoformat()
+        }
+        for uid in list(self.user_last_file.keys()):
+            try:
+                ts = datetime.fromisoformat(self.user_last_file[uid]["timestamp"])
+                if (datetime.now() - ts).seconds > 3600:
+                    del self.user_last_file[uid]
+            except:
+                pass
+    
+    def get_last_file(self, user_id: int) -> Optional[Dict]:
+        return self.user_last_file.get(user_id)
     
     def handle_start(self, message):
         user = message.from_user
@@ -1001,6 +1082,7 @@ class CommandHandler:
 <b>💡 يمكنك إرسال البطاقة مباشرة وسيتم فحصها تلقائياً!</b>
 
 <b>📝 الطرق المتاحة:</b>
+• أرسل البطاقة مباشرة: <code>4111111111111111|12|25|123</code>
 • أرسل ملف txt وسيتم فحص جميع البطاقات
 • استخدم /st1 أو /st2 لاختيار بوابة معينة
 
@@ -1124,48 +1206,46 @@ class CommandHandler:
         else:
             bot.answer_callback_query(call.id, "❌ فشل في تعيين البوابة")
     
-    # ========== الفحص التلقائي ==========
-    
-    def save_last_file(self, user_id: int, file_id: str, file_name: str, content: str):
-        """حفظ آخر ملف أرسله المستخدم"""
-        self.user_last_file[user_id] = {
-            "file_id": file_id,
-            "file_name": file_name,
-            "content": content,
-            "timestamp": datetime.now().isoformat()
-        }
-        # تنظيف الملفات القديمة (أكثر من ساعة)
-        for uid in list(self.user_last_file.keys()):
-            try:
-                ts = datetime.fromisoformat(self.user_last_file[uid]["timestamp"])
-                if (datetime.now() - ts).seconds > 3600:
-                    del self.user_last_file[uid]
-            except:
-                pass
-    
-    def get_last_file(self, user_id: int) -> Optional[Dict]:
-        """الحصول على آخر ملف أرسله المستخدم"""
-        return self.user_last_file.get(user_id)
-    
-    def auto_check_cards(self, message, cards: List[Dict], gate: str = None):
-        """فحص البطاقات تلقائياً (واحدة تلو الأخرى)"""
-        if not cards:
-            return
-        
-        if gate is None:
-            gate = DataManager.get_user_default_gate(message.from_user.id)
-        
-        if gate not in GATES or not GATES[gate]['enabled']:
-            gate = "stripe1"
-        
-        if len(cards) == 1:
-            self.check_single_card(message, cards[0], gate)
-        else:
-            self.check_multiple_cards(message, cards, gate)
-    
     def check_single_card(self, message, card: Dict, gate: str):
-        """فحص بطاقة واحدة"""
-        msg = bot.reply_to(message, f"🔄 جاري الفحص عبر {GATES[gate]['icon']} {GATES[gate]['name']}...")
+        user_id = message.from_user.id
+        gate_name = GATES[gate]['name']
+        masked_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
+        
+        progress_msg = bot.reply_to(
+            message,
+            ResultFormatter.format_live_progress(masked_card, 0, 100, 0, 0, is_single=True),
+            parse_mode='HTML'
+        )
+        
+        stop_animation = threading.Event()
+        
+        def animate_progress():
+            frame = 0
+            while not stop_animation.is_set():
+                try:
+                    loading = ResultFormatter.get_loading_animation(frame)
+                    percentage = min(frame * 2, 95)
+                    bar_length = 20
+                    filled = int((percentage / 100) * bar_length)
+                    bar = "█" * filled + "░" * (bar_length - filled)
+                    
+                    text = f"""
+🚀  جاري الفحص 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+📊 [{bar}] {percentage:.1f}%
+𒊹︎︎︎ 𝗕𝗔𝗧𝗔𝗤𝗔𝗛 ⌁ {masked_card}
+𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق {loading}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+"""
+                    bot.edit_message_text(text, progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML')
+                    frame += 1
+                    time.sleep(0.3)
+                except:
+                    break
+        
+        animation_thread = threading.Thread(target=animate_progress)
+        animation_thread.start()
         
         try:
             loop = asyncio.new_event_loop()
@@ -1173,17 +1253,23 @@ class CommandHandler:
             approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card))
             loop.close()
             
-            DataManager.update_usage(message.from_user.id, gate, resp)
-            DataManager.save_card_result(card['original'], GATES[gate]['name'], resp, message.from_user.id, approved)
+            stop_animation.set()
+            animation_thread.join(timeout=1)
             
-            bot.delete_message(msg.chat.id, msg.message_id)
-            bot.reply_to(message, self.ui.format_result(card['original'], resp, GATES[gate]['name'], approved), parse_mode='HTML')
+            DataManager.update_usage(message.from_user.id, gate, resp)
+            DataManager.save_card_result(card['original'], gate_name, resp, message.from_user.id, approved)
+            
+            bin_info = Helpers.get_bin_info(card['number'][:6])
+            final_result = ResultFormatter.format_single_result(card['original'], resp, approved, gate_name, bin_info)
+            
+            bot.edit_message_text(final_result, progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML')
             
         except Exception as e:
-            bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", msg.chat.id, msg.message_id)
+            stop_animation.set()
+            animation_thread.join(timeout=1)
+            bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", progress_msg.chat.id, progress_msg.message_id)
     
     def check_multiple_cards(self, message, cards: List[Dict], gate: str):
-        """فحص عدة بطاقات متسلسلة"""
         check_id = message.message_id
         
         self.active_checks[check_id] = {
@@ -1202,6 +1288,18 @@ class CommandHandler:
             'declined': 0
         }
         
+        start_msg = f"""
+🚀  بدء الفحص المتسلسل 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+📊 إجمالي البطاقات: {len(cards)}
+🚪 البوابة: {GATES[gate]['name']}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+🔄 جاري بدء الفحص...
+"""
+        bot.reply_to(message, start_msg, parse_mode='HTML')
+        
         asyncio.run_coroutine_threadsafe(self.process_mass_async(check_id, gate), asyncio.new_event_loop())
     
     async def process_mass_async(self, check_id, gate):
@@ -1212,24 +1310,29 @@ class CommandHandler:
         cards = data['cards']
         uid, cid = data['user_id'], data['chat_id']
         stats = self.live_stats[uid]
+        gate_name = GATES[gate]['name']
         
-        msg = await asyncio.get_event_loop().run_in_executor(
+        results_text = ResultFormatter.format_mass_result_header(len(cards), gate_name)
+        
+        progress_msg = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: bot.send_message(
                 cid,
-                f"🔄 بدء الفحص المتسلسل عبر {GATES[gate]['icon']} {GATES[gate]['name']}\n\n{Helpers.format_live_stats(len(cards), 0, 0, 0)}",
+                ResultFormatter.format_live_progress("جاري التحضير...", 0, len(cards), 0, 0, is_single=False),
                 parse_mode='HTML',
                 reply_markup=self.ui.stop_button(check_id)
             )
         )
+        
+        card_results = []
         
         for i, card in enumerate(cards, 1):
             if data.get('stop'):
                 await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: bot.edit_message_text(
-                        f"⛔ تم إيقاف الفحص\n\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'])}",
-                        msg.chat.id, msg.message_id, parse_mode='HTML'
+                        f"⛔ تم إيقاف الفحص\n\n{ResultFormatter.format_mass_result_footer(stats['approved'], stats['declined'], len(cards), len(cards) - stats['checked'])}",
+                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML'
                     )
                 )
                 break
@@ -1240,8 +1343,8 @@ class CommandHandler:
                 await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: bot.edit_message_text(
-                        f"🔄 <b>جاري الفحص</b> {GATES[gate]['icon']}\n\n📌 <code>{current_card}</code>\n\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'], current_card)}",
-                        msg.chat.id, msg.message_id, parse_mode='HTML',
+                        ResultFormatter.format_live_progress(current_card, stats['checked'], len(cards), stats['approved'], stats['declined'], is_single=False),
+                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
                         reply_markup=self.ui.stop_button(check_id)
                     )
                 )
@@ -1249,59 +1352,46 @@ class CommandHandler:
                 approved, resp = await self.gateways.check_card(gate, card)
                 stats['checked'] += 1
                 
+                card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
+                card_results.append(card_result)
+                
                 if approved:
                     stats['approved'] += 1
                 else:
                     stats['declined'] += 1
                 
                 DataManager.update_usage(uid, gate, resp)
-                DataManager.save_card_result(card['original'], GATES[gate]['name'], resp, uid, approved)
+                DataManager.save_card_result(card['original'], gate_name, resp, uid, approved)
                 
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.send_message(
-                        cid,
-                        self.ui.format_result(card['original'], resp, GATES[gate]['name'], approved),
-                        parse_mode='HTML'
-                    )
-                )
-                
-                await asyncio.sleep(2)
+                await asyncio.sleep(1.5)
                 
             except Exception as e:
                 stats['checked'] += 1
                 stats['declined'] += 1
+                card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
+                card_results.append(card_result)
         
-        final_text = f"✅ <b>اكتمل الفحص المتسلسل</b>\n\n{Helpers.format_live_stats(len(cards), stats['checked'], stats['approved'], stats['declined'])}"
+        results_text += "\n".join(card_results)
+        results_text += ResultFormatter.format_mass_result_footer(
+            stats['approved'], stats['declined'], len(cards), len(cards) - stats['checked']
+        )
         
         await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: bot.edit_message_text(final_text, msg.chat.id, msg.message_id, parse_mode='HTML')
+            lambda: bot.edit_message_text(results_text, progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML')
+        )
+        
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: bot.send_message(
+                cid,
+                f"✅ <b>اكتمل الفحص</b>\n━━━━━━━━━━━━\n📊 {stats['approved']}/{len(cards)} بطاقة مقبولة\n📁 تم حفظ النتائج في الملفات",
+                parse_mode='HTML'
+            )
         )
         
         del self.active_checks[check_id]
         del self.live_stats[uid]
-    
-    def check_last_file(self, message):
-        """فحص آخر ملف أرسله المستخدم"""
-        user_id = message.from_user.id
-        last_file = self.get_last_file(user_id)
-        
-        if not last_file:
-            bot.reply_to(message, "❌ لم تقم بإرسال أي ملف من قبل\nأرسل ملف txt أولاً ثم استخدم هذا الأمر")
-            return
-        
-        cards = Helpers.extract_cards_from_text(last_file["content"])
-        
-        if not cards:
-            bot.reply_to(message, "❌ لا توجد بطاقات صالحة في الملف المحفوظ")
-            return
-        
-        gate = DataManager.get_user_default_gate(user_id)
-        
-        bot.reply_to(message, f"📁 جاري فحص آخر ملف: {last_file['file_name']}\n📊 عدد البطاقات: {len(cards)}\n🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}")
-        
-        self.check_multiple_cards(message, cards, gate)
     
     def stop_check(self, call, check_id):
         if check_id in self.active_checks:
@@ -1310,14 +1400,11 @@ class CommandHandler:
         else:
             bot.answer_callback_query(call.id, "❌ لا يوجد فحص نشط")
     
-    # ========== الأوامر اليدوية ==========
-    
     def handle_single(self, message, gate):
         if not self.check_sub(message):
             return
         
         parts = message.text.strip().split(' ', 1)
-        # إزالة منشن البوت إذا وجد
         if len(parts) > 0 and '@' in parts[0]:
             parts[0] = parts[0].split('@')[0]
         
@@ -1340,11 +1427,9 @@ class CommandHandler:
         if not self.check_sub(message):
             return
         
-        # التحقق من وجود ملف مرفق أو آخر ملف محفوظ
         if message.document:
             self.handle_file_upload(message, gate)
         else:
-            # لا يوجد ملف مرفق، نفحص آخر ملف
             last_file = self.get_last_file(message.from_user.id)
             if last_file:
                 cards = Helpers.extract_cards_from_text(last_file["content"])
@@ -1357,7 +1442,6 @@ class CommandHandler:
                 bot.reply_to(message, f"📁 أرسل ملف txt بالبطاقات\nاستخدم: /{GATES[gate]['mass_command']}")
     
     def handle_file_upload(self, message, gate=None):
-        """معالجة الملفات المرفوعة"""
         if not self.check_sub(message):
             return
         
@@ -1370,13 +1454,7 @@ class CommandHandler:
                 bot.reply_to(message, "❌ لا توجد بطاقات صالحة في الملف")
                 return
             
-            # حفظ آخر ملف
-            self.save_last_file(
-                message.from_user.id,
-                message.document.file_id,
-                message.document.file_name,
-                content
-            )
+            self.save_last_file(message.from_user.id, message.document.file_id, message.document.file_name, content)
             
             if gate is None:
                 gate = DataManager.get_user_default_gate(message.from_user.id)
@@ -1388,8 +1466,27 @@ class CommandHandler:
         except Exception as e:
             bot.reply_to(message, f"⚠️ خطأ في قراءة الملف: {str(e)[:50]}")
     
-    # ========== الأوامر الإدارية ==========
+    def check_last_file(self, message):
+        user_id = message.from_user.id
+        last_file = self.get_last_file(user_id)
+        
+        if not last_file:
+            bot.reply_to(message, "❌ لم تقم بإرسال أي ملف من قبل\nأرسل ملف txt أولاً ثم استخدم هذا الأمر")
+            return
+        
+        cards = Helpers.extract_cards_from_text(last_file["content"])
+        
+        if not cards:
+            bot.reply_to(message, "❌ لا توجد بطاقات صالحة في الملف المحفوظ")
+            return
+        
+        gate = DataManager.get_user_default_gate(user_id)
+        
+        bot.reply_to(message, f"📁 جاري فحص آخر ملف: {last_file['file_name']}\n📊 عدد البطاقات: {len(cards)}\n🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}")
+        
+        self.check_multiple_cards(message, cards, gate)
     
+    # ========== الأوامر الإدارية ==========
     def handle_add_sub(self, message):
         if message.from_user.id not in ADMIN_IDS:
             return
@@ -1448,90 +1545,6 @@ class CommandHandler:
                 
         except Exception as e:
             bot.reply_to(message, f"❌ خطأ: {e}")
-    
-    def handle_users_list(self, message):
-        if message.from_user.id not in ADMIN_IDS:
-            return
-        
-        users = DataManager.load_users()
-        total_users = len(users)
-        active_subs = 0
-        total_checks = 0
-        
-        for user in users.values():
-            if user.get("subscription", {}).get("active"):
-                active_subs += 1
-            total_checks += user.get("usage", {}).get("total_checks", 0)
-        
-        text = f"""
-📋 <b>قائمة المستخدمين</b>
-━━━━━━━━━━━━
-👥 <b>إجمالي المستخدمين:</b> {total_users}
-💎 <b>المشتركين النشطين:</b> {active_subs}
-📊 <b>إجمالي الفحوصات:</b> {total_checks}
-━━━━━━━━━━━━
-"""
-        
-        user_list = []
-        for uid, user in list(users.items())[:10]:
-            username = user.get("username", "لا يوجد")
-            sub_status = "✅" if user.get("subscription", {}).get("active") else "❌"
-            checks = user.get("usage", {}).get("total_checks", 0)
-            user_list.append(f"{sub_status} <code>{uid}</code> | @{username} | {checks} فحص")
-        
-        if user_list:
-            text += "\n".join(user_list)
-            if len(users) > 10:
-                text += f"\n\n... و {len(users) - 10} مستخدم آخر"
-        else:
-            text += "لا يوجد مستخدمين"
-        
-        text += "\n━━━━━━━━━━━━\nاستخدم /users لرؤية الكل"
-        
-        bot.reply_to(message, text, parse_mode='HTML', reply_markup=self.ui.back_button())
-    
-    def handle_group_settings(self, message):
-        """إعدادات المجموعات (للمشرفين فقط)"""
-        if message.from_user.id not in ADMIN_IDS:
-            return
-        
-        chat_id = message.chat.id
-        groups = DataManager.load_groups()
-        group_set = groups.get("group_settings", {}).get(str(chat_id), {})
-        
-        status = "🟢 مفعل" if not group_set.get("disabled", False) else "🔴 معطل"
-        
-        text = f"""
-⚙️ <b>إعدادات المجموعة</b>
-━━━━━━━━━━━━
-📌 <b>المجموعة:</b> {message.chat.title if message.chat.title else "هذه المحادثة"}
-🆔 <b>المعرف:</b> <code>{chat_id}</code>
-🎯 <b>الحالة:</b> {status}
-━━━━━━━━━━━━
-استخدم الأزرار للتحكم:
-"""
-        markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            InlineKeyboardButton("🔧 تبديل التفعيل", callback_data=f"toggle_group_{chat_id}"),
-            InlineKeyboardButton("📊 إحصائيات المجموعة", callback_data=f"group_stats_{chat_id}"),
-            InlineKeyboardButton("🔙 رجوع", callback_data="back_main")
-        )
-        bot.reply_to(message, text, parse_mode='HTML', reply_markup=markup)
-    
-    def toggle_group(self, chat_id: int):
-        """تفعيل/تعطيل المجموعة"""
-        groups = DataManager.load_groups()
-        if "group_settings" not in groups:
-            groups["group_settings"] = {}
-        
-        str_chat_id = str(chat_id)
-        if str_chat_id not in groups["group_settings"]:
-            groups["group_settings"][str_chat_id] = {"disabled": False}
-        
-        groups["group_settings"][str_chat_id]["disabled"] = not groups["group_settings"][str_chat_id].get("disabled", False)
-        DataManager.save_groups(groups)
-        
-        return groups["group_settings"][str_chat_id]["disabled"]
 
 # ==================== معالج الكول باك ====================
 class CallbackHandler:
@@ -1595,19 +1608,6 @@ class CallbackHandler:
         elif data.startswith("stop_"):
             cid = int(data.replace("stop_", ""))
             self.handler.stop_check(call, cid)
-        
-        elif data.startswith("toggle_group_"):
-            if uid in ADMIN_IDS:
-                chat_id = int(data.replace("toggle_group_", ""))
-                disabled = self.handler.toggle_group(chat_id)
-                status = "معطل 🔴" if disabled else "مفعل 🟢"
-                bot.answer_callback_query(call.id, f"تم {status} المجموعة")
-                self.handler.handle_group_settings(call.message)
-        
-        # الأوامر الإدارية
-        elif data == "admin_users":
-            if uid in ADMIN_IDS:
-                self.handler.handle_users_list(call.message)
 
 # ==================== إعداد البوت ====================
 def setup():
@@ -1642,20 +1642,12 @@ def setup():
     @bot.message_handler(commands=['lastfile'])
     def lastfile(m): handler.check_last_file(m)
     
-    # الأوامر الإدارية
     @bot.message_handler(commands=['addsub'])
     def addsub(m): handler.handle_add_sub(m)
     
     @bot.message_handler(commands=['removesub'])
     def removesub(m): handler.handle_remove_sub(m)
     
-    @bot.message_handler(commands=['users'])
-    def users(m): handler.handle_users_list(m)
-    
-    @bot.message_handler(commands=['groupsettings'])
-    def groupsettings(m): handler.handle_group_settings(m)
-    
-    # بوابات يدوية
     @bot.message_handler(commands=['st1'])
     def stripe1(m): handler.handle_single(m, 'stripe1')
     
@@ -1668,38 +1660,31 @@ def setup():
     @bot.message_handler(commands=['st2m'])
     def stripe2_mass(m): handler.handle_mass(m, 'stripe2')
     
-    # ========== الفحص التلقائي ==========
-    
     @bot.message_handler(content_types=['document'])
     def handle_document(m):
-        """فحص الملفات تلقائياً"""
         if not handler.check_sub(m):
             return
         handler.handle_file_upload(m)
     
     @bot.message_handler(func=lambda m: True)
     def handle_text(m):
-        """فحص النص تلقائياً (مع دعم منشن البوت في المجموعات)"""
         if not handler.check_sub(m):
             return
         
         text = m.text.strip()
         
-        # إزالة منشن البوت إذا وجد
         if f"@{BOT_USERNAME}" in text:
             text = text.replace(f"@{BOT_USERNAME}", "").strip()
         
-        # استخراج البطاقات من النص
         cards = Helpers.extract_cards_from_text(text)
         
         if cards:
             if len(cards) == 1:
-                handler.auto_check_cards(m, cards)
+                handler.check_single_card(m, cards[0], DataManager.get_user_default_gate(m.from_user.id))
             else:
                 bot.reply_to(m, f"📝 تم العثور على {len(cards)} بطاقة في النص\n🔄 جاري بدء الفحص المتسلسل...")
-                handler.auto_check_cards(m, cards)
+                handler.check_multiple_cards(m, cards, DataManager.get_user_default_gate(m.from_user.id))
         else:
-            # رسالة عادية - فقط في الخاص
             if Helpers.get_chat_type(m.chat.id) == "private":
                 bot.reply_to(m, "⚠️ أمر غير معروف\n\n💡 يمكنك إرسال البطاقة مباشرة بالصيغة:\n<code>4111111111111111|12|25|123</code>\n\nأو إرسال ملف txt للفحص التلقائي",
                             parse_mode='HTML', reply_markup=UserInterface.main_menu("private"))
@@ -1707,7 +1692,6 @@ def setup():
     @bot.callback_query_handler(func=lambda c: True)
     def cb(c): callback.handle(c)
     
-    # Health check server
     def run_health():
         port = int(os.environ.get('PORT', 10000))
         with socketserver.TCPServer(("0.0.0.0", port), http.server.SimpleHTTPRequestHandler) as httpd:
@@ -1717,6 +1701,22 @@ def setup():
     threading.Thread(target=run_health, daemon=True).start()
     
     print(Fore.GREEN + "🚀 البوت يعمل..." + Style.RESET_ALL)
+    print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
+    print(Fore.YELLOW + "📌 المميزات:" + Style.RESET_ALL)
+    print(Fore.WHITE + "   • شريط تقدم متحرك للفحص الفردي" + Style.RESET_ALL)
+    print(Fore.WHITE + "   • فحص متسلسل مع شريط تقدم للملفات" + Style.RESET_ALL)
+    print(Fore.WHITE + "   • العمل في المجموعات مع منشن البوت" + Style.RESET_ALL)
+    print(Fore.WHITE + "   • تذكر آخر ملف لكل مستخدم" + Style.RESET_ALL)
+    print(Fore.WHITE + "   • تنسيق نتائج احترافي" + Style.RESET_ALL)
+    print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
+    print(Fore.CYAN + "📌 الأوامر:" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   💳 Stripe v1: /st1 (فردي) | /st1m (ملف)" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   💎 Stripe v2: /st2 (فردي) | /st2m (ملف)" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   📁 /lastfile - فحص آخر ملف أرسلته" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   👤 /profile - حسابي" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   📊 /stats - الإحصائيات" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   💎 /subscribe - الاشتراك" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   ⚙️ /default - تعيين البوابة الافتراضية" + Style.RESET_ALL)
     print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
     print(Fore.GREEN + "✅ البوت جاهز للعمل!" + Style.RESET_ALL)
     
