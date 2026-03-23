@@ -571,21 +571,36 @@ class Helpers:
         return cards
     
     @staticmethod
-    def luhn_check(card_number: str) -> bool:
-        try:
-            digits = [int(d) for d in card_number if d.isdigit()]
-            if len(digits) < 13:
-                return False
-            checksum = 0
-            for i, digit in enumerate(reversed(digits)):
-                if i % 2 == 1:
-                    digit *= 2
-                    if digit > 9:
-                        digit -= 9
-                checksum += digit
-            return checksum % 10 == 0
-        except:
+    @staticmethod
+def luhn_check(card_number: str) -> bool:
+    """التحقق من صحة رقم البطاقة باستخدام خوارزمية Luhn"""
+    try:
+        # إزالة أي مسافات أو شرطات
+        card_number = re.sub(r'[\s-]', '', card_number)
+        
+        # التحقق من أن الرقم يحتوي على أرقام فقط
+        if not card_number.isdigit():
             return False
+        
+        # التحقق من الطول (13-19 رقم)
+        if len(card_number) < 13 or len(card_number) > 19:
+            return False
+        
+        digits = [int(d) for d in card_number]
+        checksum = 0
+        
+        # خوارزمية Luhn
+        for i, digit in enumerate(reversed(digits)):
+            if i % 2 == 1:
+                digit *= 2
+                if digit > 9:
+                    digit -= 9
+            checksum += digit
+        
+        return checksum % 10 == 0
+        
+    except Exception:
+        return False
     
     @staticmethod
     def get_card_brand(number: str) -> str:
@@ -1652,73 +1667,101 @@ class CommandHandler:
             bot.answer_callback_query(call.id, "❌ فشل في تعيين البوابة")
     
     def check_single_card(self, message, card: Dict, gate: str):
-        user_id = message.from_user.id
-        gate_name = GATES[gate]['name']
-        masked_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
-        
-        progress_msg = bot.reply_to(
-            message,
-            f"""
+    """فحص بطاقة واحدة مع ثلاث دوائر متحركة"""
+    user_id = message.from_user.id
+    gate_name = GATES[gate]['name']
+    masked_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
+    
+    # إرسال رسالة البداية
+    progress_msg = bot.reply_to(
+        message,
+        f"""
 🚀  جاري الفحص 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
-📊 [░░░░░░░░░░░░░░░░░░░░] 0.0%
 𒊹︎︎︎ 𝗕𝗔𝗧𝗔𝗤𝗔𝗛 ⌁ {masked_card}
-𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق ◐
+𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق ◯ ◯ ◯
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 """,
-            parse_mode='HTML'
-        )
+        parse_mode='HTML'
+    )
+    
+    message_id = progress_msg.message_id
+    chat_id = progress_msg.chat.id
+    
+    stop_animation = threading.Event()
+    
+    def animate_circles():
+        """تشغيل أنيميشن ثلاث دوائر تتحول من أبيض إلى أسود"""
+        # حالات الدوائر (0 = أبيض ◯, 1 = أسود ●)
+        frames = [
+            [0, 0, 0],  # ◯ ◯ ◯
+            [1, 0, 0],  # ● ◯ ◯
+            [1, 1, 0],  # ● ● ◯
+            [1, 1, 1],  # ● ● ●
+            [0, 0, 0],  # ◯ ◯ ◯ (إعادة)
+        ]
         
-        message_id = progress_msg.message_id
-        chat_id = progress_msg.chat.id
-        
-        stop_animation = threading.Event()
-        
-        def animate_progress():
-            frame = 0
-            while not stop_animation.is_set():
-                try:
-                    loading = ResultFormatter.get_loading_animation(frame)
-                    percentage = min(frame * 2, 95)
-                    bar_length = 20
-                    filled = int((percentage / 100) * bar_length)
-                    bar = "█" * filled + "░" * (bar_length - filled)
-                    
-                    text = f"""
+        frame_index = 0
+        while not stop_animation.is_set():
+            try:
+                circles = frames[frame_index % len(frames)]
+                circle_display = ""
+                for c in circles:
+                    if c == 0:
+                        circle_display += "◯ "  # دائرة بيضاء
+                    else:
+                        circle_display += "● "  # دائرة سوداء
+                circle_display = circle_display.strip()
+                
+                text = f"""
 🚀  جاري الفحص 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
-📊 [{bar}] {percentage:.1f}%
 𒊹︎︎︎ 𝗕𝗔𝗧𝗔𝗤𝗔𝗛 ⌁ {masked_card}
-𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق {loading}
+𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق {circle_display}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 """
-                    bot.edit_message_text(text, chat_id, message_id, parse_mode='HTML')
-                    frame += 1
-                    time.sleep(0.3)
-                except:
-                    break
+                bot.edit_message_text(text, chat_id, message_id, parse_mode='HTML')
+                frame_index += 1
+                time.sleep(0.4)  # سرعة تغير الدوائر
+            except Exception as e:
+                print(f"Animation error: {e}")
+                break
+    
+    # بدء الأنيميشن
+    animation_thread = threading.Thread(target=animate_circles)
+    animation_thread.start()
+    
+    try:
+        # فحص البطاقة
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card))
+        loop.close()
         
-        animation_thread = threading.Thread(target=animate_progress)
-        animation_thread.start()
+        # إيقاف الأنيميشن
+        stop_animation.set()
+        animation_thread.join(timeout=1)
         
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card))
-            loop.close()
-            
-            stop_animation.set()
-            animation_thread.join(timeout=1)
-            
-            DataManager.update_usage(message.from_user.id, gate, resp)
-            DataManager.save_card_result(card['original'], gate_name, resp, message.from_user.id, approved)
-            
-            bin_info = Helpers.get_bin_info(card['number'][:6])
-            final_result = ResultFormatter.format_single_result(card['original'], resp, approved, gate_name, bin_info)
-            
-            bot.edit_message_text(final_result, chat_id, message_id, parse_mode='HTML')
+        # تحديث الإحصائيات
+        DataManager.update_usage(message.from_user.id, gate, resp)
+        DataManager.save_card_result(card['original'], gate_name, resp, message.from_user.id, approved)
+        
+        # الحصول على معلومات BIN
+        bin_info = Helpers.get_bin_info(card['number'][:6])
+        
+        # تنسيق النتيجة النهائية
+        final_result = ResultFormatter.format_single_result(card['original'], resp, approved, gate_name, bin_info)
+        
+        # تحديث الرسالة بالنتيجة النهائية
+        bot.edit_message_text(final_result, chat_id, message_id, parse_mode='HTML')
+        
+    except Exception as e:
+        # إيقاف الأنيميشن في حالة الخطأ
+        stop_animation.set()
+        animation_thread.join(timeout=1)
+        bot.edit_message_text(f"⚠️ خطأ: {str(e)[:50]}", chat_id, message_id, parse_mode='HTML')
             
         except Exception as e:
             stop_animation.set()
