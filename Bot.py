@@ -559,48 +559,35 @@ class Helpers:
             return None
     
     @staticmethod
-    def extract_cards_from_text(text: str) -> List[Dict]:
-        cards = []
-        lines = text.strip().split('\n')
-        for line in lines:
-            line = line.strip()
-            if line and not line.startswith('#'):
-                card = Helpers.parse_card(line)
-                if card and Helpers.luhn_check(card['number']):
-                    cards.append(card)
-        return cards
-    
-    @staticmethod
-    @staticmethod
-def luhn_check(card_number: str) -> bool:
-    """التحقق من صحة رقم البطاقة باستخدام خوارزمية Luhn"""
-    try:
-        # إزالة أي مسافات أو شرطات
-        card_number = re.sub(r'[\s-]', '', card_number)
-        
-        # التحقق من أن الرقم يحتوي على أرقام فقط
-        if not card_number.isdigit():
+    def luhn_check(card_number: str) -> bool:
+        """التحقق من صحة رقم البطاقة باستخدام خوارزمية Luhn"""
+        try:
+            # إزالة أي مسافات أو شرطات
+            card_number = re.sub(r'[\s-]', '', card_number)
+            
+            # التحقق من أن الرقم يحتوي على أرقام فقط
+            if not card_number.isdigit():
+                return False
+            
+            # التحقق من الطول (13-19 رقم)
+            if len(card_number) < 13 or len(card_number) > 19:
+                return False
+            
+            digits = [int(d) for d in card_number]
+            checksum = 0
+            
+            # خوارزمية Luhn
+            for i, digit in enumerate(reversed(digits)):
+                if i % 2 == 1:
+                    digit *= 2
+                    if digit > 9:
+                        digit -= 9
+                checksum += digit
+            
+            return checksum % 10 == 0
+            
+        except Exception:
             return False
-        
-        # التحقق من الطول (13-19 رقم)
-        if len(card_number) < 13 or len(card_number) > 19:
-            return False
-        
-        digits = [int(d) for d in card_number]
-        checksum = 0
-        
-        # خوارزمية Luhn
-        for i, digit in enumerate(reversed(digits)):
-            if i % 2 == 1:
-                digit *= 2
-                if digit > 9:
-                    digit -= 9
-            checksum += digit
-        
-        return checksum % 10 == 0
-        
-    except Exception:
-        return False
     
     @staticmethod
     def get_card_brand(number: str) -> str:
