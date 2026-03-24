@@ -34,10 +34,6 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-# إنشاء روابط لـ Chrome و ChromeDriver (مع تجاهل الأخطاء)
-RUN ln -sf /usr/bin/chromium /usr/bin/google-chrome \
-    && ln -sf /usr/bin/chromedriver /usr/bin/chromedriver
-
 # تثبيت المكتبات المطلوبة للبايثون
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
@@ -67,7 +63,9 @@ RUN python -c "import telebot; print('✅ Telebot installed successfully')" && \
 
 # متغيرات البيئة
 ENV PYTHONUNBUFFERED=1 \
-    DISPLAY=:99
+    DISPLAY=:99 \
+    CHROME_BIN=/usr/bin/chromium \
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver
 
 # تشغيل Xvfb ثم البوت
 CMD Xvfb :99 -screen 0 1280x1024x24 & \
