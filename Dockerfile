@@ -34,9 +34,9 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-# إنشاء روابط لـ Chrome و ChromeDriver
-RUN ln -s /usr/bin/chromium /usr/bin/google-chrome \
-    && ln -s /usr/bin/chromedriver /usr/bin/chromedriver
+# إنشاء روابط لـ Chrome و ChromeDriver (مع تجاهل الأخطاء)
+RUN ln -sf /usr/bin/chromium /usr/bin/google-chrome \
+    && ln -sf /usr/bin/chromedriver /usr/bin/chromedriver
 
 # تثبيت المكتبات المطلوبة للبايثون
 RUN pip install --no-cache-dir --upgrade pip && \
