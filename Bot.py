@@ -423,7 +423,7 @@ class StripeGateway:
         except Exception as e:
             return False, f"⚠️ خطأ"
 
-# ==================== بوابة Real Check (معدلة لمراقبة API الصحيح) ====================
+# ==================== بوابة Real Check ====================
 class RealCheckGateway:
     
     def __init__(self):
@@ -461,8 +461,8 @@ class RealCheckGateway:
         random_ua = random.choice(self.user_agents)
         random_viewport = random.choice(self.viewports)
         
-        # متغير لتخزين نتيجة الفحص من API
-        card_result = {"approved": None, "message": None, "card_id": None}
+        # متغير لتخزين نتيجة الفحص
+        card_result = {"approved": None, "message": None}
         response_received = threading.Event()
         
         try:
@@ -484,71 +484,36 @@ class RealCheckGateway:
                 password = "Obeida059@"
                 name = card_data.get('name', 'Card Holder')
                 
-                # ========== مراقبة API الصحيح ==========
+                # ========== مراقبة API فقط ==========
                 async def handle_response(response):
                     try:
                         url = response.url()
                         
-                        # ✅ التركيز على API إضافة البطاقة
+                        # التركيز على API إضافة البطاقة
                         if 'api/v0/billing/cards/' in url and response.status == 200:
                             try:
                                 data = await response.json()
                                 
-                                # ✅ بطاقة مقبولة - التحقق من وجود بيانات البطاقة
-                                # الحالة 1: رد مباشر ببيانات البطاقة (يحتوي على id, brand, last4)
-                                if data and isinstance(data, dict):
-                                    # إذا كان الرد يحتوي على id أو brand أو last4
-                                    if data.get('id') or data.get('brand') or data.get('last4'):
+                                # 🛡️ تطبيق قاعدة الأمان والسيولة:
+                                # يجب أن يكون الرد قائمة تحتوي على ID ويكون is_primary صحيحاً
+                                if isinstance(data, list) and len(data) > 0:
+                                    if "id" in data[0] and data[0].get("is_primary") == True:
                                         card_result["approved"] = True
-                                        card_result["message"] = "✅ البطاقة مقبولة"
-                                        card_result["card_id"] = data.get('id')
+                                        card_result["message"] = "✅ البطاقة مقبولة وتمت إضافتها للحساب بنجاح"
                                         response_received.set()
                                         return
-                                
-                                # الحالة 2: رد من نوع list (مثل [])
-                                elif isinstance(data, list):
-                                    # إذا كان القائمة فارغة = مرفوضة
-                                    if len(data) == 0:
+                                    else:
                                         card_result["approved"] = False
-                                        card_result["message"] = "❌ البطاقة مرفوضة"
+                                        card_result["message"] = "❌ البطاقة مرفوضة (لم تصبح أساسية)"
                                         response_received.set()
                                         return
-                                    # إذا كان القائمة تحتوي على بيانات = مقبولة
-                                    elif len(data) > 0 and isinstance(data[0], dict):
-                                        if data[0].get('id') or data[0].get('brand'):
-                                            card_result["approved"] = True
-                                            card_result["message"] = "✅ البطاقة مقبولة"
-                                            response_received.set()
-                                            return
-                                                        
+                                else:
+                                    card_result["approved"] = False
+                                    card_result["message"] = "❌ البطاقة مرفوضة (رد السيرفر فارغ)"
+                                    response_received.set()
+                                    return
+                                            
                             except Exception as e:
-                                pass
-                        
-                        # مراقبة أخطاء Stripe API
-                        if 'api.stripe.com' in url and ('payment_intents' in url or 'payment_methods' in url):
-                            try:
-                                data = await response.json()
-                                
-                                if data.get('error'):
-                                    error = data.get('error')
-                                    error_code = error.get('code', '')
-                                    error_message = error.get('message', '').lower()
-                                    
-                                    # CVV خطأ - بطاقة حية
-                                    if 'cvv' in error_message or 'security' in error_message or error_code == 'incorrect_cvc':
-                                        card_result["approved"] = True
-                                        card_result["message"] = "✅ البطاقة مقبولة"
-                                        response_received.set()
-                                        return
-                                    
-                                    # رصيد غير كافي - بطاقة حية
-                                    elif 'insufficient' in error_message:
-                                        card_result["approved"] = True
-                                        card_result["message"] = "✅ البطاقة مقبولة"
-                                        response_received.set()
-                                        return
-                                        
-                            except:
                                 pass
                                 
                     except Exception as e:
@@ -613,44 +578,17 @@ class RealCheckGateway:
                 except:
                     pass
                 
-                # الحصول على الصفحة الحالية للتحقق الإضافي
-                current_url = page.url
-                page_content = await page.content()
-                
                 await browser.close()
                 
-                # ========== تحليل النتيجة بناءً على API ==========
+                # ========== تحليل النتيجة ==========
                 if card_result["approved"] is True:
                     return True, card_result["message"]
                 
                 if card_result["approved"] is False:
                     return False, card_result["message"]
                 
-                # ========== تحليل إضافي في حال لم يصل رد API ==========
-                combined_text = (current_url + " " + page_content).lower()
-                
-                # التحقق من وجود session_id في URL
-                if 'billing?session_id=' in current_url:
-                    return True, "✅ البطاقة مقبولة"
-                
-                # التحقق من وجود البطاقة في صفحة البطاقات
-                if 'payment-methods' in current_url and card_data['number'][-4:] in page_content:
-                    return True, "✅ البطاقة مقبولة"
-                
-                # التحقق من أخطاء Stripe
-                if 'stripe.com' in current_url:
-                    if 'cvv' in combined_text or 'security' in combined_text:
-                        return True, "✅ البطاقة مقبولة"
-                    if 'insufficient' in combined_text:
-                        return True, "✅ البطاقة مقبولة"
-                    if 'declined' in combined_text:
-                        return False, "❌ البطاقة مرفوضة"
-                
-                # التحقق من وجود id في الصفحة (من API)
-                if 'id' in combined_text and card_data['number'][-4:] in combined_text:
-                    return True, "✅ البطاقة مقبولة"
-                
-                return False, "❌ البطاقة مرفوضة"
+                # إذا لم يصل رد
+                return False, "❌ البطاقة مرفوضة (لم يتم استلام رد)"
                         
         except Exception as e:
             print(f"⚠️ خطأ: {e}")
@@ -1109,15 +1047,6 @@ def setup():
     @bot.callback_query_handler(func=lambda c: True)
     def cb(c): callback.handle(c)
     
-    print(Fore.GREEN + "🚀 البوت يعمل..." + Style.RESET_ALL)
-    print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
-    print(Fore.YELLOW + "📌 الأوامر:" + Style.RESET_ALL)
-    print(Fore.WHITE + "   💳 /st - فحص فردي (Stripe)" + Style.RESET_ALL)
-    print(Fore.WHITE + "   📁 /mass - فحص ملف (Stripe)" + Style.RESET_ALL)
-    print(Fore.WHITE + "   ✅ /chk - فحص فردي (Real Check)" + Style.RESET_ALL)
-    print(Fore.WHITE + "   📁 /chkm - فحص ملف (Real Check)" + Style.RESET_ALL)
-    print(Fore.WHITE + "   ⛔ /stop - إيقاف الفحص" + Style.RESET_ALL)
-    print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
     print(Fore.GREEN + "✅ البوت جاهز!" + Style.RESET_ALL)
     
     bot.infinity_polling()
@@ -1128,3 +1057,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n⚠️ تم الإيقاف")
         sys.exit(0)
+        
