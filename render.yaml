@@ -1,10 +1,14 @@
 services:
-  - type: web
+  - type: worker
     name: obeida-online-bot
-    runtime: docker
-    plan: free
-    region: frankfurt
-    dockerfilePath: ./Dockerfile
+    runtime: image
+    image:
+      url: docker.io/python:3.11-slim
+    buildCommand: |
+      apt-get update && apt-get install -y chromium xvfb
+      pip install --no-cache-dir pyTelegramBotAPI requests aiohttp fake-useragent Faker colorama playwright
+      playwright install chromium
+    startCommand: Xvfb :99 -screen 0 1280x1024x24 & export DISPLAY=:99 && python Bot.py
     envVars:
-      - key: TZ
-        value: Asia/Baghdad
+      - key: PYTHONUNBUFFERED
+        value: "1"
