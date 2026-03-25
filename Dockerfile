@@ -42,6 +42,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
         requests \
         aiohttp \
         beautifulsoup4 \
+        playwright \
         fake-useragent \
         Faker \
         colorama \
