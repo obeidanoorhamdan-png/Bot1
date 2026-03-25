@@ -2,14 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# تثبيت المتطلبات الأساسية للنظام (لـ Selenium و Chrome)
+# تثبيت المتطلبات الأساسية للنظام لـ Playwright
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
     gnupg \
-    unzip \
     chromium \
-    chromium-driver \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -37,20 +35,17 @@ RUN apt-get update && apt-get install -y \
 # تثبيت المكتبات المطلوبة للبايثون
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
-        python-telegram-bot \
         pyTelegramBotAPI \
         requests \
         aiohttp \
-        beautifulsoup4 \
-        playwright \
         fake-useragent \
         Faker \
         colorama \
-        pyfiglet \
-        cfonts \
-        user_agent \
-        selenium \
-        webdriver-manager
+        playwright
+
+# تثبيت متصفح Chromium لـ Playwright
+RUN playwright install chromium && \
+    playwright install-deps
 
 # إنشاء المجلدات المطلوبة
 RUN mkdir -p /app/data /app/backups /app/temp
@@ -58,15 +53,9 @@ RUN mkdir -p /app/data /app/backups /app/temp
 # نسخ ملف البوت
 COPY Bot.py .
 
-# التحقق من التثبيت
-RUN python -c "import telebot; print('✅ Telebot installed successfully')" && \
-    python -c "from selenium import webdriver; print('✅ Selenium installed successfully')"
-
 # متغيرات البيئة
 ENV PYTHONUNBUFFERED=1 \
-    DISPLAY=:99 \
-    CHROME_BIN=/usr/bin/chromium \
-    CHROMEDRIVER_BIN=/usr/bin/chromedriver
+    DISPLAY=:99
 
 # تشغيل Xvfb ثم البوت
 CMD Xvfb :99 -screen 0 1280x1024x24 & \
