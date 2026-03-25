@@ -56,7 +56,11 @@ COPY Bot.py .
 
 # متغيرات البيئة
 ENV PYTHONUNBUFFERED=1 \
-    DISPLAY=:99
+    DISPLAY=:99 \
+    PORT=10000
+
+# فتح منفذ لـ cron-job.org
+EXPOSE 10000
 
 # تشغيل Xvfb ثم البوت
 CMD Xvfb :99 -screen 0 1280x1024x24 & \
