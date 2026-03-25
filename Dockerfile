@@ -2,12 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# تثبيت المتطلبات الأساسية للنظام لـ Playwright
+# تثبيت المتطلبات الأساسية للنظام
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
     gnupg \
     chromium \
+    chromium-driver \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -51,7 +52,7 @@ RUN playwright install chromium && \
 RUN mkdir -p /app/data /app/backups /app/temp
 
 # نسخ ملف البوت
-COPY Bot.py .
+COPY bot.py .
 
 # متغيرات البيئة
 ENV PYTHONUNBUFFERED=1 \
@@ -60,4 +61,4 @@ ENV PYTHONUNBUFFERED=1 \
 # تشغيل Xvfb ثم البوت
 CMD Xvfb :99 -screen 0 1280x1024x24 & \
     export DISPLAY=:99 && \
-    python Bot.py
+    python bot.py
