@@ -911,27 +911,83 @@ class CallbackHandler:
             self.handler.handle_stop(call.message)
             bot.answer_callback_query(call.id, "⛔ جاري الإيقاف")
 
-# ==================== خادم الصحة لـ cron-job.org ====================
-def run_health_server():
-    """تشغيل خادم HTTP بسيط لـ cron-job.org"""
+# ==================== خادم الويب لـ cron-job.org ====================
+def run_web_server():
+    """تشغيل خادم HTTP لـ cron-job.org"""
     try:
-        PORT = 10000
+        PORT = int(os.environ.get('PORT', 10000))
         
-        class HealthHandler(http.server.SimpleHTTPRequestHandler):
+        class BotHandler(http.server.SimpleHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(200)
-                self.send_header('Content-type', 'text/plain')
+                self.send_header('Content-type', 'text/html; charset=utf-8')
                 self.end_headers()
-                self.wfile.write(b'Bot is running - Obeida Online')
+                
+                html = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Obeida Online Bot</title>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <style>
+                        body {{
+                            font-family: Arial, sans-serif;
+                            text-align: center;
+                            padding: 50px;
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            color: white;
+                            margin: 0;
+                        }}
+                        .container {{
+                            background: rgba(255,255,255,0.1);
+                            border-radius: 20px;
+                            padding: 30px;
+                            max-width: 500px;
+                            margin: auto;
+                            backdrop-filter: blur(10px);
+                        }}
+                        h1 {{ color: #fff; margin-bottom: 20px; }}
+                        .status {{ font-size: 24px; margin: 20px 0; }}
+                        .online {{ color: #4ade80; }}
+                        .time {{ font-size: 14px; opacity: 0.8; margin-top: 20px; }}
+                        hr {{ margin: 20px 0; border-color: rgba(255,255,255,0.2); }}
+                        .footer {{ font-size: 12px; opacity: 0.6; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>🤖 Obeida Online Bot</h1>
+                        <div class="status">
+                            <span class="online">✅ البوت يعمل بشكل طبيعي</span>
+                        </div>
+                        <div class="time">
+                            🕐 الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                        </div>
+                        <hr>
+                        <div class="footer">
+                            @ObeidaTrading | @Sz2zv
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """
+                self.wfile.write(html.encode('utf-8'))
+            
+            def do_HEAD(self):
+                self.send_response(200)
+                self.end_headers()
             
             def log_message(self, format, *args):
                 pass  # تعطيل السجلات
         
-        with socketserver.TCPServer(("0.0.0.0", PORT), HealthHandler) as httpd:
-            print(f"🌐 Health check server running on port {PORT}")
-            httpd.serve_forever()
+        server = socketserver.TCPServer(("0.0.0.0", PORT), BotHandler)
+        print(f"✅ Web server started on port {PORT}")
+        print(f"🔗 URL: http://localhost:{PORT}")
+        server.serve_forever()
+        
     except Exception as e:
-        print(f"⚠️ Health server error: {e}")
+        print(f"⚠️ Web server error: {e}")
 
 # ==================== إعداد البوت ====================
 def setup():
@@ -939,9 +995,9 @@ def setup():
     handler = CommandHandler()
     callback = CallbackHandler(handler)
     
-    # تشغيل خادم الصحة في thread منفصل
-    health_thread = threading.Thread(target=run_health_server, daemon=True)
-    health_thread.start()
+    # تشغيل خادم الويب في thread منفصل
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
     
     @bot.message_handler(commands=['start'])
     def start(m): handler.handle_start(m)
@@ -1004,7 +1060,7 @@ def setup():
     print(Fore.WHITE + "   ⛔ /stop - إيقاف الفحص" + Style.RESET_ALL)
     print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
     print(Fore.GREEN + "✅ البوت جاهز!" + Style.RESET_ALL)
-    print(Fore.GREEN + "🌐 Health check: http://localhost:10000" + Style.RESET_ALL)
+    print(Fore.GREEN + "🌐 Web server: http://localhost:10000" + Style.RESET_ALL)
     
     bot.infinity_polling()
 
