@@ -59,7 +59,7 @@ ENV PYTHONUNBUFFERED=1 \
     DISPLAY=:99 \
     PORT=10000
 
-# فتح منفذ لـ cron-job.org
+# فتح المنفذ
 EXPOSE 10000
 
 # تشغيل Xvfb ثم البوت
