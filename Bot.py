@@ -494,21 +494,33 @@ class RealCheckGateway:
                             try:
                                 data = await response.json()
                                 
-                                # ✅ بطاقة مقبولة - يوجد id و brand و last4
-                                if data and isinstance(data, dict) and data.get('id'):
-                                    card_result["approved"] = True
-                                    card_result["message"] = "✅ البطاقة مقبولة"
-                                    card_result["card_id"] = data.get('id')
-                                    response_received.set()
-                                    return
+                                # ✅ بطاقة مقبولة - التحقق من وجود بيانات البطاقة
+                                # الحالة 1: رد مباشر ببيانات البطاقة (يحتوي على id, brand, last4)
+                                if data and isinstance(data, dict):
+                                    # إذا كان الرد يحتوي على id أو brand أو last4
+                                    if data.get('id') or data.get('brand') or data.get('last4'):
+                                        card_result["approved"] = True
+                                        card_result["message"] = "✅ البطاقة مقبولة"
+                                        card_result["card_id"] = data.get('id')
+                                        response_received.set()
+                                        return
                                 
-                                # ❌ بطاقة مرفوضة - الرد فارغ أو []
-                                elif not data or (isinstance(data, list) and len(data) == 0):
-                                    card_result["approved"] = False
-                                    card_result["message"] = "❌ البطاقة مرفوضة"
-                                    response_received.set()
-                                    return
-                                    
+                                # الحالة 2: رد من نوع list (مثل [])
+                                elif isinstance(data, list):
+                                    # إذا كان القائمة فارغة = مرفوضة
+                                    if len(data) == 0:
+                                        card_result["approved"] = False
+                                        card_result["message"] = "❌ البطاقة مرفوضة"
+                                        response_received.set()
+                                        return
+                                    # إذا كان القائمة تحتوي على بيانات = مقبولة
+                                    elif len(data) > 0 and isinstance(data[0], dict):
+                                        if data[0].get('id') or data[0].get('brand'):
+                                            card_result["approved"] = True
+                                            card_result["message"] = "✅ البطاقة مقبولة"
+                                            response_received.set()
+                                            return
+                                                        
                             except Exception as e:
                                 pass
                         
