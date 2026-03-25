@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: obeida-online-bot
     runtime: image
     image:
@@ -12,3 +12,9 @@ services:
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: PORT
+        value: "10000"
+    healthCheckPath: /
+    ports:
+      - port: 10000
+        protocol: HTTP
