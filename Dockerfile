@@ -51,15 +51,8 @@ RUN playwright install chromium && \
 # إنشاء المجلدات المطلوبة
 RUN mkdir -p /app/data /app/backups /app/temp
 
-# نسخ ملف البوت (تأكد من أن اسم الملف صحيح)
-# إذا كان اسم ملف البوت هو Bot.py استخدم هذا السطر:
+# نسخ ملف البوت (اسم الملف Bot.py بحرف B كبير)
 COPY Bot.py .
-
-# إذا كان اسم ملف البوت هو bot.py استخدم هذا السطر:
-# COPY bot.py .
-
-# إذا كان اسم ملف البوت مختلفاً مثلاً Obeida.py:
-# COPY Obeida.py bot.py
 
 # متغيرات البيئة
 ENV PYTHONUNBUFFERED=1 \
@@ -68,4 +61,4 @@ ENV PYTHONUNBUFFERED=1 \
 # تشغيل Xvfb ثم البوت
 CMD Xvfb :99 -screen 0 1280x1024x24 & \
     export DISPLAY=:99 && \
-    python bot.py
+    python Bot.py
