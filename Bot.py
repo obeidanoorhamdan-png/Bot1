@@ -285,14 +285,6 @@ class DataManager:
         
         DataManager.save_users(users)
         DataManager.save_stats(stats)
-    
-    @staticmethod
-    def auto_backup():
-        pass
-    
-    @staticmethod
-    def auto_clean():
-        pass
 
 # ==================== أدوات مساعدة ====================
 class Helpers:
@@ -431,7 +423,7 @@ class StripeGateway:
         except Exception as e:
             return False, f"⚠️ خطأ"
 
-# ==================== بوابة Real Check (معدلة) ====================
+# ==================== بوابة Real Check ====================
 class RealCheckGateway:
     
     def __init__(self):
@@ -450,7 +442,6 @@ class RealCheckGateway:
         return f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=12))}@gmail.com"
     
     async def type_like_human(self, page, selector: str, text: str):
-        """كتابة النص بمحاكاة سرعة الكتابة البشرية"""
         await page.locator(selector).click()
         await asyncio.sleep(random.uniform(0.1, 0.3))
         for char in text:
@@ -458,7 +449,6 @@ class RealCheckGateway:
             await asyncio.sleep(random.uniform(0.02, 0.05))
     
     async def type_card_number(self, page, card_number: str):
-        """كتابة رقم البطاقة بمحاكاة بشرية (كل 4 أرقام مع تأخير)"""
         await page.locator("#cardNumber").click()
         await asyncio.sleep(random.uniform(0.2, 0.4))
         for i in range(0, len(card_number), 4):
@@ -479,7 +469,6 @@ class RealCheckGateway:
                     user_agent=random_ua
                 )
                 
-                # إخفاء webdriver
                 await context.add_init_script("""
                     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
@@ -743,41 +732,19 @@ class CommandHandler:
 ⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
 
 𒊹︎︎︎ 𝗖𝗖 ⌁ {masked_card}
-𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق ◯ ◯ ◯
+𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق ...
 """, parse_mode='HTML', reply_markup=self.ui.stop_button())
             
             message_id = progress_msg.message_id
             chat_id = progress_msg.chat.id
-            stop_animation = threading.Event()
-            
-            def animate():
-                frames = ["◯ ◯ ◯", "● ◯ ◯", "● ● ◯", "● ● ●", "◯ ◯ ◯"]
-                idx = 0
-                while not stop_animation.is_set():
-                    try:
-                        bot.edit_message_text(f"""
-🚀 جاري الفحص 🚀
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-
-𒊹︎︎︎ 𝗖𝗖 ⌁ {masked_card}
-𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق {frames[idx % len(frames)]}
-""", chat_id, message_id, parse_mode='HTML', reply_markup=self.ui.stop_button())
-                        idx += 1
-                        time.sleep(0.4)
-                    except:
-                        break
-            
-            threading.Thread(target=animate, daemon=True).start()
             
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card))
             loop.close()
             
-            stop_animation.set()
-            
             if not self.is_user_checking(user_id) or user_active_checks.get(user_id) != check_id:
-                bot.edit_message_text("⛔ تم الإيقاف", chat_id, message_id, parse_mode='HTML')
+                bot.edit_message_text("⛔ تم إيقاف الفحص", chat_id, message_id, parse_mode='HTML')
                 return
             
             DataManager.update_usage(user_id, gate, resp)
@@ -829,7 +796,7 @@ class CommandHandler:
             
             for i, card in enumerate(cards, 1):
                 if not self.is_user_checking(user_id) or user_active_checks.get(user_id) != check_id:
-                    bot.edit_message_text("⛔ تم الإيقاف", chat_id, msg_id, parse_mode='HTML')
+                    bot.edit_message_text("⛔ تم إيقاف الفحص", chat_id, msg_id, parse_mode='HTML')
                     return
                 
                 try:
@@ -944,11 +911,37 @@ class CallbackHandler:
             self.handler.handle_stop(call.message)
             bot.answer_callback_query(call.id, "⛔ جاري الإيقاف")
 
+# ==================== خادم الصحة لـ cron-job.org ====================
+def run_health_server():
+    """تشغيل خادم HTTP بسيط لـ cron-job.org"""
+    try:
+        PORT = 10000
+        
+        class HealthHandler(http.server.SimpleHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Content-type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b'Bot is running - Obeida Online')
+            
+            def log_message(self, format, *args):
+                pass  # تعطيل السجلات
+        
+        with socketserver.TCPServer(("0.0.0.0", PORT), HealthHandler) as httpd:
+            print(f"🌐 Health check server running on port {PORT}")
+            httpd.serve_forever()
+    except Exception as e:
+        print(f"⚠️ Health server error: {e}")
+
 # ==================== إعداد البوت ====================
 def setup():
     DataManager.init_files()
     handler = CommandHandler()
     callback = CallbackHandler(handler)
+    
+    # تشغيل خادم الصحة في thread منفصل
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
     
     @bot.message_handler(commands=['start'])
     def start(m): handler.handle_start(m)
@@ -1001,13 +994,6 @@ def setup():
     @bot.callback_query_handler(func=lambda c: True)
     def cb(c): callback.handle(c)
     
-    def run_health():
-        port = int(os.environ.get('PORT', 10000))
-        with socketserver.TCPServer(("0.0.0.0", port), http.server.SimpleHTTPRequestHandler) as httpd:
-            httpd.serve_forever()
-    
-    threading.Thread(target=run_health, daemon=True).start()
-    
     print(Fore.GREEN + "🚀 البوت يعمل..." + Style.RESET_ALL)
     print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
     print(Fore.YELLOW + "📌 الأوامر:" + Style.RESET_ALL)
@@ -1018,6 +1004,7 @@ def setup():
     print(Fore.WHITE + "   ⛔ /stop - إيقاف الفحص" + Style.RESET_ALL)
     print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
     print(Fore.GREEN + "✅ البوت جاهز!" + Style.RESET_ALL)
+    print(Fore.GREEN + "🌐 Health check: http://localhost:10000" + Style.RESET_ALL)
     
     bot.infinity_polling()
 
