@@ -51,7 +51,7 @@ RUN playwright install chromium && \
 # إنشاء المجلدات المطلوبة
 RUN mkdir -p /app/data /app/backups /app/temp
 
-# نسخ ملف البوت (اسم الملف Bot.py بحرف B كبير)
+# نسخ ملف البوت
 COPY Bot.py .
 
 # متغيرات البيئة
