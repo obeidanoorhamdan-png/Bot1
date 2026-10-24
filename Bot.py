@@ -95,14 +95,14 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write(b"worm GPT 👹 is alive!")
+            self.wfile.write("Worm GPT 👹 is alive!".encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
     
     def do_HEAD(self):
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.end_headers()
     
     def log_message(self, format, *args):
