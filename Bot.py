@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════
-# 🤖 worm GPT 👹 — Render-Ready Edition
-# 📦 pip install python-telegram-bot requests aiosqlite
+# 🤖 worm GPT 👹 — Complete Edition (Render Web Service Ready)
+# 📦 pip install -r requirements.txt
 # ═══════════════════════════════════════════════════════════════════
 
 import os
@@ -8,7 +8,9 @@ import logging
 import asyncio
 import json
 import secrets
+import threading
 from datetime import datetime, timedelta
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import aiosqlite
 import requests
@@ -19,7 +21,7 @@ from telegram.ext import (
 )
 
 # ═══════════════════════════════════════════════════════════════════
-# ⚙️ الإعدادات — من Environment (Render) أو قيم افتراضية
+# ⚙️ الإعدادات — من Environment أو قيم افتراضية
 # ═══════════════════════════════════════════════════════════════════
 
 BOT_TOKEN       = os.environ.get("BOT_TOKEN", "8860603341:AAHepgQUJh32nSz1aXlZotL9H182HeqNWmw")
@@ -41,7 +43,7 @@ else:
     DB_PATH = os.environ.get("DB_PATH", "bot_data.db")
 
 # ═══════════════════════════════════════════════════════════════════
-# 💎 3 خطط — بلس / برو / بريميوم
+# 💎 3 خطط
 # ═══════════════════════════════════════════════════════════════════
 
 SUBSCRIPTION_TYPES = {
@@ -81,6 +83,42 @@ def calculate_price(unit_price, quantity):
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# ═══════════════════════════════════════════════════════════════════
+# 🌐 HTTP Server — للحفاظ على النشاط على Render Web Service
+# ═══════════════════════════════════════════════════════════════════
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path in ("/", "/health", "/ping"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"worm GPT 👹 is alive!")
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+    
+    def log_message(self, format, *args):
+        pass  # منع سجلات HTTP
+
+
+def run_http_server():
+    port = int(os.environ.get("PORT", "8080"))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    logger.info(f"🌐 HTTP server على المنفذ {port}")
+    server.serve_forever()
+
+
+def start_http_server():
+    thread = threading.Thread(target=run_http_server, daemon=True)
+    thread.start()
 
 # ═══════════════════════════════════════════════════════════════════
 # 💾 قاعدة البيانات
@@ -413,7 +451,7 @@ class ApiClient:
     async def _call(self, method, **kwargs):
         headers, active = await self._headers()
         if not headers:
-            return {"ok": False, "error": "no_key", "message": "❌ لا يوجد خطة حالياً"}
+            return {"ok": False, "error": "no_key", "message": "❌ الخطة الحالية غير متوفرة "}
         try:
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: self._sync_call(method, headers, **kwargs))
@@ -896,7 +934,7 @@ async def transfer_do_confirm(update, context, text):
     context.user_data.pop("transfer_amount", None)
 
 # ═══════════════════════════════════════════════════════════════════
-# 🛒 الشراء — 3 خطط
+# 🛒 الشراء
 # ═══════════════════════════════════════════════════════════════════
 
 async def buy_choose_type(update, context, sub_type):
@@ -969,7 +1007,6 @@ async def buy_choose_qty(update, context, qty):
         parse_mode="Markdown", reply_markup=kb_confirm())
 
 async def buy_confirm(update, context):
-    """تأكيد الطلب — رسائل واضحة عند الفشل"""
     user_id = update.effective_user.id
     admin = is_admin(user_id)
 
@@ -1002,7 +1039,6 @@ async def buy_confirm(update, context):
         info = SUBSCRIPTION_TYPES[sub_type]
         api_plan = info["api_plan"]
 
-        # 1️⃣ إشعار فوري
         await update.message.reply_text(
             f"⏳ *جاري إنشاء {quantity} كود...*\n\n"
             f"📦 {info['name']} — {days} يوم\n"
@@ -1011,7 +1047,6 @@ async def buy_confirm(update, context):
             f"لا تغلق المحادثة.",
             parse_mode="Markdown", reply_markup=kb_main(admin))
 
-        # 2️⃣ الإنشاء
         codes = []
         failed = 0
         first_error = ""
@@ -1053,7 +1088,6 @@ async def buy_confirm(update, context):
 
         logger.info(f"[BUY] انتهى: نجح={len(codes)}, فشل={failed}")
 
-        # 3️⃣ كل الأكواد فشلت — رسالة حسب النوع
         if not codes:
             logger.error(f"[BUY] فشل كامل: {first_error}")
 
@@ -1082,7 +1116,6 @@ async def buy_confirm(update, context):
             context.user_data["state"] = "main"
             return
 
-        # 4️⃣ خصم النقاط
         unit_price = info["prices"][days]
         actual_total, _, _ = calculate_price(unit_price, len(codes))
         logger.info(f"[BUY] خصم {actual_total} (نجح {len(codes)})")
@@ -1094,7 +1127,6 @@ async def buy_confirm(update, context):
                 parse_mode="Markdown", reply_markup=kb_main(admin))
             return
 
-        # 5️⃣ عرض النتيجة
         codes_text = "\n".join([f"`{c}`" for c in codes])
         warning = f"\n\n⚠️ فشل {failed} كود — لم تُخصم قيمتها." if failed > 0 else ""
 
@@ -1491,14 +1523,14 @@ async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════════════════════════════════
 
 async def post_init(app):
-    # تأكد من وجود مجلد DB (مهم لـ Render Disk)
+    # تأكد من مجلد DB (Render Disk)
     db_dir = os.path.dirname(DB_PATH)
     if db_dir and not os.path.exists(db_dir):
         try:
             os.makedirs(db_dir, exist_ok=True)
             logger.info(f"📁 أُنشئ مجلد: {db_dir}")
         except Exception as e:
-            logger.error(f"❌ فشل إنشاء مجلد {db_dir}: {e}")
+            logger.error(f"❌ فشل إنشاء {db_dir}: {e}")
 
     logger.info(f"💾 DB_PATH = {DB_PATH}")
     logger.info(f"🔑 SUPER_ADMIN_ID = {SUPER_ADMIN_ID}")
@@ -1522,10 +1554,14 @@ async def post_init(app):
 
     logger.info("✅ worm GPT 👹 جاهز!")
 
+
 def main():
     if "ضع_التوكن" in BOT_TOKEN:
-        print("❌ ضع BOT_TOKEN في Environment (Render) أو في الملف")
+        print("❌ ضع BOT_TOKEN في Environment")
         return
+
+    # 🌐 ابدأ HTTP server أولاً (للحفاظ على النشاط)
+    start_http_server()
 
     logger.info(f"🚀 بدء worm GPT 👹... (DB: {DB_PATH})")
 
@@ -1540,6 +1576,7 @@ def main():
 
     logger.info("🚀 بدء التشغيل...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == "__main__":
     main()
