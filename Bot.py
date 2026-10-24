@@ -1,8 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════
-# 🤖 worm GPT 👹 — Final Complete Edition (3 Plans, Clear Errors)
+# 🤖 worm GPT 👹 — Render-Ready Edition
 # 📦 pip install python-telegram-bot requests aiosqlite
 # ═══════════════════════════════════════════════════════════════════
 
+import os
 import logging
 import asyncio
 import json
@@ -18,25 +19,29 @@ from telegram.ext import (
 )
 
 # ═══════════════════════════════════════════════════════════════════
-# ⚙️ الإعدادات
+# ⚙️ الإعدادات — من Environment (Render) أو قيم افتراضية
 # ═══════════════════════════════════════════════════════════════════
 
 BOT_TOKEN       = os.environ.get("BOT_TOKEN", "8860603341:AAHepgQUJh32nSz1aXlZotL9H182HeqNWmw")
 SUPER_ADMIN_ID  = int(os.environ.get("SUPER_ADMIN_ID", "6207431030"))
-API_URL         = "https://w0rmgpt.lovable.app/api/public/subscriptions"
-SITE_URL        = "https://w0rmgpt.lovable.app/"
+API_URL         = os.environ.get("API_URL", "https://w0rmgpt.lovable.app/api/public/subscriptions")
+SITE_URL        = os.environ.get("SITE_URL", "https://w0rmgpt.lovable.app/")
 
-INITIAL_API_KEY       = "Obeida0595440227@"
-INITIAL_API_KEY_LABEL = "المفتاح الأساسي"
+INITIAL_API_KEY       = os.environ.get("INITIAL_API_KEY", "Obeida0595440227@")
+INITIAL_API_KEY_LABEL = os.environ.get("INITIAL_API_KEY_LABEL", "المفتاح الأساسي")
 
-POINTS_INVITE = 1
-POINTS_DAILY  = 1
-MIN_TRANSFER  = 1
+POINTS_INVITE = int(os.environ.get("POINTS_INVITE", "1"))
+POINTS_DAILY  = int(os.environ.get("POINTS_DAILY", "1"))
+MIN_TRANSFER  = int(os.environ.get("MIN_TRANSFER", "1"))
 
-DB_PATH = "bot_data.db"
+# دعم Render Disk عبر /data
+if os.path.exists("/data"):
+    DB_PATH = "/data/bot_data.db"
+else:
+    DB_PATH = os.environ.get("DB_PATH", "bot_data.db")
 
 # ═══════════════════════════════════════════════════════════════════
-# 💎 3 خطط — بدون fallback (كل خطة صريحة)
+# 💎 3 خطط — بلس / برو / بريميوم
 # ═══════════════════════════════════════════════════════════════════
 
 SUBSCRIPTION_TYPES = {
@@ -408,7 +413,7 @@ class ApiClient:
     async def _call(self, method, **kwargs):
         headers, active = await self._headers()
         if not headers:
-            return {"ok": False, "error": "no_key", "message": "❌ الخطة غير متوفرة في الوقت الحالي ❌ "}
+            return {"ok": False, "error": "no_key", "message": "❌ لا يوجد خطة حالياً"}
         try:
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: self._sync_call(method, headers, **kwargs))
@@ -426,7 +431,7 @@ class ApiClient:
                 except Exception:
                     pass
             if code == 401:
-                return {"ok": False, "error": "unauthorized", "message": "🔴  لا يوجد استجابة (401)"}
+                return {"ok": False, "error": "unauthorized", "message": "🔴 المفتاح غير صالح (401)"}
             if code == 403:
                 return {"ok": False, "error": "forbidden", "message": "🟡 محظور (403)"}
             if code == 429:
@@ -891,7 +896,7 @@ async def transfer_do_confirm(update, context, text):
     context.user_data.pop("transfer_amount", None)
 
 # ═══════════════════════════════════════════════════════════════════
-# 🛒 الشراء — 3 خطط بدون fallback
+# 🛒 الشراء — 3 خطط
 # ═══════════════════════════════════════════════════════════════════
 
 async def buy_choose_type(update, context, sub_type):
@@ -964,7 +969,7 @@ async def buy_choose_qty(update, context, qty):
         parse_mode="Markdown", reply_markup=kb_confirm())
 
 async def buy_confirm(update, context):
-    """تأكيد الطلب — بدون fallback، رسالة واضحة عند فشل premium"""
+    """تأكيد الطلب — رسائل واضحة عند الفشل"""
     user_id = update.effective_user.id
     admin = is_admin(user_id)
 
@@ -1486,7 +1491,20 @@ async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════════════════════════════════
 
 async def post_init(app):
+    # تأكد من وجود مجلد DB (مهم لـ Render Disk)
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir and not os.path.exists(db_dir):
+        try:
+            os.makedirs(db_dir, exist_ok=True)
+            logger.info(f"📁 أُنشئ مجلد: {db_dir}")
+        except Exception as e:
+            logger.error(f"❌ فشل إنشاء مجلد {db_dir}: {e}")
+
+    logger.info(f"💾 DB_PATH = {DB_PATH}")
+    logger.info(f"🔑 SUPER_ADMIN_ID = {SUPER_ADMIN_ID}")
+
     await db.init()
+
     keys = await db.list_api_keys()
     if not keys and INITIAL_API_KEY:
         await db.add_api_key(INITIAL_API_KEY, INITIAL_API_KEY_LABEL, SUPER_ADMIN_ID)
@@ -1494,15 +1512,22 @@ async def post_init(app):
         if keys:
             await db.set_active_key(keys[0]["id"])
             logger.info("✅ أُضيف المفتاح الأولي")
+
     active = await db.get_active_key()
     if active:
         ok, msg = await api.test_key(active["key_value"])
         logger.info(f"🔑 {msg}")
+    else:
+        logger.warning("⚠️ لا مفتاح نشط")
+
     logger.info("✅ worm GPT 👹 جاهز!")
 
 def main():
     if "ضع_التوكن" in BOT_TOKEN:
-        print("❌ ضع BOT_TOKEN"); return
+        print("❌ ضع BOT_TOKEN في Environment (Render) أو في الملف")
+        return
+
+    logger.info(f"🚀 بدء worm GPT 👹... (DB: {DB_PATH})")
 
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
