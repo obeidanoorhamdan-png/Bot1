@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-# 🤖 worm GPT 👹 — Complete Edition (Render Web Service Ready)
+# 🤖 Worm GPT — Final Complete Edition
 # 📦 pip install -r requirements.txt
 # ═══════════════════════════════════════════════════════════════════
 
@@ -21,7 +21,7 @@ from telegram.ext import (
 )
 
 # ═══════════════════════════════════════════════════════════════════
-# ⚙️ الإعدادات — من Environment أو قيم افتراضية
+# ⚙️ الإعدادات
 # ═══════════════════════════════════════════════════════════════════
 
 BOT_TOKEN       = os.environ.get("BOT_TOKEN", "8860603341:AAHepgQUJh32nSz1aXlZotL9H182HeqNWmw")
@@ -29,14 +29,13 @@ SUPER_ADMIN_ID  = int(os.environ.get("SUPER_ADMIN_ID", "6207431030"))
 API_URL         = os.environ.get("API_URL", "https://w0rmgpt.lovable.app/api/public/subscriptions")
 SITE_URL        = os.environ.get("SITE_URL", "https://w0rmgpt.lovable.app/")
 
-INITIAL_API_KEY       = os.environ.get("INITIAL_API_KEY", "Obeida0595440227@")
+INITIAL_API_KEY       = os.environ.get("INITIAL_API_KEY", "wsk_0c4d9994396f4b27a464dfc1c43e244be0fb58c6")
 INITIAL_API_KEY_LABEL = os.environ.get("INITIAL_API_KEY_LABEL", "المفتاح الأساسي")
 
 POINTS_INVITE = int(os.environ.get("POINTS_INVITE", "1"))
 POINTS_DAILY  = int(os.environ.get("POINTS_DAILY", "1"))
 MIN_TRANSFER  = int(os.environ.get("MIN_TRANSFER", "1"))
 
-# دعم Render Disk عبر /data
 if os.path.exists("/data"):
     DB_PATH = "/data/bot_data.db"
 else:
@@ -86,7 +85,7 @@ logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # ═══════════════════════════════════════════════════════════════════
-# 🌐 HTTP Server — للحفاظ على النشاط على Render Web Service
+# 🌐 HTTP Server
 # ═══════════════════════════════════════════════════════════════════
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -95,7 +94,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write("Worm GPT 👹 is alive!".encode("utf-8"))
+            self.wfile.write("Worm GPT is alive!".encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
@@ -106,7 +105,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.end_headers()
     
     def log_message(self, format, *args):
-        pass  # منع سجلات HTTP
+        pass
 
 
 def run_http_server():
@@ -451,7 +450,7 @@ class ApiClient:
     async def _call(self, method, **kwargs):
         headers, active = await self._headers()
         if not headers:
-            return {"ok": False, "error": "no_key", "message": "❌ الخطة الحالية غير متوفرة "}
+            return {"ok": False, "error": "no_key", "message": "❌ لا مفتاح نشط"}
         try:
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: self._sync_call(method, headers, **kwargs))
@@ -477,7 +476,7 @@ class ApiClient:
             if code == 400:
                 return {"ok": False, "error": "bad_request", "message": f"❌ طلب خاطئ (400): {body}"}
             if code == 404:
-                return {"ok": False, "error": "not_found", "message": f"❌ غير موجود (404)"}
+                return {"ok": False, "error": "not_found", "message": f"❌ الكود غير موجود (404)"}
             return {"ok": False, "error": f"http_{code}", "message": f"❌ خطأ HTTP {code}: {body}"}
         except requests.exceptions.Timeout:
             if active:
@@ -492,6 +491,9 @@ class ApiClient:
 
     async def create(self, plan, days, max_uses=1):
         return await self._call("POST", json={"plan": plan, "days": days, "max_uses": max_uses})
+
+    async def check_code(self, code):
+        return await self._call("GET", params={"code": code})
 
     def _test_key_sync(self, key_value):
         headers = {"Authorization": f"Bearer {key_value.strip()}", "User-Agent": "Mozilla/5.0"}
@@ -520,6 +522,7 @@ BTN_WALLET    = "💎 محفظتي"
 BTN_EARN      = "🎁 اكسب نقاط"
 BTN_TOP       = "🏆 الصدارة"
 BTN_GUIDE     = "📖 كيف أفعّل"
+BTN_CHECK     = "🔍 فحص كود"
 BTN_ABOUT     = "ℹ️ عن البوت"
 BTN_ADMIN     = "🛡️ لوحة المشرف"
 BTN_HOME      = "🏠 القائمة الرئيسية"
@@ -565,7 +568,7 @@ def kb_main(admin=False):
         [KeyboardButton(BTN_SHOP), KeyboardButton(BTN_SUBS)],
         [KeyboardButton(BTN_WALLET), KeyboardButton(BTN_EARN)],
         [KeyboardButton(BTN_TOP), KeyboardButton(BTN_GUIDE)],
-        [KeyboardButton(BTN_ABOUT)],
+        [KeyboardButton(BTN_CHECK), KeyboardButton(BTN_ABOUT)],
     ]
     if admin:
         rows.append([KeyboardButton(BTN_ADMIN)])
@@ -672,7 +675,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin = is_admin(user.id)
     context.user_data["state"] = "main"
 
-    txt = f"👋 أهلاً *{user.first_name}*!\n\n🤖 *worm GPT 👹* — بوت إدارة الاشتراكات\n\n"
+    txt = f"👋 أهلاً *{user.first_name}*!\n\n🤖 *Worm GPT* — بوت إدارة الاشتراكات\n\n"
     if is_new:
         txt += "🎉 تم تسجيلك بنجاح!\n"
         if invited_by:
@@ -824,11 +827,146 @@ async def show_about(update, context):
     types = "\n".join([f"{i['emoji']} *{i['name']}* — {i['description']}"
                        for i in SUBSCRIPTION_TYPES.values()])
     await update.message.reply_text(
-        f"🤖 *worm GPT 👹*\n\nبوت إدارة اشتراكات احترافي\n\n"
+        f"🤖 *Worm GPT*\n\nبوت إدارة اشتراكات احترافي\n\n"
         f"📦 *الباقات:*\n{types}\n\n🌐 {SITE_URL}",
         parse_mode="Markdown",
         reply_markup=kb_main(is_admin(update.effective_user.id)),
         disable_web_page_preview=True)
+
+# ═══════════════════════════════════════════════════════════════════
+# 🔍 فحص كود اشتراك
+# ═══════════════════════════════════════════════════════════════════
+
+async def check_code_begin(update, context):
+    context.user_data["state"] = "check_code"
+    await update.message.reply_text(
+        "🔍 *فحص كود اشتراك*\n\n"
+        "أرسل الكود الذي تريد فحصه.\n\n"
+        "💡 سيظهر:\n"
+        "📦 *نوع الاشتراك* (بلس / برو / بريميوم)\n"
+        "📅 *المدة* (7 / 30 / 90 / 365 يوم)\n"
+        "🔢 *عدد الاستخدامات*\n"
+        "📊 *الحالة* (نشط / مستخدم / منتهي)\n"
+        "📆 *التواريخ*\n\n"
+        "📌 يعمل مع أي كود — جديد، مستخدم، أو منتهي\n\n"
+        "❌ للإلغاء",
+        parse_mode="Markdown",
+        reply_markup=kb_cancel()
+    )
+
+async def check_code_receive(update, context, code):
+    code = code.strip()
+    if len(code) < 3:
+        await update.message.reply_text(
+            "❌ الكود قصير جداً. أعد المحاولة:", reply_markup=kb_cancel())
+        return
+
+    admin = is_admin(update.effective_user.id)
+    wait_msg = await update.message.reply_text("🔍 جاري الفحص...")
+
+    result = await api.check_code(code)
+
+    if not result["ok"]:
+        error_msg = result.get("message", "غير معروف")
+        try:
+            await wait_msg.edit_text(
+                f"❌ *فشل الفحص*\n\n"
+                f"🔍 *السبب:* `{error_msg[:250]}`\n\n"
+                f"💡 *تأكد من:*\n"
+                f"• الكود صحيح\n"
+                f"• الكود موجود\n"
+                f"• المفتاح نشط",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+        context.user_data["state"] = "main"
+        await update.message.reply_text("استخدم الأزرار:", reply_markup=kb_main(admin))
+        return
+
+    data = result["data"]
+    logger.info(f"[CHECK] code={code} response={str(data)[:400]}")
+    info = data.get("data") if isinstance(data, dict) and "data" in data else data
+
+    if not isinstance(info, dict):
+        try:
+            await wait_msg.edit_text(
+                f"📋 *النتيجة:*\n```\n{str(data)[:500]}\n```",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            await wait_msg.edit_text(f"📋 النتيجة:\n{str(data)[:500]}")
+        context.user_data["state"] = "main"
+        await update.message.reply_text("استخدم الأزرار:", reply_markup=kb_main(admin))
+        return
+
+    code_val   = info.get("code", code)
+    plan       = info.get("plan", "غير معروف")
+    days       = info.get("days", "?")
+    max_uses   = info.get("max_uses", "?")
+    uses       = info.get("uses", 0)
+    status     = info.get("status", "?")
+    created_at = info.get("created_at")
+    expires_at = info.get("expires_at")
+
+    plan_info = SUBSCRIPTION_TYPES.get(plan, {"emoji": "📦", "name": plan})
+
+    status_map = {
+        "active":   "🟢 نشط",
+        "used":     "🔴 مستخدم بالكامل",
+        "expired":  "⏰ منتهي الصلاحية",
+        "disabled": "🚫 معطّل",
+        "valid":    "🟢 صالح",
+    }
+    status_display = status_map.get(status, f"ℹ️ {status}")
+
+    if isinstance(uses, int) and isinstance(max_uses, int):
+        if max_uses == 0:
+            uses_display = f"`{uses}` (غير محدود)"
+        elif uses >= max_uses:
+            uses_display = f"`{uses} / {max_uses}` ⚠️ مستنفد"
+        else:
+            uses_display = f"`{uses} / {max_uses}`"
+    else:
+        uses_display = f"`{uses} / {max_uses}`"
+
+    def fmt_date(d):
+        if not d: return "غير محدد"
+        try:
+            dt = datetime.fromisoformat(str(d).replace("Z", "").split(".")[0])
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return str(d)[:16]
+
+    report = (
+        f"✅ *نتيجة الفحص*\n\n"
+        f"🔑 *الكود:*\n`{code_val}`\n\n"
+        f"━━━━━━━━━━━━━━━━━\n"
+        f"{plan_info['emoji']} *نوع الاشتراك:* {plan_info['name']}\n"
+        f"📅 *المدة:* `{days}` يوم\n"
+        f"🔢 *عدد الاستخدامات:* {uses_display}\n"
+        f"📊 *الحالة:* {status_display}\n"
+        f"━━━━━━━━━━━━━━━━━\n"
+        f"📆 *أُنشئ:* {fmt_date(created_at)}\n"
+        f"⏰ *ينتهي:* {fmt_date(expires_at)}"
+    )
+
+    try:
+        await wait_msg.edit_text(report, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"فشل عرض: {e}")
+        await wait_msg.edit_text(
+            f"✅ نتيجة الفحص\n\n"
+            f"الكود: {code_val}\n"
+            f"النوع: {plan}\n"
+            f"المدة: {days} يوم\n"
+            f"الاستخدامات: {uses}/{max_uses}\n"
+            f"الحالة: {status}"
+        )
+
+    context.user_data["state"] = "main"
+    await update.message.reply_text("💡 افحص كوداً آخر أو استخدم الأزرار:",
+                                      reply_markup=kb_main(admin))
 
 # ═══════════════════════════════════════════════════════════════════
 # 💰 المكافأة + الدعوة + المعرف
@@ -1043,8 +1181,7 @@ async def buy_confirm(update, context):
             f"⏳ *جاري إنشاء {quantity} كود...*\n\n"
             f"📦 {info['name']} — {days} يوم\n"
             f"🔑 نوع API: `{api_plan}`\n\n"
-            f"⏱️ قد يستغرق {quantity * 3} ثانية تقريباً.\n"
-            f"لا تغلق المحادثة.",
+            f"⏱️ قد يستغرق {quantity * 3} ثانية تقريباً.",
             parse_mode="Markdown", reply_markup=kb_main(admin))
 
         codes = []
@@ -1053,14 +1190,11 @@ async def buy_confirm(update, context):
 
         for i in range(quantity):
             try:
-                logger.info(f"[BUY] محاولة {i+1}/{quantity}: api.create(plan={api_plan}, days={days})")
                 result = await api.create(api_plan, days, 1)
-
                 if result.get("ok"):
                     code = extract_code(result.get("data", {}))
                     if code:
                         codes.append(code)
-                        logger.info(f"[BUY] ✅ كود #{i+1}: {code}")
                         try:
                             await db.save_subscription(user_id, {
                                 "code": code, "plan": sub_type, "actual_plan": api_plan,
@@ -1073,80 +1207,54 @@ async def buy_confirm(update, context):
                         failed += 1
                         if not first_error:
                             first_error = f"لا كود في الاستجابة: {str(result.get('data'))[:150]}"
-                        logger.error(f"[BUY] {first_error}")
                 else:
                     failed += 1
                     if not first_error:
                         first_error = result.get("message", "خطأ غير معروف")
-                    logger.error(f"[BUY] ❌ كود #{i+1}: {first_error}")
-
             except Exception as e:
                 failed += 1
                 if not first_error:
                     first_error = str(e)
-                logger.exception(f"[BUY] استثناء كود #{i+1}: {e}")
-
-        logger.info(f"[BUY] انتهى: نجح={len(codes)}, فشل={failed}")
 
         if not codes:
-            logger.error(f"[BUY] فشل كامل: {first_error}")
-
             if sub_type == "premium":
                 await update.message.reply_text(
                     f"❌ *عذراً، اشتراك بريميوم غير متوفر حالياً*\n\n"
                     f"🔍 *السبب:* `{first_error[:200]}`\n\n"
-                    f"💡 *الخطتان المتاحتان الآن:*\n\n"
-                    f"⭐ *بلس* — اشتراك أساسي\n"
-                    f"   💎 30 يوم = 15 نقطة\n\n"
-                    f"💎 *برو* — اشتراك متقدم\n"
-                    f"   💎 30 يوم = 25 نقطة\n\n"
-                    f"استخدم الأزرار بالأسفل للعودة.",
-                    parse_mode="Markdown",
-                    reply_markup=kb_main(admin))
+                    f"💡 *الخطتان المتاحتان:*\n\n"
+                    f"⭐ *بلس* — من 5 نقاط\n"
+                    f"💎 *برو* — من 8 نقاط",
+                    parse_mode="Markdown", reply_markup=kb_main(admin))
             else:
                 await update.message.reply_text(
                     f"❌ *فشل إنشاء الأكواد*\n\n"
-                    f"📦 النوع: {info['name']}\n"
-                    f"🔍 *السبب:* `{first_error[:200]}`\n\n"
-                    f"💡 أبلغ المشرف.",
-                    parse_mode="Markdown",
-                    reply_markup=kb_main(admin))
-
+                    f"📦 {info['name']}\n"
+                    f"🔍 *السبب:* `{first_error[:200]}`",
+                    parse_mode="Markdown", reply_markup=kb_main(admin))
             context.user_data.pop("buy", None)
             context.user_data["state"] = "main"
             return
 
         unit_price = info["prices"][days]
         actual_total, _, _ = calculate_price(unit_price, len(codes))
-        logger.info(f"[BUY] خصم {actual_total} (نجح {len(codes)})")
 
         if not await db.deduct_points(user_id, actual_total):
-            logger.error(f"[BUY] فشل الخصم")
-            await update.message.reply_text(
-                "⚠️ *فشل خصم النقاط*\n\nأبلغ المشرف.",
-                parse_mode="Markdown", reply_markup=kb_main(admin))
+            await update.message.reply_text("⚠️ فشل خصم النقاط.",
+                                              reply_markup=kb_main(admin))
             return
 
         codes_text = "\n".join([f"`{c}`" for c in codes])
-        warning = f"\n\n⚠️ فشل {failed} كود — لم تُخصم قيمتها." if failed > 0 else ""
+        warning = f"\n\n⚠️ فشل {failed} كود." if failed > 0 else ""
 
-        try:
-            await update.message.reply_text(
-                f"✅ *تم إنشاء {len(codes)} كود!*\n\n"
-                f"{info['emoji']} {info['name']} — {days} يوم\n"
-                f"💎 خُصم: `{actual_total}` نقطة\n\n"
-                f"🔑 *أكوادك:*\n{codes_text}"
-                f"{warning}\n\n"
-                f"📖 فعّلها في: {SITE_URL}",
-                parse_mode="Markdown",
-                reply_markup=kb_main(admin),
-                disable_web_page_preview=True)
-            logger.info(f"[BUY] ✅ تم العرض بنجاح")
-        except Exception as e:
-            logger.exception(f"[BUY] فشل عرض النتيجة: {e}")
-            await update.message.reply_text(
-                f"✅ نجح {len(codes)} كود:\n\n{codes_text}",
-                reply_markup=kb_main(admin))
+        await update.message.reply_text(
+            f"✅ *تم إنشاء {len(codes)} كود!*\n\n"
+            f"{info['emoji']} {info['name']} — {days} يوم\n"
+            f"💎 خُصم: `{actual_total}` نقطة\n\n"
+            f"🔑 *أكوادك:*\n{codes_text}"
+            f"{warning}\n\n"
+            f"📖 فعّلها في: {SITE_URL}",
+            parse_mode="Markdown", reply_markup=kb_main(admin),
+            disable_web_page_preview=True)
 
         context.user_data.pop("buy", None)
         context.user_data["state"] = "main"
@@ -1155,7 +1263,7 @@ async def buy_confirm(update, context):
         logger.exception(f"[BUY] خطأ فادح: {e}")
         try:
             await update.message.reply_text(
-                f"❌ *خطأ غير متوقع*\n\n`{str(e)[:200]}`\n\nأبلغ المشرف.",
+                f"❌ *خطأ*\n\n`{str(e)[:200]}`",
                 parse_mode="Markdown", reply_markup=kb_main(admin))
         except Exception:
             pass
@@ -1299,7 +1407,7 @@ async def show_logs(update, context):
                                       parse_mode="Markdown", reply_markup=kb_admin())
 
 # ═══════════════════════════════════════════════════════════════════
-# 🎯 الراوتر الرئيسي
+# 🎯 الراوتر
 # ═══════════════════════════════════════════════════════════════════
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1313,7 +1421,12 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"[TEXT] user={user_id} state={state} text={text[:40]}")
 
     try:
-        # حالات المحادثات النصية
+        if state == "check_code":
+            if text == BTN_CANCEL:
+                context.user_data["state"] = "main"
+                await show_home(update, context); return
+            await check_code_receive(update, context, text); return
+
         if state == "transfer_id":
             if text == BTN_CANCEL:
                 context.user_data["state"] = "main"
@@ -1364,7 +1477,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await show_admin(update, context); return
             await pdrop_receive(update, context, text); return
 
-        # الأزرار الرئيسية
         if text == BTN_HOME:    await show_home(update, context); return
         if text == BTN_SHOP:    await show_shop(update, context); return
         if text == BTN_SUBS:    await show_subs(update, context); return
@@ -1372,10 +1484,10 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if text == BTN_EARN:    await show_earn(update, context); return
         if text == BTN_TOP:     await show_top(update, context); return
         if text == BTN_GUIDE:   await show_guide(update, context); return
+        if text == BTN_CHECK:   await check_code_begin(update, context); return
         if text == BTN_ABOUT:   await show_about(update, context); return
         if text == BTN_ADMIN:   await show_admin(update, context); return
 
-        # الرجوع
         if text == BTN_BACK:
             if state in ("shop", "buy_days", "buy_qty", "buy_confirm"):
                 await show_shop(update, context)
@@ -1389,13 +1501,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await show_home(update, context)
             return
 
-        # شراء: النوع
         if state in ("shop", "buy_days"):
             if text == BTN_PLUS:    await buy_choose_type(update, context, "plus"); return
             if text == BTN_PRO:     await buy_choose_type(update, context, "pro"); return
             if text == BTN_PREMIUM: await buy_choose_type(update, context, "premium"); return
 
-        # شراء: المدة
         if state == "buy_days":
             try:
                 days = int(text.replace("يوم", "").replace("أيام", "").strip())
@@ -1403,7 +1513,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except ValueError:
                 pass
 
-        # شراء: العدد
         if state == "buy_qty":
             if text == BTN_QTY_1:    await buy_choose_qty(update, context, 1); return
             if text == BTN_QTY_2:    await buy_choose_qty(update, context, 2); return
@@ -1415,7 +1524,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("✏️ أرسل عدد الأكواد (1-100):",
                                                   reply_markup=kb_cancel()); return
 
-        # شراء: عدد مخصص
         if state == "buy_custom_qty":
             if text == BTN_CANCEL:
                 ctx = context.user_data.get("buy", {})
@@ -1435,7 +1543,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             await buy_choose_qty(update, context, qty); return
 
-        # شراء: التأكيد
         if state == "buy_confirm":
             if text == BTN_CONFIRM:
                 await buy_confirm(update, context); return
@@ -1449,14 +1556,12 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if text == BTN_CANCEL:
                 await show_home(update, context); return
 
-        # محفظة / اكسب
         if state in ("wallet", "earn"):
             if text == BTN_DAILY:    await do_daily(update, context); return
             if text == BTN_INVITE:   await show_invite(update, context); return
             if text == BTN_MY_ID:    await show_my_id(update, context); return
             if text == BTN_TRANSFER: await transfer_begin(update, context); return
 
-        # إدارة
         if state == "admin" and admin:
             if text == BTN_KEYS:    await show_keys(update, context); return
             if text == BTN_DROPS:   await show_drops(update, context); return
@@ -1476,7 +1581,6 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if text == BTN_CREATE_PDROP:
                 await pdrop_create_begin(update, context); return
 
-        # افتراضي
         await update.message.reply_text("🤔 استخدم الأزرار بالأسفل.", reply_markup=kb_main(admin))
 
     except Exception as e:
@@ -1523,27 +1627,39 @@ async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════════════════════════════════
 
 async def post_init(app):
-    # تأكد من مجلد DB (Render Disk)
     db_dir = os.path.dirname(DB_PATH)
     if db_dir and not os.path.exists(db_dir):
         try:
             os.makedirs(db_dir, exist_ok=True)
             logger.info(f"📁 أُنشئ مجلد: {db_dir}")
         except Exception as e:
-            logger.error(f"❌ فشل إنشاء {db_dir}: {e}")
+            logger.error(f"❌ فشل إنشاء: {e}")
 
     logger.info(f"💾 DB_PATH = {DB_PATH}")
     logger.info(f"🔑 SUPER_ADMIN_ID = {SUPER_ADMIN_ID}")
 
     await db.init()
 
+    # 🆕 حذف المفتاح القديم إن وُجد
     keys = await db.list_api_keys()
-    if not keys and INITIAL_API_KEY:
+    for k in keys:
+        if k["key_value"] == "Obeida0595440227@":
+            await db.delete_api_key(k["id"])
+            logger.info("🗑️ حُذف المفتاح القديم (Obeida...)")
+            keys = await db.list_api_keys()
+            break
+
+    # إضافة/تفعيل المفتاح الجديد
+    existing_new = next((k for k in keys if k["key_value"] == INITIAL_API_KEY), None)
+    if not existing_new:
         await db.add_api_key(INITIAL_API_KEY, INITIAL_API_KEY_LABEL, SUPER_ADMIN_ID)
         keys = await db.list_api_keys()
-        if keys:
-            await db.set_active_key(keys[0]["id"])
-            logger.info("✅ أُضيف المفتاح الأولي")
+        existing_new = next((k for k in keys if k["key_value"] == INITIAL_API_KEY), None)
+        logger.info("✅ أُضيف المفتاح الجديد")
+
+    if existing_new and not existing_new["is_active"]:
+        await db.set_active_key(existing_new["id"])
+        logger.info("✅ فُعّل المفتاح الجديد")
 
     active = await db.get_active_key()
     if active:
@@ -1552,18 +1668,24 @@ async def post_init(app):
     else:
         logger.warning("⚠️ لا مفتاح نشط")
 
-    logger.info("✅ worm GPT 👹 جاهز!")
+    logger.info("✅ Worm GPT جاهز!")
 
 
 def main():
     if "ضع_التوكن" in BOT_TOKEN:
-        print("❌ ضع BOT_TOKEN في Environment")
+        print("❌ ضع BOT_TOKEN")
         return
 
-    # 🌐 ابدأ HTTP server أولاً (للحفاظ على النشاط)
+    # 🔧 حل مشكلة Python 3.14
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+    # 🌐 HTTP server
     start_http_server()
 
-    logger.info(f"🚀 بدء worm GPT 👹... (DB: {DB_PATH})")
+    logger.info(f"🚀 بدء Worm GPT... (DB: {DB_PATH})")
 
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
@@ -1579,9 +1701,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import asyncio
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        asyncio.set_event_loop(asyncio.new_event_loop())
     main()
