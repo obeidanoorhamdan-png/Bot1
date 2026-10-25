@@ -24,7 +24,7 @@ from telegram.ext import (
 # ⚙️ الإعدادات
 # ═══════════════════════════════════════════════════════════════════
 
-BOT_TOKEN       = os.environ.get("BOT_TOKEN", "8860603341:AAHepgQUJh32nSz1aXlZotL9H182HeqNWmw")
+BOT_TOKEN       = os.environ.get("BOT_TOKEN", "8860603341:AAHOtVe87_0RgKZowiyQOh7eVFpUpf17NmA")
 SUPER_ADMIN_ID  = int(os.environ.get("SUPER_ADMIN_ID", "6207431030"))
 API_URL         = os.environ.get("API_URL", "https://w0rmgpt.lovable.app/api/public/subscriptions")
 SITE_URL        = os.environ.get("SITE_URL", "https://w0rmgpt.lovable.app/")
