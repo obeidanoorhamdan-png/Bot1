@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-# 🤖 Worm GPT — Complete Professional Edition
+# 🤖 Worm GPT — Final Fixed Edition (JobQueue + Python 3.11)
 # 📦 pip install -r requirements.txt
 # ═══════════════════════════════════════════════════════════════════
 
@@ -32,23 +32,18 @@ SUPER_ADMIN_ID  = int(os.environ.get("SUPER_ADMIN_ID", "6207431030"))
 API_URL         = os.environ.get("API_URL", "https://w0rmgpt.lovable.app/api/public/subscriptions")
 SITE_URL        = os.environ.get("SITE_URL", "https://w0rmgpt.lovable.app/")
 
-# القناة الأساسية للاشتراك الإجباري
 CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "engtopwln")
 CHANNEL_URL      = f"https://t.me/{CHANNEL_USERNAME}"
 
-# مفاتيح API
 INITIAL_API_KEY       = os.environ.get("INITIAL_API_KEY", "wsk_0c4d9994396f4b27a464dfc1c43e244be0fb58c6")
 INITIAL_API_KEY_LABEL = os.environ.get("INITIAL_API_KEY_LABEL", "المفتاح الأساسي")
 
-# نقاط
 POINTS_INVITE = int(os.environ.get("POINTS_INVITE", "1"))
 POINTS_DAILY  = int(os.environ.get("POINTS_DAILY", "1"))
 MIN_TRANSFER  = int(os.environ.get("MIN_TRANSFER", "1"))
 
-# تحديث الدروبات — كل 15 دقيقة (900 ثانية)
 DROPS_REFRESH_INTERVAL = int(os.environ.get("DROPS_REFRESH_INTERVAL", "900"))
 
-# قاعدة البيانات
 if os.path.exists("/data"):
     DB_PATH = "/data/bot_data.db"
 else:
@@ -448,7 +443,6 @@ class Database:
             await db.commit()
 
     async def get_drops_for_refresh(self):
-        """يجلب الدروبات التي تحتاج تحديثاً"""
         async with aiosqlite.connect(self.path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("""
@@ -777,17 +771,8 @@ def format_relative_time(iso_str):
     except Exception:
         return str(iso_str)[:16]
 
-def format_date(iso_str):
-    if not iso_str:
-        return "غير محدد"
-    try:
-        dt = datetime.fromisoformat(iso_str.replace("Z", "").split(".")[0])
-        return dt.strftime("%Y-%m-%d %H:%M")
-    except Exception:
-        return str(iso_str)[:16]
-
 # ═══════════════════════════════════════════════════════════════════
-# 🔒 Force Join Check
+# 🔒 Force Join
 # ═══════════════════════════════════════════════════════════════════
 
 async def check_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE, use_cache=True):
@@ -810,13 +795,10 @@ async def check_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         return is_member
     except Exception as e:
         logger.error(f"فشل فحص العضوية: {e}")
-        return True  # نسمح مؤقتاً إذا فشل الفحص
+        return True
 
 
 async def force_join_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """يعرض بوابة الاشتراك الإجباري إذا لزم"""
-    user = update.effective_user
-    
     if await check_force_join(update, context):
         return True
     
@@ -863,14 +845,13 @@ def build_drop_card_text(drop):
     plan_info = SUBSCRIPTION_TYPES.get(drop["plan"], {"emoji": "📦", "name": drop["plan"]})
     
     if drop.get("claimed_by"):
-        winner_display = f"`{drop['claimed_by']}`"
         return (
             f"🎁 *دروب #{drop['token']}* ✅\n\n"
             f"{plan_info['emoji']} *{plan_info['name']}*\n"
             f"📅 `{drop['days']}` يوم\n\n"
             f"━━━━━━━━━━━━━━━━━\n"
             f"🔴 *مُستخدم*\n"
-            f"👤 الفائز: {winner_display}\n"
+            f"👤 الفائز: `{drop['claimed_by']}`\n"
             f"⏰ {format_relative_time(drop.get('claimed_at'))}\n"
             f"━━━━━━━━━━━━━━━━━\n\n"
             f"💡 تابع @{CHANNEL_USERNAME} للدروب القادم!"
@@ -915,7 +896,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     args = context.args
     
-    # 🆕 تحقق من الاشتراك الإجباري أولاً
     if not await force_join_gate(update, context):
         return
     
@@ -988,7 +968,6 @@ async def handle_drop_entry(update, context, token):
         "response": result["data"]
     })
     
-    # ⚡ تحديث فوري للبطاقة في القناة
     await refresh_drop_immediately(context, drop["id"])
     
     info = SUBSCRIPTION_TYPES.get(drop["plan"], {"emoji": "📦", "name": drop["plan"]})
@@ -1003,15 +982,14 @@ async def handle_drop_entry(update, context, token):
         disable_web_page_preview=True
     )
     
-    # 🔔 إشعار للأدمن
     try:
         await context.bot.send_message(
             SUPER_ADMIN_ID,
-            f"🔔 *دروب جديد استُخدم!*\n\n"
+            f"🔔 *دروب استُخدم!*\n\n"
             f"🎁 #{drop['token']}\n"
             f"📦 {info['name']} — {drop['days']}ي\n"
-            f"👤 من: `{user.id}` {('@' + user.username) if user.username else ''}\n"
-            f"🔑 الكود: `{code}`",
+            f"👤 `{user.id}` {('@' + user.username) if user.username else ''}\n"
+            f"🔑 `{code}`",
             parse_mode="Markdown"
         )
     except Exception:
@@ -1037,22 +1015,20 @@ async def handle_points_drop_entry(update, context, token):
     )
 
 # ═══════════════════════════════════════════════════════════════════
-# 🔄 تحديث فوري للدروب
+# 🔄 تحديث فوري
 # ═══════════════════════════════════════════════════════════════════
 
 async def refresh_drop_immediately(context, drop_id):
-    """يحدّث البطاقة فوراً"""
     drop = await db.get_drop_by_id(drop_id)
     if not drop or not drop.get("chat_id") or not drop.get("message_id"):
         return
     
     try:
-        bot_username = context.bot.username
         await context.bot.edit_message_text(
             chat_id=drop["chat_id"],
             message_id=drop["message_id"],
             text=build_drop_card_text(drop),
-            reply_markup=build_drop_card_kb(drop, bot_username)
+            reply_markup=build_drop_card_kb(drop, context.bot.username)
         )
         await db.mark_drop_refreshed(drop_id)
         logger.info(f"✅ تحديث فوري #{drop['token']}")
@@ -1064,10 +1040,10 @@ async def refresh_drop_immediately(context, drop_id):
             await db.mark_drop_deleted(drop_id)
         else:
             await db.increment_drop_retry(drop_id)
-            logger.warning(f"⚠️ فشل تحديث فوري #{drop['token']}: {e}")
+            logger.warning(f"⚠️ فشل #{drop['token']}: {e}")
 
 # ═══════════════════════════════════════════════════════════════════
-# 📊 زر "الحالة"
+# 📊 أزرار البطاقة
 # ═══════════════════════════════════════════════════════════════════
 
 async def drop_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1084,7 +1060,6 @@ async def drop_status_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("❌ الدروب غير موجود", show_alert=True)
         return
     
-    # popup
     if drop.get("claimed_by"):
         await query.answer(
             f"🔴 مُستخدم\n\n👤 ID: {drop['claimed_by']}\n⏰ {format_relative_time(drop.get('claimed_at'))}",
@@ -1096,7 +1071,6 @@ async def drop_status_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             show_alert=True
         )
     
-    # حاول تحديث البطاقة
     try:
         await query.edit_message_text(
             text=build_drop_card_text(drop),
@@ -1107,9 +1081,6 @@ async def drop_status_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if "message is not modified" not in str(e).lower():
             logger.warning(f"فشل تحديث: {e}")
 
-# ═══════════════════════════════════════════════════════════════════
-# 🔄 زر "تحديث"
-# ═══════════════════════════════════════════════════════════════════
 
 async def drop_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1139,7 +1110,6 @@ async def drop_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TY
 # ═══════════════════════════════════════════════════════════════════
 
 async def periodic_refresh(context: ContextTypes.DEFAULT_TYPE):
-    """كل 15 دقيقة — احتياط ذكي"""
     try:
         drops = await db.get_drops_for_refresh()
         if not drops:
@@ -1384,7 +1354,7 @@ async def check_code_receive(update, context, code):
                                       reply_markup=kb_main(admin))
 
 # ═══════════════════════════════════════════════════════════════════
-# 💰 المكافأة + الدعوة + المعرف
+# 💰 مكافأة + دعوة + معرف
 # ═══════════════════════════════════════════════════════════════════
 
 async def do_daily(update, context):
@@ -1765,7 +1735,6 @@ async def drop_choose_days(update, context, text):
     drop = await db.get_drop(token)
     info = SUBSCRIPTION_TYPES[plan]
     
-    # انشر في القناة (إن أمكن)
     try:
         sent = await context.bot.send_message(
             chat_id=f"@{CHANNEL_USERNAME}",
@@ -1777,7 +1746,7 @@ async def drop_choose_days(update, context, text):
         publish_status = "✅ نُشر في القناة"
     except Exception as e:
         logger.warning(f"فشل النشر في القناة: {e}")
-        publish_status = "⚠️ لم يُنشر (البوت ليس أدمن؟)"
+        publish_status = "⚠️ لم يُنشر في القناة"
     
     link = f"https://t.me/{context.bot.username}?start=drop_{token}"
     await update.message.reply_text(
@@ -2065,7 +2034,6 @@ async def post_init(app):
 
     await db.init()
 
-    # ترحيل المفتاح القديم → الجديد
     keys = await db.list_api_keys()
     for k in keys:
         if k["key_value"] == "Obeida0595440227@":
@@ -2090,13 +2058,17 @@ async def post_init(app):
         ok, msg = await api.test_key(active["key_value"])
         logger.info(f"🔑 {msg}")
 
-    # 🆕 تشغيل التحديث الدوري — كل 15 دقيقة
-    app.job_queue.run_repeating(
-        periodic_refresh,
-        interval=DROPS_REFRESH_INTERVAL,
-        first=60
-    )
-    logger.info(f"⏱️ التحديث الدوري كل {DROPS_REFRESH_INTERVAL // 60} دقيقة")
+    # 🆕 تحديث دوري — مع حماية JobQueue
+    if app.job_queue is not None:
+        app.job_queue.run_repeating(
+            periodic_refresh,
+            interval=DROPS_REFRESH_INTERVAL,
+            first=60
+        )
+        logger.info(f"⏱️ التحديث الدوري كل {DROPS_REFRESH_INTERVAL // 60} دقيقة")
+    else:
+        logger.warning("⚠️ JobQueue غير متوفر — التحديث الدوري معطّل")
+        logger.warning("   💡 ثبّت: pip install 'python-telegram-bot[job-queue]'")
 
     logger.info("✅ Worm GPT جاهز!")
 
@@ -2123,7 +2095,6 @@ def main():
     app.add_handler(CommandHandler("unban", unban_cmd))
     app.add_handler(CommandHandler("cancel", cancel_cmd))
     
-    # Callback handlers
     app.add_handler(CallbackQueryHandler(verify_join_callback, pattern="^verify_join$"))
     app.add_handler(CallbackQueryHandler(drop_status_callback, pattern="^drop_status_"))
     app.add_handler(CallbackQueryHandler(drop_refresh_callback, pattern="^drop_refresh_"))
