@@ -6871,6 +6871,88 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_admin(update, context)
 
+async def addchannel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إضافة قناة يدوياً — /addchannel @username أو -100xxx"""
+    if not is_admin(update.effective_user.id):
+        return
+    
+    if not context.args:
+        await update.message.reply_text(
+            "📢 *إضافة قناة*\n\n"
+            "الاستخدام:\n"
+            "`/addchannel @engtopwln`\n"
+            "أو\n"
+            "`/addchannel -1001234567890`\n\n"
+            "⚠️ البوت يجب أن يكون أدمن في القناة",
+            parse_mode="Markdown"
+        )
+        return
+    
+    arg = context.args[0]
+    
+    try:
+        # تحويل إلى chat_id
+        if arg.startswith("-100") or (arg.startswith("-") and arg[1:].isdigit()):
+            chat_id = int(arg)
+        else:
+            # @username
+            if not arg.startswith("@"):
+                arg = "@" + arg
+            chat_id = arg
+        
+        # جلب معلومات القناة
+        chat = await context.bot.get_chat(chat_id)
+        
+        # تحقق أن البوت أدمن
+        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+        
+        if bot_member.status not in ("administrator", "creator"):
+            await update.message.reply_text(
+                f"❌ *البوت ليس أدمن!*\n\n"
+                f"📢 {chat.title}\n\n"
+                f"💡 أضف البوت كأدمن أولاً:\n"
+                f"• Post Messages (نشر)\n"
+                f"• Edit Messages (تعديل)",
+                parse_mode="Markdown"
+            )
+            return
+        
+        # احفظ
+        can_post = getattr(bot_member, "can_post_messages", False) or False
+        can_edit = getattr(bot_member, "can_edit_messages", False) or False
+        
+        await db.add_channel(
+            chat_id=chat.id,
+            title=chat.title,
+            username=chat.username,
+            chat_type=chat.type,
+            added_by=update.effective_user.id,
+            can_post=1 if can_post else 0,
+            can_edit=1 if can_edit else 0
+        )
+        
+        await update.message.reply_text(
+            f"✅ *تم إضافة القناة!*\n\n"
+            f"📢 *{chat.title}*\n"
+            f"🆔 `{chat.id}`\n"
+            f"📝 نشر: {'✅' if can_post else '❌'}\n"
+            f"✏️ تعديل: {'✅' if can_edit else '❌'}\n\n"
+            f"🎁 يمكنك الآن نشر الدروبات فيها.",
+            parse_mode="Markdown"
+        )
+        
+        logger.info(f"✅ قناة مضافة يدوياً: {chat.title} ({chat.id})")
+    
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ *فشل الإضافة*\n\n"
+            f"`{str(e)[:200]}`\n\n"
+            f"💡 تأكد من:\n"
+            f"• البوت أدمن في القناة\n"
+            f"• معرف القناة صحيح",
+            parse_mode="Markdown"
+        )
+        
 async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
@@ -6994,6 +7076,7 @@ def main():
     # الأوامر
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_cmd))
+    app.add_handler(CommandHandler("addchannel", addchannel_cmd))
     app.add_handler(CommandHandler("ban", ban_cmd))
     app.add_handler(CommandHandler("unban", unban_cmd))
     app.add_handler(CommandHandler("cancel", cancel_cmd))
